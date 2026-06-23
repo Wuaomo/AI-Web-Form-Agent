@@ -132,6 +132,13 @@ class MappingConfirmationResponse(BaseModel):
     status: str
 
 
+class SubmissionConfirmationResponse(BaseModel):
+    """Task status returned after the user confirms submission."""
+
+    task_id: int
+    status: str
+
+
 class TaskCreate(BaseModel):
     """Data required to create a form analysis task."""
 
