@@ -49,7 +49,7 @@ class Task(Base):
     url: Mapped[str] = mapped_column(String(2048), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text)
     profile_id: Mapped[int] = mapped_column(ForeignKey("profiles.id"), nullable=False)
-    status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default="CREATED", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -74,6 +74,8 @@ class FormField(Base):
     selector: Mapped[str] = mapped_column(String(1000), nullable=False)
     field_type: Mapped[Optional[str]] = mapped_column(String(100))
     placeholder: Mapped[Optional[str]] = mapped_column(String(500))
+    name: Mapped[Optional[str]] = mapped_column(String(500))
+    html_id: Mapped[Optional[str]] = mapped_column(String(500))
     required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     mapped_profile_key: Mapped[Optional[str]] = mapped_column(String(100))
     mapped_value: Mapped[Optional[str]] = mapped_column(Text)
