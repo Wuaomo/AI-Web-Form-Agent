@@ -3,7 +3,18 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
+
+ProfileKey = Literal[
+    "full_name",
+    "email",
+    "university",
+    "major",
+    "phone",
+    "linkedin",
+    "github",
+    "self_intro",
+]
 
 
 class HealthResponse(BaseModel):
@@ -78,3 +89,44 @@ class ScreenshotResponse(BaseModel):
     file_path: str
     stage: str
     created_at: datetime
+
+
+class FormFieldResponse(BaseModel):
+    """An extracted form field and its current profile mapping."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_id: int
+    label: str | None
+    selector: str
+    field_type: str | None
+    placeholder: str | None
+    required: bool
+    mapped_profile_key: str | None
+    mapped_value: str | None
+    confidence: float | None
+
+
+class FormFieldMappingUpdate(BaseModel):
+    """User-editable parts of a form field mapping."""
+
+    mapped_profile_key: ProfileKey | None = None
+    mapped_value: str | None = None
+
+    @model_validator(mode="after")
+    def require_an_update(self) -> "FormFieldMappingUpdate":
+        """Reject an empty JSON object while still allowing explicit nulls."""
+
+        if not self.model_fields_set:
+            raise ValueError(
+                "Provide mapped_profile_key or mapped_value",
+            )
+        return self
+
+
+class MappingConfirmationResponse(BaseModel):
+    """Task status returned after the user confirms the mapping."""
+
+    task_id: int
+    status: str
