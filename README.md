@@ -25,6 +25,26 @@ python -m pip install -r requirements.txt
 python -m playwright install chromium
 ```
 
+## LLM Field Mapping
+
+Set one provider and its API key before starting the backend:
+
+```powershell
+# OpenAI (default)
+$env:LLM_PROVIDER="openai"
+$env:OPENAI_API_KEY="your-key"
+$env:OPENAI_MODEL="gpt-5.5"
+
+# Or Gemini
+$env:LLM_PROVIDER="gemini"
+$env:GEMINI_API_KEY="your-key"
+$env:GEMINI_MODEL="gemini-2.5-flash"
+```
+
+Then call `POST /tasks/{task_id}/map-fields?mode=llm`. If configuration,
+network access, provider output, or validation fails, the endpoint safely uses
+the local rule mapper instead.
+
 ## Safety Boundaries
 
 - Never auto-submit a form without user approval.
