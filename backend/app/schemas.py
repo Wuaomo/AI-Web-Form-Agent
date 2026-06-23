@@ -52,3 +52,17 @@ class ProfileResponse(ProfileBase):
     id: int
     created_at: datetime
     updated_at: datetime
+
+
+class ActionLogResponse(BaseModel):
+    """One recorded action performed for a task."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_id: int
+    step: int
+    action: str
+    message: str | None
+    status: str
+    created_at: datetime

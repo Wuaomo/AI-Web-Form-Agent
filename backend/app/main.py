@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import APP_TITLE, APP_VERSION, CORS_ORIGINS
 from app.database import init_db
 from app.routers.profiles import router as profiles_router
+from app.routers.tasks import router as tasks_router
 from app.schemas import HealthResponse
 
 
@@ -35,6 +36,7 @@ app.add_middleware(
 )
 
 app.include_router(profiles_router)
+app.include_router(tasks_router)
 
 
 @app.get("/health", response_model=HealthResponse, tags=["system"])

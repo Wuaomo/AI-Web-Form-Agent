@@ -150,7 +150,6 @@
 - [ ] 前端可以展示 logs
 - [ ] 前端可以展示 screenshot
 - [ ] 前端可以展示 Confirm Submit 按钮
-
 ---
 
 ## Milestone 11：项目包装
