@@ -132,13 +132,13 @@
 
 ## Milestone 9：LLM 字段匹配
 
-- [ ] 创建 OpenAI/Gemini API 配置
-- [ ] 实现 `map_fields_with_llm(fields, profile)`
-- [ ] Prompt 要求 LLM 只输出 JSON
-- [ ] 校验 LLM 返回结果
-- [ ] LLM 失败时 fallback 到规则匹配
-- [ ] 禁止 LLM 输出 submit/click 动作
-- [ ] 对不同表单 label 进行测试
+- [x] 创建 OpenAI/Gemini API 配置
+- [x] 实现 `map_fields_with_llm(task_id)`
+- [x] Prompt 要求 LLM 只输出 JSON
+- [x] 校验 LLM 返回结果
+- [x] LLM 失败时 fallback 到规则匹配
+- [x] 禁止 LLM 输出 submit/click 动作
+- [x] 对不同表单 label 进行测试
 
 ---
 

@@ -1,5 +1,7 @@
 """Task-related API endpoints."""
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, selectinload
@@ -17,7 +19,7 @@ from app.schemas import (
     TaskResponse,
 )
 from app.services.browser_executor import open_url_and_capture_screenshot
-from app.services.field_mapper import map_fields_by_rules
+from app.services.field_mapper import map_fields_by_rules, map_fields_with_llm
 from app.services.form_extractor import extract_form_fields
 from app.services.log_service import create_log
 
@@ -237,11 +239,14 @@ def list_task_screenshots(
 )
 def map_task_fields(
     task_id: int,
+    mode: Literal["rules", "llm"] = "rules",
     db: Session = Depends(get_db),
 ) -> list[FormField]:
-    """Generate and save rule-based mappings from the task's profile."""
+    """Generate and save rule-based or LLM-assisted profile mappings."""
 
     get_task_or_404(task_id, db)
+    if mode == "llm":
+        return map_fields_with_llm(task_id, db)
     return map_fields_by_rules(task_id, db)
 
 
