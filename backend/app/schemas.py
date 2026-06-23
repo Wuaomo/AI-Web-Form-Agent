@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class HealthResponse(BaseModel):
@@ -78,3 +78,45 @@ class ScreenshotResponse(BaseModel):
     file_path: str
     stage: str
     created_at: datetime
+
+
+class FormFieldResponse(BaseModel):
+    """One form control extracted from a task's target page."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_id: int
+    label: str | None
+    selector: str
+    field_type: str | None
+    placeholder: str | None
+    name: str | None
+    html_id: str | None
+    required: bool
+    mapped_profile_key: str | None
+    mapped_value: str | None
+    confidence: float | None
+
+
+class TaskCreate(BaseModel):
+    """Data required to create a form analysis task."""
+
+    url: str
+    profile_id: int
+    description: str | None = None
+
+
+class TaskResponse(BaseModel):
+    """Task details including fields discovered during analysis."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    url: str
+    description: str | None
+    profile_id: int
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    form_fields: list[FormFieldResponse] = Field(default_factory=list)

@@ -61,20 +61,27 @@
 
 ## Milestone 5：表单字段提取
 
-- [ ] 创建 `form_extractor.py`
-- [ ] 提取 input
-- [ ] 提取 textarea
-- [ ] 提取 select
-- [ ] 提取 checkbox
-- [ ] 提取 radio
-- [ ] 提取 button
-- [ ] 获取 label
-- [ ] 获取 placeholder
-- [ ] 获取 name
-- [ ] 获取 id
-- [ ] 生成 selector
+- [x] 创建 `form_extractor.py`
+- [x] 提取 input
+- [x] 提取 textarea
+- [x] 提取 select
+- [x] 提取 checkbox
+- [x] 提取 radio
+- [x] 提取 button
+- [x] 获取 label
+- [x] 获取 placeholder
+- [x] 获取 name
+- [x] 获取 id
+- [x] 获取 required
+- [x] 生成 selector
+- [x] 把字段保存到 `form_fields` 表
+- [x] 实现 `POST /tasks/{task_id}/analyze`
+- [x] 分析时 task 状态改成 `ANALYZING`
+- [x] 分析成功后 task 状态改成 `MAPPING_READY`
+- [x] 分析失败后 task 状态改成 `FAILED`
+- [x] task detail 返回提取到的字段
 - [ ] 创建 `POST /extract-fields`
-- [ ] 本地测试表单可提取出所有字段
+- [x] 本地测试表单可提取出所有字段
 
 ---
 
