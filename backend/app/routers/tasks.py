@@ -15,7 +15,10 @@ from app.schemas import (
     TaskCreate,
     TaskResponse,
 )
-from app.services.browser_executor import open_url_and_capture_screenshot
+from app.services.browser_executor import (
+    fill_task_form,
+    open_url_and_capture_screenshot,
+)
 from app.services.field_mapper import map_fields_by_rules
 from app.services.form_extractor import extract_form_fields
 from app.services.log_service import create_log
@@ -312,3 +315,35 @@ def confirm_task_mapping(
     task.status = "MAPPING_READY"
     db.commit()
     return MappingConfirmationResponse(task_id=task.id, status=task.status)
+
+
+@router.post(
+    "/{task_id}/fill",
+    response_model=TaskResponse,
+)
+async def fill_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+) -> Task:
+    """Fill confirmed form mappings and pause before submission."""
+
+    get_task_or_404(task_id, db)
+    try:
+        await fill_task_form(task_id, db)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Form filling failed",
+        ) from exc
+
+    statement = (
+        select(Task)
+        .options(selectinload(Task.form_fields))
+        .where(Task.id == task_id)
+    )
+    return db.scalar(statement)
