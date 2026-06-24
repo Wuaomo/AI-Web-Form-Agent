@@ -99,6 +99,10 @@ p {
   margin-bottom: 1.5rem;
 }
 
+.section-block {
+  margin-top: 1.75rem;
+}
+
 .page-heading h2 {
   margin-bottom: 0.4rem;
   font-size: 2rem;
@@ -366,6 +370,37 @@ th {
 
 .break-word {
   overflow-wrap: anywhere;
+}
+
+.screenshot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1rem;
+}
+
+.screenshot-card {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.screenshot-card img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  border: 1px solid #dfe4ec;
+  border-radius: 0.45rem;
+}
+
+.screenshot-card p {
+  display: grid;
+  gap: 0.2rem;
+  margin-bottom: 0;
+}
+
+.screenshot-card span {
+  color: #687386;
+  font-size: 0.85rem;
 }
 
 @media (max-width: 800px) {

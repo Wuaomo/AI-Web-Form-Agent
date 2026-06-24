@@ -18,7 +18,10 @@ from app.schemas import (
     TaskCreate,
     TaskResponse,
 )
-from app.services.browser_executor import open_url_and_capture_screenshot
+from app.services.browser_executor import (
+    fill_form_and_capture_screenshot,
+    open_url_and_capture_screenshot,
+)
 from app.services.field_mapper import map_fields_by_rules, map_fields_with_llm
 from app.services.form_extractor import extract_form_fields
 from app.services.log_service import create_log
@@ -82,6 +85,18 @@ def create_task(task_data: TaskCreate, db: Session = Depends(get_db)) -> Task:
     db.commit()
     db.refresh(task)
     return task
+
+
+@router.get("", response_model=list[TaskResponse])
+def list_tasks(db: Session = Depends(get_db)) -> list[Task]:
+    """Return all tasks ordered newest first."""
+
+    statement = (
+        select(Task)
+        .options(selectinload(Task.form_fields))
+        .order_by(Task.created_at.desc(), Task.id.desc())
+    )
+    return list(db.scalars(statement))
 
 
 @router.get("/{task_id}", response_model=TaskResponse)
@@ -318,6 +333,84 @@ def confirm_task_mapping(
     task.status = "MAPPING_READY"
     db.commit()
     return MappingConfirmationResponse(task_id=task.id, status=task.status)
+
+
+@router.post("/{task_id}/fill", response_model=TaskResponse)
+async def fill_task_form(
+    task_id: int,
+    db: Session = Depends(get_db),
+) -> Task:
+    """Fill mapped fields and pause before any final submission."""
+
+    task = get_task_or_404(task_id, db)
+    fields = list(
+        db.scalars(
+            select(FormField)
+            .where(FormField.task_id == task.id)
+            .order_by(FormField.id)
+        )
+    )
+    mapped_fields = [field for field in fields if field.mapped_value]
+    if not mapped_fields:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No mapped fields are ready to fill",
+        )
+
+    step = get_next_log_step(task.id, db)
+    task.status = "FILLING"
+    create_log(
+        task_id=task.id,
+        step=step,
+        action="fill_form",
+        message=f"Filling {len(mapped_fields)} mapped fields.",
+        status="STARTED",
+        db=db,
+    )
+    db.commit()
+
+    try:
+        await fill_form_and_capture_screenshot(
+            task_id=task.id,
+            url=task.url,
+            fields=mapped_fields,
+            stage="filled_form",
+            db=db,
+        )
+        task.status = "WAITING_APPROVAL"
+        create_log(
+            task_id=task.id,
+            step=step + 1,
+            action="fill_form",
+            message="Filled mapped fields and paused before submission.",
+            status="SUCCESS",
+            db=db,
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        task = get_task_or_404(task_id, db)
+        task.status = "FAILED"
+        create_log(
+            task_id=task.id,
+            step=get_next_log_step(task.id, db),
+            action="fill_form",
+            message=f"Form filling failed: {exc}",
+            status="FAILED",
+            db=db,
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Form filling failed",
+        ) from exc
+
+    statement = (
+        select(Task)
+        .options(selectinload(Task.form_fields))
+        .where(Task.id == task.id)
+    )
+    return db.scalar(statement)
 
 
 @router.post(
