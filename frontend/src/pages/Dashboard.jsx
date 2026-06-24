@@ -6,7 +6,11 @@ import Message from "../components/Message";
 
 function Dashboard() {
   const [health, setHealth] = useState("checking");
+  const [tasks, setTasks] = useState([]);
+  const [profiles, setProfiles] = useState([]);
+  const [tasksLoading, setTasksLoading] = useState(true);
   const [error, setError] = useState("");
+  const [tasksError, setTasksError] = useState("");
 
   useEffect(() => {
     api
@@ -17,6 +21,20 @@ function Dashboard() {
         setError(requestError.message);
       });
   }, []);
+
+  useEffect(() => {
+    Promise.all([api.listTasks(), api.listProfiles()])
+      .then(([taskItems, profileItems]) => {
+        setTasks(taskItems);
+        setProfiles(profileItems);
+      })
+      .catch((requestError) => setTasksError(requestError.message))
+      .finally(() => setTasksLoading(false));
+  }, []);
+
+  const profilesById = new Map(
+    profiles.map((profile) => [profile.id, profile.profile_name]),
+  );
 
   return (
     <section>
@@ -54,6 +72,54 @@ function Dashboard() {
           <Link to="/tasks/new">Create a task</Link>
         </article>
       </div>
+
+      <section className="section-block">
+        <div className="section-heading">
+          <h3>Tasks</h3>
+          <Link to="/tasks/new">New task</Link>
+        </div>
+
+        <Message type="error">{tasksError}</Message>
+
+        {tasksLoading ? (
+          <p>Loading tasks...</p>
+        ) : tasks.length === 0 ? (
+          <div className="card empty-state">
+            <p>No tasks yet. Create one to start an agent workflow.</p>
+          </div>
+        ) : (
+          <div className="table-wrapper card">
+            <table>
+              <thead>
+                <tr>
+                  <th>Task</th>
+                  <th>Status</th>
+                  <th>Profile</th>
+                  <th>Description</th>
+                  <th>Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tasks.map((task) => (
+                  <tr key={task.id}>
+                    <td>
+                      <Link className="break-word" to={`/tasks/${task.id}`}>
+                        {task.url}
+                      </Link>
+                    </td>
+                    <td>
+                      <span className="badge">{task.status}</span>
+                    </td>
+                    <td>{profilesById.get(task.profile_id) || task.profile_id}</td>
+                    <td>{task.description || "—"}</td>
+                    <td>{new Date(task.created_at).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </section>
   );
 }

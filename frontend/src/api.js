@@ -51,7 +51,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify(task),
     }),
+  listTasks: () => request("/tasks"),
   getTask: (taskId) => request(`/tasks/${taskId}`),
+  listTaskLogs: (taskId) => request(`/tasks/${taskId}/logs`),
+  listTaskScreenshots: (taskId) => request(`/tasks/${taskId}/screenshots`),
   analyzeTask: (taskId) =>
     request(`/tasks/${taskId}/analyze`, { method: "POST" }),
   mapTaskFields: (taskId) =>
@@ -64,4 +67,7 @@ export const api = {
     }),
   confirmMapping: (taskId) =>
     request(`/tasks/${taskId}/confirm-mapping`, { method: "POST" }),
+  fillTask: (taskId) => request(`/tasks/${taskId}/fill`, { method: "POST" }),
+  confirmSubmit: (taskId) =>
+    request(`/tasks/${taskId}/confirm-submit`, { method: "POST" }),
 };

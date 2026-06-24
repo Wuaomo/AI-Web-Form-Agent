@@ -1,34 +1,76 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
-import { api } from "../api";
+import { api, API_BASE_URL } from "../api";
 import Message from "../components/Message";
 
 function TaskDetail() {
   const { taskId } = useParams();
+  const navigate = useNavigate();
   const [task, setTask] = useState(null);
+  const [logs, setLogs] = useState([]);
+  const [screenshots, setScreenshots] = useState([]);
+  const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [analyzing, setAnalyzing] = useState(false);
+  const [busyAction, setBusyAction] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
-    api
-      .getTask(taskId)
-      .then(setTask)
+    Promise.all([
+      api.getTask(taskId),
+      api.listTaskLogs(taskId),
+      api.listTaskScreenshots(taskId),
+      api.listProfiles(),
+    ])
+      .then(([taskResult, logItems, screenshotItems, profileItems]) => {
+        setTask(taskResult);
+        setLogs(logItems);
+        setScreenshots(screenshotItems);
+        setProfiles(profileItems);
+      })
       .catch((requestError) => setError(requestError.message))
       .finally(() => setLoading(false));
   }, [taskId]);
 
-  async function analyze() {
-    setAnalyzing(true);
+  async function refreshTaskHistory(nextTask = null) {
+    const [taskResult, logItems, screenshotItems] = await Promise.all([
+      nextTask ? Promise.resolve(nextTask) : api.getTask(taskId),
+      api.listTaskLogs(taskId),
+      api.listTaskScreenshots(taskId),
+    ]);
+    setTask(taskResult);
+    setLogs(logItems);
+    setScreenshots(screenshotItems);
+  }
+
+  async function runAction(actionName, request, successMessage) {
+    setBusyAction(actionName);
     setError("");
+    setNotice("");
     try {
-      const result = await api.analyzeTask(taskId);
-      setTask(result);
+      const result = await request();
+      await refreshTaskHistory(result?.id ? result : null);
+      setNotice(successMessage);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
-      setAnalyzing(false);
+      setBusyAction("");
+    }
+  }
+
+  async function mapFieldsAndReview() {
+    setBusyAction("map");
+    setError("");
+    setNotice("");
+    try {
+      await api.mapTaskFields(taskId);
+      await refreshTaskHistory();
+      navigate(`/tasks/${taskId}/review-mapping`);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setBusyAction("");
     }
   }
 
@@ -36,9 +78,16 @@ function TaskDetail() {
     return <p>Loading task...</p>;
   }
 
+  const profileName =
+    profiles.find((profile) => profile.id === task?.profile_id)?.profile_name ||
+    (task ? `Profile #${task.profile_id}` : "—");
+  const isBusy = Boolean(busyAction);
+  const hasMappedFields = task?.form_fields.some((field) => field.mapped_value);
+
   return (
     <section>
       <Message type="error">{error}</Message>
+      <Message type="success">{notice}</Message>
       {task && (
         <>
           <div className="page-heading">
@@ -53,8 +102,20 @@ function TaskDetail() {
           <article className="card">
             <dl className="detail-list">
               <div>
-                <dt>Profile ID</dt>
-                <dd>{task.profile_id}</dd>
+                <dt>Status</dt>
+                <dd>{task.status}</dd>
+              </div>
+              <div>
+                <dt>URL</dt>
+                <dd>
+                  <a className="break-word" href={task.url} target="_blank" rel="noreferrer">
+                    {task.url}
+                  </a>
+                </dd>
+              </div>
+              <div>
+                <dt>Profile</dt>
+                <dd>{profileName}</dd>
               </div>
               <div>
                 <dt>Description</dt>
@@ -66,14 +127,125 @@ function TaskDetail() {
               </div>
             </dl>
             <div className="button-row">
-              <button className="button" type="button" onClick={analyze} disabled={analyzing}>
-                {analyzing ? "Analyzing..." : "Analyze form"}
+              <button
+                className="button"
+                type="button"
+                onClick={() =>
+                  runAction("analyze", () => api.analyzeTask(taskId), "Analysis complete.")
+                }
+                disabled={isBusy}
+              >
+                {busyAction === "analyze" ? "Analyzing..." : "Analyze"}
+              </button>
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={mapFieldsAndReview}
+                disabled={isBusy || task.form_fields.length === 0}
+              >
+                {busyAction === "map" ? "Mapping..." : "Map Fields"}
               </button>
               <Link className="button button-secondary" to={`/tasks/${task.id}/review-mapping`}>
-                Review mapping
+                Review Mapping
               </Link>
+              <button
+                className="button"
+                type="button"
+                onClick={() =>
+                  runAction("fill", () => api.fillTask(taskId), "Form filled. Review before submit.")
+                }
+                disabled={isBusy || !hasMappedFields}
+              >
+                {busyAction === "fill" ? "Filling..." : "Fill Form"}
+              </button>
+              {task.status === "WAITING_APPROVAL" && (
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  onClick={() =>
+                    runAction(
+                      "confirm",
+                      () => api.confirmSubmit(taskId),
+                      "Submission approval recorded.",
+                    )
+                  }
+                  disabled={isBusy}
+                >
+                  {busyAction === "confirm" ? "Confirming..." : "Confirm Submit"}
+                </button>
+              )}
             </div>
           </article>
+
+          <section className="section-block">
+            <div className="section-heading">
+              <h3>Action Logs</h3>
+            </div>
+            {logs.length === 0 ? (
+              <div className="card empty-state">
+                <p>No action logs yet.</p>
+              </div>
+            ) : (
+              <div className="table-wrapper card">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Step</th>
+                      <th>Action</th>
+                      <th>Status</th>
+                      <th>Message</th>
+                      <th>Time</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {logs.map((log) => (
+                      <tr key={log.id}>
+                        <td>{log.step}</td>
+                        <td>{log.action}</td>
+                        <td>
+                          <span className="badge">{log.status}</span>
+                        </td>
+                        <td>{log.message || "—"}</td>
+                        <td>{new Date(log.created_at).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          <section className="section-block">
+            <div className="section-heading">
+              <h3>Screenshots</h3>
+            </div>
+            {screenshots.length === 0 ? (
+              <div className="card empty-state">
+                <p>No screenshots captured yet.</p>
+              </div>
+            ) : (
+              <div className="screenshot-grid">
+                {screenshots.map((screenshot) => (
+                  <article className="card screenshot-card" key={screenshot.id}>
+                    <a
+                      href={new URL(screenshot.file_path, `${API_BASE_URL}/`).toString()}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <img
+                        src={new URL(screenshot.file_path, `${API_BASE_URL}/`).toString()}
+                        alt={`${screenshot.stage} screenshot`}
+                      />
+                    </a>
+                    <p>
+                      <strong>{screenshot.stage}</strong>
+                      <span>{new Date(screenshot.created_at).toLocaleString()}</span>
+                    </p>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
         </>
       )}
     </section>

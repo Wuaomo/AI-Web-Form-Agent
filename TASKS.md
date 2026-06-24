@@ -197,6 +197,36 @@
 
 ---
 
+## Milestone 18：Task 前端页面
+
+- [x] Dashboard 展示任务列表
+- [x] Create Task 页面输入 URL
+- [x] Create Task 页面输入 description
+- [x] Create Task 页面选择 Profile
+- [x] 创建 Task 后跳转到 Task Detail
+- [x] Task Detail 展示 task status
+- [x] Task Detail 展示 URL、description、profile
+- [x] Task Detail 展示 action logs
+- [x] Task Detail 展示 screenshots
+
+---
+
+## Milestone 19：前端触发 Agent 流程
+
+- [x] Task Detail 页面添加 Analyze 按钮
+- [x] 点击 Analyze 调用 `POST /tasks/{task_id}/analyze`
+- [x] Task Detail 页面添加 Map Fields 按钮
+- [x] 点击 Map Fields 调用 `POST /tasks/{task_id}/map-fields`
+- [x] Review Mapping 页面展示字段映射
+- [x] Review Mapping 页面允许用户修改 mapped_value
+- [x] Review Mapping 页面添加 Confirm Mapping 按钮
+- [x] Task Detail 页面添加 Fill Form 按钮
+- [x] 点击 Fill Form 调用 `POST /tasks/{task_id}/fill`
+- [x] 如果状态为 `WAITING_APPROVAL`，显示 Confirm Submit 按钮
+- [x] Confirm Submit 调用 `POST /tasks/{task_id}/confirm-submit`
+
+---
+
 ## 最小可交付版本 MVP
 
 完成这些就可以放进简历：
