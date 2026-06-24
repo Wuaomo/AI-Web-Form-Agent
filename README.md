@@ -47,9 +47,20 @@ $env:GEMINI_API_KEY="your-key"
 $env:GEMINI_MODEL="gemini-2.5-flash"
 ```
 
-Then call `POST /tasks/{task_id}/map-fields?mode=llm`. If configuration,
-network access, provider output, or validation fails, the endpoint safely uses
-the local rule mapper instead.
+The Agent uses LLM mapping by default when the frontend calls
+`POST /tasks/{task_id}/map-fields`. Developers can still compare behavior with
+`POST /tasks/{task_id}/map-fields?mode=rules` or force LLM mode explicitly with
+`?mode=llm`. If configuration, network access, provider output, or validation
+fails, the endpoint safely uses the local rule mapper instead.
+
+The LLM mapper can use derived profile keys for split-name forms:
+
+- `first_name` and `last_name` are derived from the stored `full_name`.
+- `full_name` is still used when the form asks for one combined name.
+
+Try `backend/examples/llm-registration.html` for a form whose fields use labels
+like `Given name`, `Family name`, and `Where can we reach you?`. That example is
+designed to show why semantic LLM mapping is useful beyond the rule matcher.
 
 ## Frontend Setup
 

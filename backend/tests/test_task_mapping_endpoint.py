@@ -1,0 +1,102 @@
+"""Tests for the task field-mapping endpoint mode selection."""
+
+from collections.abc import Generator
+from unittest.mock import patch
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
+
+from app.database import Base, get_db
+from app.models import FormField, Profile, Task
+from app.routers.tasks import router as tasks_router
+
+
+@pytest.fixture
+def test_environment() -> Generator[tuple[TestClient, Session], None, None]:
+    """Provide an isolated API client and in-memory database session."""
+
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    session = Session(engine)
+
+    def override_get_db() -> Generator[Session, None, None]:
+        yield session
+
+    test_app = FastAPI()
+    test_app.include_router(tasks_router)
+    test_app.dependency_overrides[get_db] = override_get_db
+
+    with TestClient(test_app) as client:
+        yield client, session
+
+    session.close()
+    Base.metadata.drop_all(engine)
+    engine.dispose()
+
+
+def create_task_with_field(session: Session) -> tuple[Task, FormField]:
+    """Create a task with one extracted field for endpoint tests."""
+
+    profile = Profile(
+        profile_name="Endpoint profile",
+        full_name="Ada Lovelace",
+        email="ada@example.com",
+    )
+    task = Task(
+        url="https://example.com/form",
+        profile=profile,
+        status="MAPPING_READY",
+    )
+    field = FormField(
+        task=task,
+        label="Where can we reach you?",
+        selector="#contact",
+        field_type="email",
+        required=True,
+    )
+    session.add(task)
+    session.add(field)
+    session.commit()
+    return task, field
+
+
+def test_map_fields_defaults_to_llm_mode(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+
+    with (
+        patch("app.routers.tasks.map_fields_with_llm", return_value=[field]) as llm,
+        patch("app.routers.tasks.map_fields_by_rules") as rules,
+    ):
+        response = client.post(f"/tasks/{task.id}/map-fields")
+
+    assert response.status_code == 200
+    llm.assert_called_once()
+    rules.assert_not_called()
+
+
+def test_map_fields_supports_developer_rule_mode(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+
+    with (
+        patch("app.routers.tasks.map_fields_with_llm") as llm,
+        patch("app.routers.tasks.map_fields_by_rules", return_value=[field]) as rules,
+    ):
+        response = client.post(f"/tasks/{task.id}/map-fields?mode=rules")
+
+    assert response.status_code == 200
+    rules.assert_called_once()
+    llm.assert_not_called()

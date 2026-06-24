@@ -22,7 +22,11 @@ from app.services.browser_executor import (
     fill_form_and_capture_screenshot,
     open_url_and_capture_screenshot,
 )
-from app.services.field_mapper import map_fields_by_rules, map_fields_with_llm
+from app.services.field_mapper import (
+    get_profile_value,
+    map_fields_by_rules,
+    map_fields_with_llm,
+)
 from app.services.form_extractor import extract_form_fields
 from app.services.log_service import create_log
 
@@ -254,10 +258,10 @@ def list_task_screenshots(
 )
 def map_task_fields(
     task_id: int,
-    mode: Literal["rules", "llm"] = "rules",
+    mode: Literal["rules", "llm"] = "llm",
     db: Session = Depends(get_db),
 ) -> list[FormField]:
-    """Generate and save rule-based or LLM-assisted profile mappings."""
+    """Generate and save Agent mappings, with a developer rule-mode override."""
 
     get_task_or_404(task_id, db)
     if mode == "llm":
@@ -307,7 +311,7 @@ def update_task_field_mapping(
             field.mapped_value = None
             field.confidence = None
         elif "mapped_value" not in changes:
-            field.mapped_value = getattr(task.profile, profile_key)
+            field.mapped_value = get_profile_value(task.profile, profile_key)
             field.confidence = 1.0 if field.mapped_value is not None else None
 
     if "mapped_value" in changes:

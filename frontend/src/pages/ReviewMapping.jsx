@@ -5,6 +5,8 @@ import { api } from "../api";
 import Message from "../components/Message";
 
 const profileKeys = [
+  "first_name",
+  "last_name",
   "full_name",
   "email",
   "phone",
@@ -45,7 +47,7 @@ function ReviewMapping() {
     setNotice("");
     try {
       setFields(await api.mapTaskFields(taskId));
-      setNotice("Rule-based mappings generated.");
+      setNotice("Agent mappings generated.");
     } catch (requestError) {
       setError(requestError.message);
     } finally {

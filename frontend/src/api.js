@@ -57,8 +57,10 @@ export const api = {
   listTaskScreenshots: (taskId) => request(`/tasks/${taskId}/screenshots`),
   analyzeTask: (taskId) =>
     request(`/tasks/${taskId}/analyze`, { method: "POST" }),
-  mapTaskFields: (taskId) =>
-    request(`/tasks/${taskId}/map-fields`, { method: "POST" }),
+  mapTaskFields: (taskId, mode) => {
+    const suffix = mode ? `?mode=${encodeURIComponent(mode)}` : "";
+    return request(`/tasks/${taskId}/map-fields${suffix}`, { method: "POST" });
+  },
   listTaskFields: (taskId) => request(`/tasks/${taskId}/fields`),
   updateTaskField: (taskId, fieldId, mapping) =>
     request(`/tasks/${taskId}/fields/${fieldId}`, {

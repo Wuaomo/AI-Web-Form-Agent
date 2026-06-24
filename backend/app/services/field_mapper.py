@@ -12,12 +12,14 @@ from sqlalchemy.orm import Session
 
 from app import config
 from app.database import SessionLocal
-from app.models import FormField, Task
+from app.models import FormField, Profile, Task
 from app.schemas import ProfileKey
 
 logger = logging.getLogger(__name__)
 
 PROFILE_KEYS: tuple[ProfileKey, ...] = (
+    "first_name",
+    "last_name",
     "full_name",
     "email",
     "university",
@@ -204,6 +206,30 @@ def _match_profile_key(field: FormField) -> tuple[str, float] | None:
     return best_match
 
 
+def _split_full_name(full_name: str | None) -> tuple[str | None, str | None]:
+    """Split a stored full name into simple first and last name values."""
+
+    if not full_name:
+        return None, None
+
+    parts = full_name.split()
+    if not parts:
+        return None, None
+    if len(parts) == 1:
+        return parts[0], None
+    return parts[0], " ".join(parts[1:])
+
+
+def get_profile_value(profile: Profile, profile_key: ProfileKey) -> str | None:
+    """Return stored or derived profile values used by field mapping."""
+
+    if profile_key == "first_name":
+        return _split_full_name(profile.full_name)[0]
+    if profile_key == "last_name":
+        return _split_full_name(profile.full_name)[1]
+    return getattr(profile, profile_key)
+
+
 def _map_fields(task_id: int, db: Session) -> list[FormField]:
     """Apply mapping rules using an existing database session."""
 
@@ -234,7 +260,7 @@ def _map_fields(task_id: int, db: Session) -> list[FormField]:
             continue
 
         profile_key, confidence = match
-        profile_value = getattr(task.profile, profile_key)
+        profile_value = get_profile_value(task.profile, profile_key)
         if profile_value is None or profile_value == "":
             field.mapped_profile_key = None
             field.mapped_value = None
@@ -255,7 +281,7 @@ def _profile_payload(task: Task) -> dict[str, str]:
     return {
         key: value
         for key in PROFILE_KEYS
-        if (value := getattr(task.profile, key)) not in (None, "")
+        if (value := get_profile_value(task.profile, key)) not in (None, "")
     }
 
 
@@ -290,6 +316,9 @@ def _build_llm_prompt(
     }
     return (
         "Map each fillable form field to the best matching profile key. "
+        "Use first_name or last_name when a form splits a person's name into "
+        "separate given/family name fields, and use full_name when the form "
+        "asks for one combined name. "
         "Omit uncertain or non-fillable fields. Never return browser actions, "
         "clicks, submits, selectors to execute, or invented values. Return only "
         "JSON matching the supplied schema.\n\n"

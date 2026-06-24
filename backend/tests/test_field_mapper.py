@@ -88,6 +88,50 @@ class LLMFieldMapperTests(unittest.TestCase):
         self.assertEqual(mapped[0].mapped_value, "ada@example.com")
         self.assertEqual(mapped[0].confidence, 0.93)
 
+    def test_llm_maps_split_name_fields_from_full_name(self) -> None:
+        first_name = self._add_field(
+            label="Given name",
+            selector="#FirstName",
+        )
+        last_name = self._add_field(
+            label="Family name",
+            selector="#LastName",
+        )
+        llm_json = json.dumps(
+            {
+                "mappings": [
+                    {
+                        "field_id": first_name.id,
+                        "mapped_profile_key": "first_name",
+                        "confidence": 0.95,
+                    },
+                    {
+                        "field_id": last_name.id,
+                        "mapped_profile_key": "last_name",
+                        "confidence": 0.95,
+                    },
+                ]
+            }
+        )
+
+        with patch(
+            "app.services.field_mapper._request_llm_mapping",
+            return_value=llm_json,
+        ):
+            mapped = map_fields_with_llm(self.task_id, self.db)
+
+        mapped_by_id = {field.id: field for field in mapped}
+        self.assertEqual(
+            mapped_by_id[first_name.id].mapped_profile_key,
+            "first_name",
+        )
+        self.assertEqual(mapped_by_id[first_name.id].mapped_value, "Ada")
+        self.assertEqual(
+            mapped_by_id[last_name.id].mapped_profile_key,
+            "last_name",
+        )
+        self.assertEqual(mapped_by_id[last_name.id].mapped_value, "Lovelace")
+
     def test_invalid_json_falls_back_to_rule_mapping(self) -> None:
         self._add_field(label="Contact Email", selector="#contact-email")
 
