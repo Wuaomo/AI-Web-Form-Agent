@@ -100,3 +100,48 @@ def test_map_fields_supports_developer_rule_mode(
     assert response.status_code == 200
     rules.assert_called_once()
     llm.assert_not_called()
+
+
+def test_confirm_mapping_rejects_missing_required_values(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_profile_key = "email"
+    field.mapped_value = None
+    session.commit()
+
+    response = client.post(f"/tasks/{task.id}/confirm-mapping")
+
+    assert response.status_code == 409
+    assert "Required fields need values" in response.json()["detail"]
+    assert "Where can we reach you?" in response.json()["detail"]
+
+
+def test_confirm_mapping_allows_required_values_after_manual_entry(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_value = "manual@example.com"
+    session.commit()
+
+    response = client.post(f"/tasks/{task.id}/confirm-mapping")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "MAPPING_READY"
+
+
+def test_fill_rejects_missing_required_values_before_browser_work(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_profile_key = "email"
+    field.mapped_value = None
+    session.commit()
+
+    response = client.post(f"/tasks/{task.id}/fill")
+
+    assert response.status_code == 409
+    assert "Required fields need values" in response.json()["detail"]

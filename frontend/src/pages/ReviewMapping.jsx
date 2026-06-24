@@ -17,6 +17,20 @@ const profileKeys = [
   "self_intro",
 ];
 
+const nonFillableFieldTypes = new Set(["button", "submit", "reset", "image"]);
+
+function isFillableField(field) {
+  return !nonFillableFieldTypes.has((field.field_type || "").toLowerCase());
+}
+
+function fieldDisplayName(field) {
+  return field.label || field.name || field.placeholder || field.selector;
+}
+
+function needsRequiredInput(field) {
+  return field.required && isFillableField(field) && !field.mapped_value;
+}
+
 function ReviewMapping() {
   const { taskId } = useParams();
   const [fields, setFields] = useState([]);
@@ -68,6 +82,11 @@ function ReviewMapping() {
   }
 
   async function confirmMapping() {
+    if (missingRequiredFields.length > 0) {
+      setError("Please enter values for all required fields before confirming.");
+      return;
+    }
+
     setBusy(true);
     setError("");
     try {
@@ -79,6 +98,8 @@ function ReviewMapping() {
       setBusy(false);
     }
   }
+
+  const missingRequiredFields = fields.filter(needsRequiredInput);
 
   return (
     <section>
@@ -94,6 +115,13 @@ function ReviewMapping() {
       <Message type="error">{error}</Message>
       <Message type="success">{notice}</Message>
 
+      {missingRequiredFields.length > 0 && (
+        <div className="message message-warning">
+          Required info still needed:{" "}
+          {missingRequiredFields.map(fieldDisplayName).join(", ")}.
+        </div>
+      )}
+
       <div className="button-row">
         <button className="button" type="button" onClick={generateMappings} disabled={busy}>
           Generate mappings
@@ -102,7 +130,7 @@ function ReviewMapping() {
           className="button button-secondary"
           type="button"
           onClick={confirmMapping}
-          disabled={busy || fields.length === 0}
+          disabled={busy || fields.length === 0 || missingRequiredFields.length > 0}
         >
           Confirm mapping
         </button>
@@ -127,10 +155,13 @@ function ReviewMapping() {
             </thead>
             <tbody>
               {fields.map((field) => (
-                <tr key={field.id}>
+                <tr className={needsRequiredInput(field) ? "row-needs-input" : ""} key={field.id}>
                   <td>
-                    <strong>{field.label || field.name || field.selector}</strong>
+                    <strong>{fieldDisplayName(field)}</strong>
                     {field.required && <span className="required"> required</span>}
+                    {needsRequiredInput(field) && (
+                      <span className="required"> needs input</span>
+                    )}
                   </td>
                   <td>{field.field_type || "—"}</td>
                   <td>

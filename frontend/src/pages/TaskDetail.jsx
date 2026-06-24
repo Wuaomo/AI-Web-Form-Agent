@@ -4,6 +4,20 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, API_BASE_URL } from "../api";
 import Message from "../components/Message";
 
+const nonFillableFieldTypes = new Set(["button", "submit", "reset", "image"]);
+
+function isFillableField(field) {
+  return !nonFillableFieldTypes.has((field.field_type || "").toLowerCase());
+}
+
+function fieldDisplayName(field) {
+  return field.label || field.name || field.placeholder || field.selector;
+}
+
+function needsRequiredInput(field) {
+  return field.required && isFillableField(field) && !field.mapped_value;
+}
+
 function TaskDetail() {
   const { taskId } = useParams();
   const navigate = useNavigate();
@@ -83,6 +97,8 @@ function TaskDetail() {
     (task ? `Profile #${task.profile_id}` : "—");
   const isBusy = Boolean(busyAction);
   const hasMappedFields = task?.form_fields.some((field) => field.mapped_value);
+  const missingRequiredFields = task?.form_fields.filter(needsRequiredInput) || [];
+  const canFill = hasMappedFields && missingRequiredFields.length === 0;
 
   return (
     <section>
@@ -125,6 +141,14 @@ function TaskDetail() {
                 <dt>Extracted fields</dt>
                 <dd>{task.form_fields.length}</dd>
               </div>
+              <div>
+                <dt>Required missing</dt>
+                <dd>
+                  {missingRequiredFields.length === 0
+                    ? "None"
+                    : missingRequiredFields.map(fieldDisplayName).join(", ")}
+                </dd>
+              </div>
             </dl>
             <div className="button-row">
               <button
@@ -154,7 +178,7 @@ function TaskDetail() {
                 onClick={() =>
                   runAction("fill", () => api.fillTask(taskId), "Form filled. Review before submit.")
                 }
-                disabled={isBusy || !hasMappedFields}
+                disabled={isBusy || !canFill}
               >
                 {busyAction === "fill" ? "Filling..." : "Fill Form"}
               </button>

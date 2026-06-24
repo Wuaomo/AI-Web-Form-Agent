@@ -263,6 +263,12 @@ textarea {
   border: 1px solid #b9dfc7;
 }
 
+.message-warning {
+  color: #7a4b12;
+  background: #fff7e8;
+  border: 1px solid #efcf98;
+}
+
 .status {
   display: flex;
   align-items: center;
@@ -366,6 +372,10 @@ th {
 .required {
   color: #a72b36;
   font-size: 0.75rem;
+}
+
+.row-needs-input {
+  background: #fffaf2;
 }
 
 .break-word {

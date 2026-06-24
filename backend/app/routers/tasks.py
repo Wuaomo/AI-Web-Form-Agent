@@ -32,6 +32,44 @@ from app.services.log_service import create_log
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
+NON_FILLABLE_FIELD_TYPES = {
+    "button",
+    "submit",
+    "reset",
+    "image",
+}
+
+
+def is_fillable_field(field: FormField) -> bool:
+    """Return whether a field can receive profile or manual input."""
+
+    return (field.field_type or "").lower() not in NON_FILLABLE_FIELD_TYPES
+
+
+def field_display_name(field: FormField) -> str:
+    """Return a useful human label for a form field."""
+
+    return field.label or field.name or field.placeholder or field.selector
+
+
+def get_missing_required_fields(fields: list[FormField]) -> list[FormField]:
+    """Find required fields that still need a value before filling."""
+
+    return [
+        field
+        for field in fields
+        if field.required
+        and is_fillable_field(field)
+        and field.mapped_value in (None, "")
+    ]
+
+
+def missing_required_detail(fields: list[FormField]) -> str:
+    """Build a concise API error for required fields needing user input."""
+
+    missing_names = ", ".join(field_display_name(field) for field in fields)
+    return f"Required fields need values: {missing_names}"
+
 
 def get_task_or_404(task_id: int, db: Session) -> Task:
     """Return a task or raise a consistent not-found response."""
@@ -334,6 +372,20 @@ def confirm_task_mapping(
     """Mark the task's reviewed field mapping as ready for filling."""
 
     task = get_task_or_404(task_id, db)
+    fields = list(
+        db.scalars(
+            select(FormField)
+            .where(FormField.task_id == task.id)
+            .order_by(FormField.id)
+        )
+    )
+    missing_required_fields = get_missing_required_fields(fields)
+    if missing_required_fields:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=missing_required_detail(missing_required_fields),
+        )
+
     task.status = "MAPPING_READY"
     db.commit()
     return MappingConfirmationResponse(task_id=task.id, status=task.status)
@@ -355,6 +407,13 @@ async def fill_task_form(
         )
     )
     mapped_fields = [field for field in fields if field.mapped_value]
+    missing_required_fields = get_missing_required_fields(fields)
+    if missing_required_fields:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=missing_required_detail(missing_required_fields),
+        )
+
     if not mapped_fields:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
