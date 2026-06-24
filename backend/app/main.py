@@ -3,6 +3,10 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+from app.asyncio_compat import configure_asyncio_for_playwright
+
+configure_asyncio_for_playwright()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
