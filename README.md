@@ -31,11 +31,6 @@ Run the API from the `backend` directory:
 uvicorn app.main:app
 ```
 
-On Windows, avoid `uvicorn --reload` for Playwright-backed endpoints such as
-`POST /tasks/{task_id}/analyze`. Uvicorn's reload subprocess uses an event loop
-that cannot start Playwright's browser process, which raises
-`NotImplementedError` from `asyncio.create_subprocess_exec`.
-
 ## LLM Field Mapping
 
 Set one provider and its API key before starting the backend:
