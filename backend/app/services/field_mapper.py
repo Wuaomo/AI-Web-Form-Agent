@@ -315,14 +315,24 @@ def _build_llm_prompt(
         "fields": _fields_payload(fields),
         "profile": profile,
     }
+    output_data = {
+        "mappings": [
+            {
+                "field_id": "integer field_id from input",
+                "mapped_profile_key": f"one of: {', '.join(PROFILE_KEYS)}",
+                "confidence": "number from 0 to 1",
+            }
+        ]
+    }
     return (
         "Map each fillable form field to the best matching profile key. "
         "Use first_name or last_name when a form splits a person's name into "
         "separate given/family name fields, and use full_name when the form "
         "asks for one combined name. "
         "Omit uncertain or non-fillable fields. Never return browser actions, "
-        "clicks, submits, selectors to execute, or invented values. Return only "
-        "JSON matching the supplied schema.\n\n"
+        "clicks, submits, selectors to execute, or invented values. "
+        "Return only JSON matching this shape:\n"
+        f"{json.dumps(output_data, ensure_ascii=False)}\n\n"
         f"Input:\n{json.dumps(input_data, ensure_ascii=False)}"
     )
 
@@ -471,8 +481,9 @@ def _request_deepseek_mapping(prompt: str) -> str:
                 {"role": "user", "content": prompt},
             ],
             "response_format": {"type": "json_object"},
-            "temperature": 0,
+            "thinking": {"type": "disabled"},
             "max_tokens": 2000,
+            "stream": False,
         },
         {"Authorization": f"Bearer {config.DEEPSEEK_API_KEY}"},
     )

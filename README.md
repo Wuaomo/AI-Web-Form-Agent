@@ -31,17 +31,17 @@ Run the API from the `backend` directory:
 uvicorn app.main:app
 ```
 
-On Windows, avoid `uvicorn --reload` for Playwright-backed endpoints such as
-`POST /tasks/{task_id}/analyze`. Uvicorn's reload subprocess uses an event loop
-that cannot start Playwright's browser process, which raises
-`NotImplementedError` from `asyncio.create_subprocess_exec`.
-
 ## LLM Field Mapping
 
 The frontend lets you choose which LLM provider to use for semantic field
 mapping. Configure any provider you want available before starting the backend:
 
 ```powershell
+# DeepSeek (default)
+$env:LLM_PROVIDER="deepseek"
+$env:DEEPSEEK_API_KEY="your-key"
+$env:DEEPSEEK_MODEL="deepseek-v4-flash"
+
 # OpenAI
 $env:LLM_PROVIDER="openai"
 $env:OPENAI_API_KEY="your-key"
@@ -51,11 +51,6 @@ $env:OPENAI_MODEL="gpt-4.1-mini"
 $env:LLM_PROVIDER="gemini"
 $env:GEMINI_API_KEY="your-key"
 $env:GEMINI_MODEL="gemini-2.5-flash"
-
-# DeepSeek
-$env:LLM_PROVIDER="deepseek"
-$env:DEEPSEEK_API_KEY="your-key"
-$env:DEEPSEEK_MODEL="deepseek-chat"
 ```
 
 The Agent uses LLM mapping by default when the frontend calls
