@@ -314,14 +314,24 @@ def _build_llm_prompt(
         "fields": _fields_payload(fields),
         "profile": profile,
     }
+    output_data = {
+        "mappings": [
+            {
+                "field_id": "integer field_id from input",
+                "mapped_profile_key": f"one of: {', '.join(PROFILE_KEYS)}",
+                "confidence": "number from 0 to 1",
+            }
+        ]
+    }
     return (
         "Map each fillable form field to the best matching profile key. "
         "Use first_name or last_name when a form splits a person's name into "
         "separate given/family name fields, and use full_name when the form "
         "asks for one combined name. "
         "Omit uncertain or non-fillable fields. Never return browser actions, "
-        "clicks, submits, selectors to execute, or invented values. Return only "
-        "JSON matching the supplied schema.\n\n"
+        "clicks, submits, selectors to execute, or invented values. "
+        "Return only JSON matching this shape:\n"
+        f"{json.dumps(output_data, ensure_ascii=False)}\n\n"
         f"Input:\n{json.dumps(input_data, ensure_ascii=False)}"
     )
 
@@ -429,14 +439,65 @@ def _request_gemini_mapping(prompt: str) -> str:
         raise ValueError("Gemini response did not contain output text") from exc
 
 
+def _extract_chat_completion_text(response: dict[str, object]) -> str:
+    """Extract message content from an OpenAI-compatible chat response."""
+
+    try:
+        choices = response["choices"]
+        if not isinstance(choices, list) or not choices:
+            raise ValueError
+        first_choice = choices[0]
+        if not isinstance(first_choice, dict):
+            raise ValueError
+        message = first_choice["message"]
+        if not isinstance(message, dict):
+            raise ValueError
+        content = message["content"]
+        if not isinstance(content, str):
+            raise ValueError
+        return content
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("Chat completion response did not contain text") from exc
+
+
+def _request_deepseek_mapping(prompt: str) -> str:
+    """Request JSON mapping from DeepSeek's OpenAI-compatible chat API."""
+
+    if not config.DEEPSEEK_API_KEY:
+        raise RuntimeError("DEEPSEEK_API_KEY is not configured")
+
+    response = _post_json(
+        "https://api.deepseek.com/chat/completions",
+        {
+            "model": config.DEEPSEEK_MODEL,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You map form fields to profile keys. Output valid "
+                        "JSON matching the requested schema only."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            "response_format": {"type": "json_object"},
+            "stream": False,
+        },
+        {"Authorization": f"Bearer {config.DEEPSEEK_API_KEY}"},
+    )
+    return _extract_chat_completion_text(response)
+
+
 def _request_llm_mapping(prompt: str) -> str:
     """Route the mapping request to the configured provider."""
 
+    if config.LLM_PROVIDER == "deepseek":
+        return _request_deepseek_mapping(prompt)
     if config.LLM_PROVIDER == "openai":
         return _request_openai_mapping(prompt)
     if config.LLM_PROVIDER == "gemini":
         return _request_gemini_mapping(prompt)
-    raise ValueError("LLM_PROVIDER must be 'openai' or 'gemini'")
+    raise ValueError("LLM_PROVIDER must be 'deepseek', 'openai', or 'gemini'")
 
 
 def _validate_llm_response(

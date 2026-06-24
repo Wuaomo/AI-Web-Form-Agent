@@ -10,7 +10,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base
 from app.models import FormField, Profile, Task
-from app.services.field_mapper import map_fields_with_llm
+from app.services.field_mapper import _request_deepseek_mapping, map_fields_with_llm
 
 
 class LLMFieldMapperTests(unittest.TestCase):
@@ -181,6 +181,72 @@ class LLMFieldMapperTests(unittest.TestCase):
         )
         self.assertIsNone(mapped_by_id[submit_field.id].mapped_profile_key)
         self.assertIsNone(mapped_by_id[submit_field.id].mapped_value)
+
+    def test_deepseek_provider_routes_mapping_request(self) -> None:
+        field = self._add_field(
+            label="Where should we send updates?",
+            selector="#contact-destination",
+        )
+        llm_json = json.dumps(
+            {
+                "mappings": [
+                    {
+                        "field_id": field.id,
+                        "mapped_profile_key": "email",
+                        "confidence": 0.92,
+                    }
+                ]
+            }
+        )
+
+        with (
+            patch("app.services.field_mapper.config.LLM_PROVIDER", "deepseek"),
+            patch(
+                "app.services.field_mapper._request_deepseek_mapping",
+                return_value=llm_json,
+            ) as deepseek,
+        ):
+            mapped = map_fields_with_llm(self.task_id, self.db)
+
+        deepseek.assert_called_once()
+        self.assertEqual(mapped[0].mapped_profile_key, "email")
+        self.assertEqual(mapped[0].mapped_value, "ada@example.com")
+
+    def test_deepseek_request_uses_chat_completion_api(self) -> None:
+        response = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "mappings": [
+                                    {
+                                        "field_id": 1,
+                                        "mapped_profile_key": "email",
+                                        "confidence": 0.9,
+                                    }
+                                ]
+                            }
+                        )
+                    }
+                }
+            ]
+        }
+
+        with (
+            patch("app.services.field_mapper.config.DEEPSEEK_API_KEY", "test-key"),
+            patch("app.services.field_mapper.config.DEEPSEEK_MODEL", "deepseek-v4-flash"),
+            patch("app.services.field_mapper._post_json", return_value=response) as post_json,
+        ):
+            result = _request_deepseek_mapping("Map this field")
+
+        post_json.assert_called_once()
+        url, payload, headers = post_json.call_args.args
+        self.assertEqual(url, "https://api.deepseek.com/chat/completions")
+        self.assertEqual(payload["model"], "deepseek-v4-flash")
+        self.assertEqual(payload["response_format"], {"type": "json_object"})
+        self.assertEqual(headers["Authorization"], "Bearer test-key")
+        self.assertEqual(result, response["choices"][0]["message"]["content"])
 
 
 if __name__ == "__main__":

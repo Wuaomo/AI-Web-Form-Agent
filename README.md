@@ -15,7 +15,7 @@ docs/       Architecture and project documentation
 
 - Python, FastAPI, and Playwright
 - React and Vite
-- OpenAI API or Gemini API
+- DeepSeek API, OpenAI API, or Gemini API
 
 ## Backend Setup
 
@@ -41,7 +41,12 @@ that cannot start Playwright's browser process, which raises
 Set one provider and its API key before starting the backend:
 
 ```powershell
-# OpenAI (default)
+# DeepSeek (default)
+$env:LLM_PROVIDER="deepseek"
+$env:DEEPSEEK_API_KEY="your-key"
+$env:DEEPSEEK_MODEL="deepseek-v4-flash"
+
+# Or OpenAI
 $env:LLM_PROVIDER="openai"
 $env:OPENAI_API_KEY="your-key"
 $env:OPENAI_MODEL="gpt-5.5"
