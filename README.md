@@ -42,6 +42,8 @@ $env:LLM_PROVIDER="deepseek"
 $env:DEEPSEEK_API_KEY="your-key"
 $env:DEEPSEEK_MODEL="deepseek-v4-flash"
 
+# DEEPSEEKAPI is also accepted as an alias for DEEPSEEK_API_KEY.
+
 # OpenAI
 $env:LLM_PROVIDER="openai"
 $env:OPENAI_API_KEY="your-key"

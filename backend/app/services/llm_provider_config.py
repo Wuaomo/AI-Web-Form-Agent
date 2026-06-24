@@ -44,9 +44,16 @@ def get_provider_setup_hint(provider: LLMProvider) -> str:
     """Return a concise user-facing setup hint for the provider."""
 
     details = config.LLM_PROVIDER_DETAILS[provider]
+    alias_envs = details.get("api_key_alias_envs", [])
+    alias_hint = (
+        f" Alias also supported: {', '.join(alias_envs)}."
+        if alias_envs
+        else ""
+    )
     return (
         f"Set {details['api_key_env']} before starting the backend. "
         f"Optionally set {details['model_env']} to change the model."
+        f"{alias_hint}"
     )
 
 

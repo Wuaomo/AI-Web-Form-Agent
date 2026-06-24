@@ -464,6 +464,10 @@ def _request_deepseek_mapping(prompt: str) -> str:
     if not config.DEEPSEEK_API_KEY:
         raise RuntimeError("DEEPSEEK_API_KEY is not configured")
 
+    logger.warning(
+        "Calling DeepSeek mapping API with model %s",
+        config.DEEPSEEK_MODEL,
+    )
     response = _post_json(
         "https://api.deepseek.com/chat/completions",
         {
@@ -487,7 +491,9 @@ def _request_deepseek_mapping(prompt: str) -> str:
         },
         {"Authorization": f"Bearer {config.DEEPSEEK_API_KEY}"},
     )
-    return _extract_chat_completion_output_text(response, "DeepSeek")
+    output_text = _extract_chat_completion_output_text(response, "DeepSeek")
+    logger.warning("DeepSeek mapping API returned output text")
+    return output_text
 
 
 def _request_llm_mapping(
@@ -524,11 +530,21 @@ def _validate_llm_response(
             raise ValueError("LLM mapped an unknown or non-fillable field")
         if mapping.field_id in seen_field_ids:
             raise ValueError("LLM returned duplicate field mappings")
-        if mapping.mapped_profile_key not in profile:
-            raise ValueError("LLM mapped a profile key with no value")
         seen_field_ids.add(mapping.field_id)
 
-    return parsed
+    valid_mappings = [
+        mapping
+        for mapping in parsed.mappings
+        if mapping.mapped_profile_key in profile
+    ]
+    skipped_count = len(parsed.mappings) - len(valid_mappings)
+    if skipped_count:
+        logger.warning(
+            "Ignoring %s LLM mappings whose profile key has no value",
+            skipped_count,
+        )
+
+    return LLMMappingResponse(mappings=valid_mappings)
 
 
 def _apply_llm_mappings(
@@ -582,7 +598,13 @@ def _map_fields_with_llm(
         prompt = _build_llm_prompt(fields, profile)
         raw_response = _request_llm_mapping(prompt, provider)
         result = _validate_llm_response(raw_response, fields, profile)
-        return _apply_llm_mappings(fields, profile, result, db)
+        mapped_fields = _apply_llm_mappings(fields, profile, result, db)
+        logger.warning(
+            "LLM mapping succeeded for task %s with %s mappings",
+            task_id,
+            len(result.mappings),
+        )
+        return mapped_fields
     except Exception as exc:
         db.rollback()
         logger.warning(

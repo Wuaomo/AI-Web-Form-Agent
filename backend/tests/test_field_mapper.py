@@ -132,6 +132,45 @@ class LLMFieldMapperTests(unittest.TestCase):
         )
         self.assertEqual(mapped_by_id[last_name.id].mapped_value, "Lovelace")
 
+    def test_llm_skips_profile_keys_without_values(self) -> None:
+        email_field = self._add_field(
+            label="Where should we send updates?",
+            selector="#contact-destination",
+        )
+        github_field = self._add_field(
+            label="Show us your code portfolio",
+            selector="#portfolio-link",
+            field_type="url",
+        )
+        llm_json = json.dumps(
+            {
+                "mappings": [
+                    {
+                        "field_id": email_field.id,
+                        "mapped_profile_key": "email",
+                        "confidence": 0.93,
+                    },
+                    {
+                        "field_id": github_field.id,
+                        "mapped_profile_key": "github",
+                        "confidence": 0.9,
+                    },
+                ]
+            }
+        )
+
+        with patch(
+            "app.services.field_mapper._request_llm_mapping",
+            return_value=llm_json,
+        ):
+            mapped = map_fields_with_llm(self.task_id, self.db)
+
+        mapped_by_id = {field.id: field for field in mapped}
+        self.assertEqual(mapped_by_id[email_field.id].mapped_profile_key, "email")
+        self.assertEqual(mapped_by_id[email_field.id].mapped_value, "ada@example.com")
+        self.assertIsNone(mapped_by_id[github_field.id].mapped_profile_key)
+        self.assertIsNone(mapped_by_id[github_field.id].mapped_value)
+
     def test_invalid_json_falls_back_to_rule_mapping(self) -> None:
         self._add_field(label="Contact Email", selector="#contact-email")
 
