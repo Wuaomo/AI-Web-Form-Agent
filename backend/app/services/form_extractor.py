@@ -2,9 +2,10 @@
 
 from dataclasses import dataclass
 
-from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import Page
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from app.services.browser_session import persistent_page
+from app.services.browser_session import run_with_persistent_page
 
 
 @dataclass(frozen=True)
@@ -31,24 +32,30 @@ class ExtractedFormAnalysis:
 async def extract_form_analysis(url: str, profile_id: int) -> ExtractedFormAnalysis:
     """Open a page and return form controls plus login-gate detection."""
 
-    async with persistent_page(url, profile_id) as page:
-        await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+    def extract(page: Page) -> ExtractedFormAnalysis:
+        page.goto(url, wait_until="domcontentloaded", timeout=30_000)
 
         # Let client-rendered forms settle, but do not require pages with
         # background requests to ever become fully network-idle.
         try:
-            await page.wait_for_load_state("networkidle", timeout=5_000)
+            page.wait_for_load_state("networkidle", timeout=5_000)
         except PlaywrightTimeoutError:
             pass
 
-        raw_fields = await page.locator(
+        raw_fields = page.locator(
             'input:not([type="hidden"]), textarea, select, button'
         ).evaluate_all(_EXTRACT_FIELDS_SCRIPT)
-        login_required = await page.evaluate(_LOGIN_DETECTION_SCRIPT)
+        login_required = page.evaluate(_LOGIN_DETECTION_SCRIPT)
 
-    return ExtractedFormAnalysis(
-        fields=[ExtractedFormField(**field) for field in raw_fields],
-        login_required=login_required,
+        return ExtractedFormAnalysis(
+            fields=[ExtractedFormField(**field) for field in raw_fields],
+            login_required=login_required,
+        )
+
+    return await run_with_persistent_page(
+        url,
+        profile_id,
+        extract,
     )
 
 

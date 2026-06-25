@@ -8,6 +8,7 @@ function LlmMappingControls({
 }) {
   const selectedProvider =
     providers.find((item) => item.id === provider) || providers[0] || null;
+  const hasProviderSelection = Boolean(provider);
 
   return (
     <div className="mapping-controls">
@@ -29,6 +30,7 @@ function LlmMappingControls({
           onChange={(event) => onProviderChange(event.target.value)}
           disabled={disabled || mode !== "llm" || providers.length === 0}
         >
+          <option value="">Choose provider</option>
           {providers.map((item) => (
             <option key={item.id} value={item.id}>
               {item.display_name} - {item.model}
@@ -37,7 +39,12 @@ function LlmMappingControls({
           ))}
         </select>
       </label>
-      {mode === "llm" && selectedProvider && (
+      {mode === "llm" && !hasProviderSelection && (
+        <p className="provider-status provider-status-warning">
+          Choose a model provider. This choice will be remembered for future tasks.
+        </p>
+      )}
+      {mode === "llm" && hasProviderSelection && selectedProvider && (
         <p
           className={
             selectedProvider.configured

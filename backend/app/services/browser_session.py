@@ -1,27 +1,29 @@
 """Shared Playwright browser sessions keyed by task profile and site."""
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+import asyncio
+from collections.abc import Callable
 from hashlib import sha256
 from pathlib import Path
 import re
+from typing import TypeVar
 from urllib.parse import urlparse
 
-from playwright.async_api import BrowserContext, Error as PlaywrightError, Page
-from playwright.async_api import TimeoutError as PlaywrightTimeoutError
-from playwright.async_api import async_playwright
+from playwright.sync_api import BrowserContext, Error as PlaywrightError, Page
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import sync_playwright
 
 from app.database import BACKEND_DIR
 
 BROWSER_SESSIONS_DIR = BACKEND_DIR / "browser_sessions"
 DEFAULT_VIEWPORT = {"width": 1440, "height": 900}
+T = TypeVar("T")
 
 
-async def _close_context(context: BrowserContext) -> None:
+def _close_context(context: BrowserContext) -> None:
     """Close a Playwright context and ignore already-closed browser windows."""
 
     try:
-        await context.close()
+        context.close()
     except PlaywrightError:
         pass
 
@@ -56,32 +58,50 @@ def get_browser_session_dir(url: str, profile_id: int) -> Path:
     )
 
 
-@asynccontextmanager
-async def persistent_page(
+def _run_with_persistent_page_sync(
     url: str,
     profile_id: int,
+    callback: Callable[[Page], T],
     *,
     headless: bool = True,
-) -> AsyncIterator[Page]:
+) -> T:
     """Open a page in a persistent browser profile and close it afterwards."""
 
     user_data_dir = get_browser_session_dir(url, profile_id)
     user_data_dir.mkdir(parents=True, exist_ok=True)
 
-    async with async_playwright() as playwright:
-        context = await playwright.chromium.launch_persistent_context(
+    with sync_playwright() as playwright:
+        context = playwright.chromium.launch_persistent_context(
             user_data_dir=str(user_data_dir),
             headless=headless,
             viewport=DEFAULT_VIEWPORT,
         )
         try:
-            page = context.pages[0] if context.pages else await context.new_page()
-            yield page
+            page = context.pages[0] if context.pages else context.new_page()
+            return callback(page)
         finally:
-            await _close_context(context)
+            _close_context(context)
 
 
-async def prepare_login_session(
+async def run_with_persistent_page(
+    url: str,
+    profile_id: int,
+    callback: Callable[[Page], T],
+    *,
+    headless: bool = True,
+) -> T:
+    """Run a sync Playwright page callback without blocking the API event loop."""
+
+    return await asyncio.to_thread(
+        _run_with_persistent_page_sync,
+        url,
+        profile_id,
+        callback,
+        headless=headless,
+    )
+
+
+def _prepare_login_session_sync(
     url: str,
     profile_id: int,
     *,
@@ -92,21 +112,37 @@ async def prepare_login_session(
     user_data_dir = get_browser_session_dir(url, profile_id)
     user_data_dir.mkdir(parents=True, exist_ok=True)
 
-    async with async_playwright() as playwright:
-        context: BrowserContext = await playwright.chromium.launch_persistent_context(
+    with sync_playwright() as playwright:
+        context: BrowserContext = playwright.chromium.launch_persistent_context(
             user_data_dir=str(user_data_dir),
             headless=False,
             viewport=DEFAULT_VIEWPORT,
         )
         try:
-            page = context.pages[0] if context.pages else await context.new_page()
-            await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+            page = context.pages[0] if context.pages else context.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=30_000)
             try:
-                await context.wait_for_event("close", timeout=timeout_seconds * 1000)
+                context.wait_for_event("close", timeout=timeout_seconds * 1000)
                 timed_out = False
             except PlaywrightTimeoutError:
                 timed_out = True
         finally:
-            await _close_context(context)
+            _close_context(context)
 
     return user_data_dir, timed_out
+
+
+async def prepare_login_session(
+    url: str,
+    profile_id: int,
+    *,
+    timeout_seconds: int = 900,
+) -> tuple[Path, bool]:
+    """Open a visible browser so the user can complete interactive login."""
+
+    return await asyncio.to_thread(
+        _prepare_login_session_sync,
+        url,
+        profile_id,
+        timeout_seconds=timeout_seconds,
+    )

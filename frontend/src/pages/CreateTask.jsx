@@ -2,28 +2,43 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
+import {
+  getSavedLlmProvider,
+  saveLlmProvider,
+} from "../llmProviderPreference";
 import Message from "../components/Message";
 
 function CreateTask() {
   const navigate = useNavigate();
   const [profiles, setProfiles] = useState([]);
+  const [llmProviders, setLlmProviders] = useState([]);
+  const [selectedLlmProvider, setSelectedLlmProvider] = useState("");
   const [form, setForm] = useState({ url: "", profile_id: "", description: "" });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    api
-      .listProfiles()
-      .then((items) => {
-        setProfiles(items);
-        if (items.length) {
-          setForm((current) => ({ ...current, profile_id: String(items[0].id) }));
+    Promise.all([api.listProfiles(), api.listLlmProviders()])
+      .then(([profileItems, providerItems]) => {
+        setProfiles(profileItems);
+        setLlmProviders(providerItems);
+        setSelectedLlmProvider(getSavedLlmProvider(providerItems));
+        if (profileItems.length) {
+          setForm((current) => ({
+            ...current,
+            profile_id: String(profileItems[0].id),
+          }));
         }
       })
       .catch((requestError) => setError(requestError.message))
       .finally(() => setLoading(false));
   }, []);
+
+  function updateSelectedLlmProvider(provider) {
+    setSelectedLlmProvider(provider);
+    saveLlmProvider(provider);
+  }
 
   async function submitTask(event) {
     event.preventDefault();
@@ -37,10 +52,16 @@ function CreateTask() {
         description: form.description || null,
       });
       await api.analyzeTask(task.id);
-      navigate(`/tasks/${task.id}`);
+      await api.mapTaskFields(task.id, {
+        mode: "llm",
+        provider: selectedLlmProvider,
+      });
+      navigate(`/tasks/${task.id}/review-mapping`);
     } catch (requestError) {
       if (task?.id) {
-        navigate(`/tasks/${task.id}`);
+        navigate(`/tasks/${task.id}`, {
+          state: { error: requestError.message },
+        });
         return;
       }
       setError(requestError.message);
@@ -99,6 +120,24 @@ function CreateTask() {
           />
         </label>
 
+        <label>
+          Large model
+          <select
+            value={selectedLlmProvider}
+            onChange={(event) => updateSelectedLlmProvider(event.target.value)}
+            required
+            disabled={loading || llmProviders.length === 0}
+          >
+            <option value="">Choose provider</option>
+            {llmProviders.map((provider) => (
+              <option key={provider.id} value={provider.id}>
+                {provider.display_name} - {provider.model}
+                {provider.configured ? "" : " - needs API key"}
+              </option>
+            ))}
+          </select>
+        </label>
+
         {profiles.length === 0 && !loading && (
           <p>
             You need a profile first. <Link to="/profiles">Create a profile</Link>.
@@ -108,9 +147,14 @@ function CreateTask() {
         <button
           className="button"
           type="submit"
-          disabled={saving || loading || profiles.length === 0}
+          disabled={
+            saving ||
+            loading ||
+            profiles.length === 0 ||
+            !selectedLlmProvider
+          }
         >
-          {saving ? "Creating and analyzing..." : "Create task"}
+          {saving ? "Creating, analyzing, and mapping..." : "Create task"}
         </button>
       </form>
     </section>

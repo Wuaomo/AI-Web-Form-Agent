@@ -95,7 +95,7 @@ def test_map_fields_defaults_to_llm_mode(
 ) -> None:
     client, session = test_environment
     task, field = create_task_with_field(session)
-    monkeypatch.setattr(config, "OPENAI_API_KEY", "test-openai-key")
+    monkeypatch.setattr(config, "DEEPSEEK_API_KEY", "test-deepseek-key")
 
     with (
         patch("app.routers.tasks.map_fields_with_llm", return_value=[field]) as llm,
@@ -104,7 +104,7 @@ def test_map_fields_defaults_to_llm_mode(
         response = client.post(f"/tasks/{task.id}/map-fields")
 
     assert response.status_code == 200
-    llm.assert_called_once()
+    llm.assert_called_once_with(task.id, session, provider="deepseek")
     rules.assert_not_called()
 
 

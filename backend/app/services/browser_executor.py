@@ -3,13 +3,14 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from playwright.async_api import Error as PlaywrightError
-from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import Page
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from sqlalchemy.orm import Session
 
 from app.database import BACKEND_DIR, SessionLocal
 from app.models import FormField, Screenshot
-from app.services.browser_session import persistent_page
+from app.services.browser_session import run_with_persistent_page
 
 SCREENSHOTS_DIR = BACKEND_DIR / "screenshots"
 
@@ -28,17 +29,19 @@ async def open_url_and_capture_screenshot(
     filename = f"task_{task_id}_{timestamp}_{uuid4().hex[:8]}.png"
     screenshot_path = SCREENSHOTS_DIR / filename
 
-    async with persistent_page(url, profile_id) as page:
-        await page.goto(url, wait_until="load", timeout=30_000)
+    def capture(page: Page) -> None:
+        page.goto(url, wait_until="load", timeout=30_000)
 
         # Some pages continuously load background requests. A short
         # network-idle wait improves screenshots without blocking forever.
         try:
-            await page.wait_for_load_state("networkidle", timeout=5_000)
+            page.wait_for_load_state("networkidle", timeout=5_000)
         except PlaywrightTimeoutError:
             pass
 
-        await page.screenshot(path=str(screenshot_path), full_page=True)
+        page.screenshot(path=str(screenshot_path), full_page=True)
+
+    await run_with_persistent_page(url, profile_id, capture)
 
     relative_path = screenshot_path.relative_to(BACKEND_DIR).as_posix()
     screenshot = Screenshot(
@@ -76,10 +79,10 @@ async def fill_form_and_capture_screenshot(
     filename = f"task_{task_id}_{timestamp}_{uuid4().hex[:8]}.png"
     screenshot_path = SCREENSHOTS_DIR / filename
 
-    async with persistent_page(url, profile_id) as page:
-        await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+    def fill_form(page: Page) -> None:
+        page.goto(url, wait_until="domcontentloaded", timeout=30_000)
         try:
-            await page.wait_for_load_state("networkidle", timeout=5_000)
+            page.wait_for_load_state("networkidle", timeout=5_000)
         except PlaywrightTimeoutError:
             pass
 
@@ -93,21 +96,23 @@ async def fill_form_and_capture_screenshot(
             locator = page.locator(field.selector).first
             if field_type == "checkbox":
                 if field.mapped_value.lower() in {"1", "true", "yes", "on"}:
-                    await locator.check(timeout=5_000)
+                    locator.check(timeout=5_000)
                 continue
             if field_type == "radio":
-                await locator.check(timeout=5_000)
+                locator.check(timeout=5_000)
                 continue
             if field_type == "select":
                 try:
-                    await locator.select_option(label=field.mapped_value, timeout=5_000)
+                    locator.select_option(label=field.mapped_value, timeout=5_000)
                 except (PlaywrightError, PlaywrightTimeoutError):
-                    await locator.select_option(value=field.mapped_value, timeout=5_000)
+                    locator.select_option(value=field.mapped_value, timeout=5_000)
                 continue
 
-            await locator.fill(field.mapped_value, timeout=5_000)
+            locator.fill(field.mapped_value, timeout=5_000)
 
-        await page.screenshot(path=str(screenshot_path), full_page=True)
+        page.screenshot(path=str(screenshot_path), full_page=True)
+
+    await run_with_persistent_page(url, profile_id, fill_form)
 
     relative_path = screenshot_path.relative_to(BACKEND_DIR).as_posix()
     screenshot = Screenshot(

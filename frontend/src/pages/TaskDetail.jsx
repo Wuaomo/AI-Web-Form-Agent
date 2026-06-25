@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { api, API_BASE_URL } from "../api";
 import LlmMappingControls from "../components/LlmMappingControls";
@@ -22,6 +22,7 @@ function needsRequiredInput(field) {
 function TaskDetail() {
   const { taskId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [task, setTask] = useState(null);
   const [logs, setLogs] = useState([]);
   const [screenshots, setScreenshots] = useState([]);
@@ -31,7 +32,7 @@ function TaskDetail() {
   const [selectedLlmProvider, setSelectedLlmProvider] = useState("");
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(location.state?.error || "");
   const [notice, setNotice] = useState("");
 
   useEffect(() => {

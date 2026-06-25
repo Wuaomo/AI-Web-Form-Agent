@@ -14,6 +14,9 @@ def resolve_llm_provider(provider: str | None = None) -> LLMProvider:
     """Return a supported provider id or raise a clear configuration error."""
 
     selected = _normalize_provider(provider)
+    if not selected:
+        supported = ", ".join(config.LLM_PROVIDER_DETAILS)
+        raise ValueError(f"Choose an LLM provider: {supported}.")
     if selected not in config.LLM_PROVIDER_DETAILS:
         supported = ", ".join(config.LLM_PROVIDER_DETAILS)
         raise ValueError(
