@@ -42,6 +42,7 @@ router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 NON_FILLABLE_FIELD_TYPES = {
     "button",
+    "file",
     "submit",
     "reset",
     "image",

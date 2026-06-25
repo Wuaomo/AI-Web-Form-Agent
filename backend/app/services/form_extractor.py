@@ -43,7 +43,7 @@ async def extract_form_analysis(url: str, profile_id: int) -> ExtractedFormAnaly
             pass
 
         raw_fields = page.locator(
-            'input:not([type="hidden"]), textarea, select, button'
+            'input:not([type="hidden"]), textarea, select'
         ).evaluate_all(_EXTRACT_FIELDS_SCRIPT)
         login_required = page.evaluate(_LOGIN_DETECTION_SCRIPT)
 
@@ -68,10 +68,42 @@ async def extract_form_fields(url: str, profile_id: int) -> list[ExtractedFormFi
 
 _EXTRACT_FIELDS_SCRIPT = """
 (elements) => {
+  const NON_FILLABLE_INPUT_TYPES = new Set([
+    "hidden",
+    "button",
+    "submit",
+    "reset",
+    "image",
+    "file",
+  ]);
+  const GENERIC_PROMPTS = new Set([
+    "input",
+    "enter",
+    "please enter",
+    "please input",
+    "select",
+    "please select",
+    "请输入",
+    "请填写",
+    "请选择",
+  ]);
+  const STABLE_ATTRIBUTES = [
+    "data-testid",
+    "data-test",
+    "data-cy",
+    "aria-label",
+    "autocomplete",
+    "placeholder",
+  ];
+
   function normalizeText(value) {
     if (!value) return null;
     const normalized = value.replace(/\\s+/g, " ").trim();
     return normalized || null;
+  }
+
+  function normalizedLowerText(value) {
+    return (normalizeText(value) || "").toLowerCase();
   }
 
   function isUnique(selector) {
@@ -80,6 +112,12 @@ _EXTRACT_FIELDS_SCRIPT = """
     } catch {
       return false;
     }
+  }
+
+  function attrSelector(element, attribute) {
+    const value = normalizeText(element.getAttribute(attribute));
+    if (!value) return null;
+    return `${element.tagName.toLowerCase()}[${attribute}="${CSS.escape(value)}"]`;
   }
 
   function selectorFor(element) {
@@ -99,6 +137,11 @@ _EXTRACT_FIELDS_SCRIPT = """
           `[name="${CSS.escape(element.name)}"]`;
         if (isUnique(typedNameSelector)) return typedNameSelector;
       }
+    }
+
+    for (const attribute of STABLE_ATTRIBUTES) {
+      const selector = attrSelector(element, attribute);
+      if (selector && isUnique(selector)) return selector;
     }
 
     const path = [];
@@ -127,6 +170,132 @@ _EXTRACT_FIELDS_SCRIPT = """
     return path.join(" > ");
   }
 
+  function elementIsVisible(element) {
+    if (element.hidden || element.getAttribute("aria-hidden") === "true") {
+      return false;
+    }
+
+    const style = window.getComputedStyle(element);
+    if (
+      style.display === "none" ||
+      style.visibility === "hidden" ||
+      Number(style.opacity) === 0
+    ) {
+      return false;
+    }
+
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  function isSkippableControl(element) {
+    const tagName = element.tagName.toLowerCase();
+    const fieldType = tagName === "input"
+      ? (element.type || "text").toLowerCase()
+      : tagName;
+
+    if (!elementIsVisible(element)) return true;
+    if (element.disabled || element.readOnly) return true;
+    if (tagName === "input" && NON_FILLABLE_INPUT_TYPES.has(fieldType)) {
+      return true;
+    }
+    return false;
+  }
+
+  function isTextNodeVisible(node) {
+    const parent = node.parentElement;
+    return parent && elementIsVisible(parent);
+  }
+
+  function isInsideControl(node, rootControl) {
+    const parent = node.parentElement;
+    return Boolean(
+      parent?.closest("input, textarea, select, button, option, script, style") &&
+      !parent.closest("label")?.contains(rootControl)
+    );
+  }
+
+  function textOutsideControls(container, rootControl) {
+    const walker = document.createTreeWalker(
+      container,
+      NodeFilter.SHOW_TEXT,
+      {
+        acceptNode(node) {
+          if (!isTextNodeVisible(node)) return NodeFilter.FILTER_REJECT;
+          if (isInsideControl(node, rootControl)) return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_ACCEPT;
+        },
+      }
+    );
+
+    const parts = [];
+    let node = walker.nextNode();
+    while (node) {
+      const text = normalizeText(node.textContent);
+      if (text) parts.push(text);
+      node = walker.nextNode();
+    }
+    return normalizeText(parts.join(" "));
+  }
+
+  function fieldsetLegendText(element) {
+    const fieldset = element.closest("fieldset");
+    const legend = fieldset?.querySelector("legend");
+    return normalizeText(legend?.innerText || legend?.textContent);
+  }
+
+  function previousSiblingText(element) {
+    const parts = [];
+    let sibling = element.previousElementSibling;
+    while (sibling && parts.join(" ").length < 140) {
+      if (!sibling.matches("input, textarea, select, button")) {
+        const text = textOutsideControls(sibling, element);
+        if (text) parts.unshift(text);
+      }
+      sibling = sibling.previousElementSibling;
+    }
+    return normalizeText(parts.join(" "));
+  }
+
+  function ancestorContextText(element) {
+    const selector = [
+      ".ant-form-item",
+      ".el-form-item",
+      ".semi-form-field",
+      ".form-item",
+      ".form-group",
+      ".field",
+      ".field-row",
+      ".control-group",
+      "[role='group']",
+      "li",
+      "label",
+    ].join(",");
+    let current = element.parentElement;
+    let fallback = null;
+
+    while (current && current !== document.body) {
+      if (current.matches(selector)) {
+        const text = textOutsideControls(current, element);
+        if (text && text.length <= 180) return text;
+        if (text && text.length <= 280 && !fallback) fallback = text;
+      }
+      current = current.parentElement;
+    }
+
+    return fallback;
+  }
+
+  function uniqueTextParts(parts) {
+    const seen = new Set();
+    return parts.filter(part => {
+      const normalized = normalizedLowerText(part);
+      if (!normalized || seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    });
+  }
+
   function labelFor(element) {
     const labels = element.labels
       ? Array.from(element.labels)
@@ -150,24 +319,47 @@ _EXTRACT_FIELDS_SCRIPT = """
       if (text) return text;
     }
 
-    if (element.tagName.toLowerCase() === "button") {
-      return normalizeText(element.innerText || element.textContent);
-    }
+    const title = normalizeText(element.getAttribute("title"));
+    if (title) return title;
 
-    if (["button", "submit", "reset"].includes(element.type)) {
-      return normalizeText(element.value);
-    }
+    const legend = fieldsetLegendText(element);
+    const previous = previousSiblingText(element);
+    const ancestor = ancestorContextText(element);
+    const context = normalizeText(
+      uniqueTextParts([legend, previous, ancestor].filter(Boolean)).join(" ")
+    );
+    if (context) return context;
 
     return null;
   }
 
+  function hasMeaningfulMetadata(field) {
+    const metadata = [
+      field.label,
+      field.name,
+      field.html_id,
+      field.placeholder,
+    ].filter(Boolean).join(" ");
+    if (!metadata) return false;
+
+    const placeholder = normalizedLowerText(field.placeholder);
+    const hasOnlyGenericPrompt =
+      !field.label &&
+      !field.name &&
+      !field.html_id &&
+      GENERIC_PROMPTS.has(placeholder);
+    return !hasOnlyGenericPrompt;
+  }
+
   return elements.map(element => {
+    if (isSkippableControl(element)) return null;
+
     const tagName = element.tagName.toLowerCase();
     const fieldType = tagName === "input"
       ? (element.type || "text").toLowerCase()
       : tagName;
 
-    return {
+    const field = {
       label: labelFor(element),
       selector: selectorFor(element),
       field_type: fieldType,
@@ -178,7 +370,9 @@ _EXTRACT_FIELDS_SCRIPT = """
         Boolean(element.required) ||
         element.getAttribute("aria-required") === "true",
     };
-  });
+
+    return hasMeaningfulMetadata(field) ? field : null;
+  }).filter(Boolean);
 }
 """
 
