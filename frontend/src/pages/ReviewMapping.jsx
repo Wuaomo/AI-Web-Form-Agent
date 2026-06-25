@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../api";
 import LlmMappingControls from "../components/LlmMappingControls";
@@ -34,6 +34,7 @@ function needsRequiredInput(field) {
 
 function ReviewMapping() {
   const { taskId } = useParams();
+  const navigate = useNavigate();
   const [fields, setFields] = useState([]);
   const [llmProviders, setLlmProviders] = useState([]);
   const [mappingMode, setMappingMode] = useState("llm");
@@ -110,8 +111,10 @@ function ReviewMapping() {
     setBusy(true);
     setError("");
     try {
-      const result = await api.confirmMapping(taskId);
-      setNotice(`Mapping confirmed. Task status: ${result.status}.`);
+      await api.confirmMapping(taskId);
+      navigate(`/tasks/${taskId}`, {
+        state: { notice: "Mapping confirmed. Ready to fill the form." },
+      });
     } catch (requestError) {
       setError(requestError.message);
     } finally {
