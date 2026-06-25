@@ -28,7 +28,8 @@ from app.services.field_mapper import (
     map_fields_by_rules,
     map_fields_with_llm,
 )
-from app.services.form_extractor import extract_form_fields
+from app.services.form_extractor import ExtractedFormField, extract_form_analysis
+from app.services.browser_session import prepare_login_session
 from app.services.llm_provider_config import (
     get_provider_setup_hint,
     is_provider_configured,
@@ -114,6 +115,59 @@ def get_next_log_step(task_id: int, db: Session) -> int:
     return (current_step or 0) + 1
 
 
+async def extract_fields_with_login_retry(task: Task, db: Session) -> list[ExtractedFormField]:
+    """Extract form fields, prompting for manual login when a login gate appears."""
+
+    analysis = await extract_form_analysis(task.url, task.profile_id)
+    if not analysis.login_required:
+        return analysis.fields
+
+    step = get_next_log_step(task.id, db)
+    task.status = "LOGIN_REQUIRED"
+    create_log(
+        task_id=task.id,
+        step=step,
+        action="login_required",
+        message=(
+            "The target URL opened a login page. Complete login in the "
+            "browser window, then close it to continue analysis."
+        ),
+        status="STARTED",
+        db=db,
+    )
+    db.commit()
+
+    _, timed_out = await prepare_login_session(
+        url=task.url,
+        profile_id=task.profile_id,
+    )
+    if timed_out:
+        create_log(
+            task_id=task.id,
+            step=get_next_log_step(task.id, db),
+            action="login_required",
+            message="Login browser timed out before the window was closed.",
+            status="TIMEOUT",
+            db=db,
+        )
+        db.commit()
+
+    task.status = "ANALYZING"
+    create_log(
+        task_id=task.id,
+        step=get_next_log_step(task.id, db),
+        action="resume_after_login",
+        message="Reopened the original URL with saved login state.",
+        status="STARTED",
+        db=db,
+    )
+    db.commit()
+    retry_analysis = await extract_form_analysis(task.url, task.profile_id)
+    if retry_analysis.login_required:
+        raise RuntimeError("Login is still required after the browser was closed")
+    return retry_analysis.fields
+
+
 @router.post(
     "",
     response_model=TaskResponse,
@@ -187,7 +241,7 @@ async def analyze_task(
     db.commit()
 
     try:
-        extracted_fields = await extract_form_fields(task.url)
+        extracted_fields = await extract_fields_with_login_retry(task, db)
 
         # Re-analysis replaces stale fields instead of creating duplicates.
         db.execute(delete(FormField).where(FormField.task_id == task.id))
@@ -208,7 +262,7 @@ async def analyze_task(
         task.status = "MAPPING_READY"
         create_log(
             task_id=task.id,
-            step=step + 1,
+            step=get_next_log_step(task.id, db),
             action="extract_fields",
             message=f"Extracted and saved {len(extracted_fields)} form fields.",
             status="SUCCESS",
@@ -269,6 +323,7 @@ async def capture_task_screenshot(
     screenshot = await open_url_and_capture_screenshot(
         task_id=task.id,
         url=task.url,
+        profile_id=task.profile_id,
         stage="page_opened",
         db=db,
     )
@@ -455,6 +510,7 @@ async def fill_task_form(
         await fill_form_and_capture_screenshot(
             task_id=task.id,
             url=task.url,
+            profile_id=task.profile_id,
             fields=mapped_fields,
             stage="filled_form",
             db=db,

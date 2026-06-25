@@ -178,7 +178,7 @@ function ReviewMapping() {
         <p>Loading fields...</p>
       ) : fields.length === 0 ? (
         <div className="card empty-state">
-          <p>No fields found. Analyze the task first.</p>
+          <p>No fields found. Create the task again or check the task logs.</p>
         </div>
       ) : (
         <div className="table-wrapper card">

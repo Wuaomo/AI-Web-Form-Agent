@@ -29,14 +29,20 @@ function CreateTask() {
     event.preventDefault();
     setSaving(true);
     setError("");
+    let task = null;
     try {
-      const task = await api.createTask({
+      task = await api.createTask({
         ...form,
         profile_id: Number(form.profile_id),
         description: form.description || null,
       });
+      await api.analyzeTask(task.id);
       navigate(`/tasks/${task.id}`);
     } catch (requestError) {
+      if (task?.id) {
+        navigate(`/tasks/${task.id}`);
+        return;
+      }
       setError(requestError.message);
       setSaving(false);
     }
@@ -104,7 +110,7 @@ function CreateTask() {
           type="submit"
           disabled={saving || loading || profiles.length === 0}
         >
-          {saving ? "Creating..." : "Create task"}
+          {saving ? "Creating and analyzing..." : "Create task"}
         </button>
       </form>
     </section>

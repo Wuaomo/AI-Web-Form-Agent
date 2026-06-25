@@ -3,7 +3,8 @@
 from dataclasses import dataclass
 
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
-from playwright.async_api import async_playwright
+
+from app.services.browser_session import persistent_page
 
 
 @dataclass(frozen=True)
@@ -19,29 +20,43 @@ class ExtractedFormField:
     required: bool
 
 
-async def extract_form_fields(url: str) -> list[ExtractedFormField]:
+@dataclass(frozen=True)
+class ExtractedFormAnalysis:
+    """Form controls plus a signal that the current page is a login gate."""
+
+    fields: list[ExtractedFormField]
+    login_required: bool
+
+
+async def extract_form_analysis(url: str, profile_id: int) -> ExtractedFormAnalysis:
+    """Open a page and return form controls plus login-gate detection."""
+
+    async with persistent_page(url, profile_id) as page:
+        await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+
+        # Let client-rendered forms settle, but do not require pages with
+        # background requests to ever become fully network-idle.
+        try:
+            await page.wait_for_load_state("networkidle", timeout=5_000)
+        except PlaywrightTimeoutError:
+            pass
+
+        raw_fields = await page.locator(
+            'input:not([type="hidden"]), textarea, select, button'
+        ).evaluate_all(_EXTRACT_FIELDS_SCRIPT)
+        login_required = await page.evaluate(_LOGIN_DETECTION_SCRIPT)
+
+    return ExtractedFormAnalysis(
+        fields=[ExtractedFormField(**field) for field in raw_fields],
+        login_required=login_required,
+    )
+
+
+async def extract_form_fields(url: str, profile_id: int) -> list[ExtractedFormField]:
     """Open a page and return its visible, user-editable form controls."""
 
-    async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=True)
-        try:
-            page = await browser.new_page(viewport={"width": 1440, "height": 900})
-            await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-
-            # Let client-rendered forms settle, but do not require pages with
-            # background requests to ever become fully network-idle.
-            try:
-                await page.wait_for_load_state("networkidle", timeout=5_000)
-            except PlaywrightTimeoutError:
-                pass
-
-            raw_fields = await page.locator(
-                'input:not([type="hidden"]), textarea, select, button'
-            ).evaluate_all(_EXTRACT_FIELDS_SCRIPT)
-        finally:
-            await browser.close()
-
-    return [ExtractedFormField(**field) for field in raw_fields]
+    analysis = await extract_form_analysis(url, profile_id)
+    return analysis.fields
 
 
 _EXTRACT_FIELDS_SCRIPT = """
@@ -157,5 +172,40 @@ _EXTRACT_FIELDS_SCRIPT = """
         element.getAttribute("aria-required") === "true",
     };
   });
+}
+"""
+
+_LOGIN_DETECTION_SCRIPT = """
+() => {
+  const url = window.location.href.toLowerCase();
+  const title = document.title.toLowerCase();
+  const bodyText = (document.body?.innerText || "").toLowerCase();
+  const passwordInputs = document.querySelectorAll('input[type="password"]').length;
+  const visibleInputs = Array.from(
+    document.querySelectorAll('input:not([type="hidden"]), textarea, select')
+  ).filter(element => {
+    const style = window.getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return style.visibility !== "hidden" &&
+      style.display !== "none" &&
+      rect.width > 0 &&
+      rect.height > 0;
+  });
+
+  if (passwordInputs > 0) return true;
+  if (/login|signin|passport|auth|account/.test(url)) return true;
+  if (/登录|登陆|扫码登录|账号登录|密码登录|sign in|log in/.test(title)) return true;
+
+  const loginWords = [
+    "登录",
+    "登陆",
+    "扫码登录",
+    "账号登录",
+    "密码登录",
+    "sign in",
+    "log in",
+  ];
+  const hasLoginCopy = loginWords.some(word => bodyText.includes(word));
+  return hasLoginCopy && visibleInputs.length <= 6;
 }
 """

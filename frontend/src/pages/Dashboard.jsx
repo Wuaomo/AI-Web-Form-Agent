@@ -67,7 +67,7 @@ function Dashboard() {
         </article>
 
         <article className="card">
-          <h3>2. Analyze a form</h3>
+          <h3>2. Create a task</h3>
           <p>Create a task using a target URL and one profile.</p>
           <Link to="/tasks/new">Create a task</Link>
         </article>

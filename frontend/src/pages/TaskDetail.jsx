@@ -179,16 +179,6 @@ function TaskDetail() {
             />
             <div className="button-row">
               <button
-                className="button"
-                type="button"
-                onClick={() =>
-                  runAction("analyze", () => api.analyzeTask(taskId), "Analysis complete.")
-                }
-                disabled={isBusy}
-              >
-                {busyAction === "analyze" ? "Analyzing..." : "Analyze"}
-              </button>
-              <button
                 className="button button-secondary"
                 type="button"
                 onClick={mapFieldsAndReview}

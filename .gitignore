@@ -38,6 +38,7 @@ screenshots/
 !backend/screenshots/
 backend/screenshots/*
 !backend/screenshots/.gitkeep
+backend/browser_sessions/
 test-results/
 playwright-report/
 blob-report/

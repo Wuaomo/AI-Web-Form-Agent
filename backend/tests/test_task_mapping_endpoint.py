@@ -1,19 +1,21 @@
 """Tests for the task field-mapping endpoint mode selection."""
 
 from collections.abc import Generator
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app import config
-from app.models import FormField, Profile, Task
+from app.models import ActionLog, FormField, Profile, Task
 from app.routers.tasks import router as tasks_router
+from app.services.form_extractor import ExtractedFormField
 
 
 @pytest.fixture
@@ -67,6 +69,24 @@ def create_task_with_field(session: Session) -> tuple[Task, FormField]:
     session.add(field)
     session.commit()
     return task, field
+
+
+def create_task_without_fields(session: Session) -> Task:
+    """Create a task that has not been analyzed yet."""
+
+    profile = Profile(
+        profile_name="Analysis profile",
+        full_name="Ada Lovelace",
+        email="ada@example.com",
+    )
+    task = Task(
+        url="https://example.com/form",
+        profile=profile,
+        status="CREATED",
+    )
+    session.add(task)
+    session.commit()
+    return task
 
 
 def test_map_fields_defaults_to_llm_mode(
@@ -182,3 +202,59 @@ def test_fill_rejects_missing_required_values_before_browser_work(
 
     assert response.status_code == 409
     assert "Required fields need values" in response.json()["detail"]
+
+
+def test_analyze_retries_original_url_after_manual_login(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task = create_task_without_fields(session)
+    extracted_field = ExtractedFormField(
+        label="Email",
+        selector="#email",
+        field_type="email",
+        placeholder=None,
+        name="email",
+        html_id="email",
+        required=True,
+    )
+
+    with (
+        patch(
+            "app.routers.tasks.extract_form_analysis",
+            new=AsyncMock(
+                side_effect=[
+                    SimpleNamespace(fields=[], login_required=True),
+                    SimpleNamespace(fields=[extracted_field], login_required=False),
+                ],
+            ),
+        ) as extract_analysis,
+        patch(
+            "app.routers.tasks.prepare_login_session",
+            new=AsyncMock(return_value=("browser-session", False)),
+        ) as prepare_login,
+    ):
+        response = client.post(f"/tasks/{task.id}/analyze")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "MAPPING_READY"
+    assert response.json()["form_fields"][0]["selector"] == "#email"
+    assert extract_analysis.await_count == 2
+    prepare_login.assert_awaited_once_with(
+        url=task.url,
+        profile_id=task.profile_id,
+    )
+
+    logs = list(
+        session.scalars(
+            select(ActionLog)
+            .where(ActionLog.task_id == task.id)
+            .order_by(ActionLog.step)
+        )
+    )
+    assert [log.action for log in logs] == [
+        "analyze_form",
+        "login_required",
+        "resume_after_login",
+        "extract_fields",
+    ]
