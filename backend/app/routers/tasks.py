@@ -22,6 +22,7 @@ from app.schemas import (
 from app.services.browser_executor import (
     fill_form_and_capture_screenshot,
     open_url_and_capture_screenshot,
+    submit_form_and_capture_screenshot,
 )
 from app.services.field_mapper import (
     get_profile_value,
@@ -499,11 +500,11 @@ async def fill_task_form(
     "/{task_id}/confirm-submit",
     response_model=SubmissionConfirmationResponse,
 )
-def confirm_task_submission(
+async def confirm_task_submission(
     task_id: int,
     db: Session = Depends(get_db),
 ) -> SubmissionConfirmationResponse:
-    """Record user approval and complete the task without submitting the form."""
+    """Submit the reviewed browser form after explicit user approval."""
 
     task = get_task_or_404(task_id, db)
     if task.status != "WAITING_APPROVAL":
@@ -512,15 +513,72 @@ def confirm_task_submission(
             detail="Task is not waiting for approval",
         )
 
+    fields = list(
+        db.scalars(
+            select(FormField)
+            .where(FormField.task_id == task.id)
+            .order_by(FormField.id)
+        )
+    )
+    mapped_fields = [field for field in fields if field.mapped_value]
+    missing_required_fields = get_missing_required_fields(fields)
+    if missing_required_fields:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=missing_required_detail(missing_required_fields),
+        )
+
+    if not mapped_fields:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No mapped fields are ready to submit",
+        )
+
+    step = get_next_log_step(task.id, db)
     create_log(
         task_id=task.id,
-        step=get_next_log_step(task.id, db),
+        step=step,
         action="confirm_submit",
-        message="User confirmed submission",
-        status="SUCCESS",
+        message="User approved final form submission.",
+        status="STARTED",
         db=db,
     )
-    task.status = "COMPLETED"
     db.commit()
+
+    try:
+        await submit_form_and_capture_screenshot(
+            task_id=task.id,
+            url=task.url,
+            fields=mapped_fields,
+            stage="submitted_form",
+            db=db,
+        )
+        task.status = "COMPLETED"
+        create_log(
+            task_id=task.id,
+            step=step + 1,
+            action="submit_form",
+            message="Submitted the reviewed form after user approval.",
+            status="SUCCESS",
+            db=db,
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        task = get_task_or_404(task_id, db)
+        task.status = "FAILED"
+        create_log(
+            task_id=task.id,
+            step=get_next_log_step(task.id, db),
+            action="submit_form",
+            message=f"Form submission failed: {exc}",
+            status="FAILED",
+            db=db,
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Form submission failed",
+        ) from exc
 
     return SubmissionConfirmationResponse(task_id=task.id, status=task.status)

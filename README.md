@@ -17,6 +17,63 @@ docs/       Architecture and project documentation
 - React and Vite
 - OpenAI API, Gemini API, or DeepSeek API
 
+## Local Run Guide
+
+Use two PowerShell terminals: one for the backend API and one for the frontend
+UI.
+
+First-time backend setup:
+
+```powershell
+cd backend
+python -m pip install -r requirements.txt
+python -m playwright install chromium
+```
+
+Start the backend API:
+
+```powershell
+cd backend
+$env:LLM_PROVIDER="deepseek"
+$env:DEEPSEEK_API_KEY="your-key"
+uvicorn app.main:app --reload
+```
+
+The API runs at `http://localhost:8000`. You can verify it with
+`http://localhost:8000/health`.
+
+First-time frontend setup:
+
+```powershell
+cd frontend
+npm install
+```
+
+Start the frontend UI:
+
+```powershell
+cd frontend
+npm run dev
+```
+
+Open the Vite URL printed in the terminal, usually `http://localhost:5173`.
+
+Normal daily startup is just:
+
+```powershell
+# Terminal 1
+cd backend
+$env:DEEPSEEK_API_KEY="your-key"
+uvicorn app.main:app --reload
+
+# Terminal 2
+cd frontend
+npm run dev
+```
+
+If you do not want to use an LLM key while developing, choose rule mode in the
+UI before generating mappings.
+
 ## Backend Setup
 
 ```powershell

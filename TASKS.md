@@ -156,7 +156,7 @@
 - [ ] 前端可以调用 `POST /run-task`
 - [ ] 前端可以展示 logs
 - [ ] 前端可以展示 screenshot
-- [ ] 前端可以展示 Confirm Submit 按钮
+- [ ] 前端可以展示 Submit Form 按钮
 ---
 
 ## Milestone 11：项目包装
@@ -222,8 +222,8 @@
 - [x] Review Mapping 页面添加 Confirm Mapping 按钮
 - [x] Task Detail 页面添加 Fill Form 按钮
 - [x] 点击 Fill Form 调用 `POST /tasks/{task_id}/fill`
-- [x] 如果状态为 `WAITING_APPROVAL`，显示 Confirm Submit 按钮
-- [x] Confirm Submit 调用 `POST /tasks/{task_id}/confirm-submit`
+- [x] 如果状态为 `WAITING_APPROVAL`，显示 Submit Form 按钮
+- [x] Submit Form 调用 `POST /tasks/{task_id}/confirm-submit`
 
 ---
 

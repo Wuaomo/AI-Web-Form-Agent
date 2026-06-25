@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
 
+from app.asyncio_compat import run_playwright_compatible
+
 
 @dataclass(frozen=True)
 class ExtractedFormField:
@@ -20,6 +22,12 @@ class ExtractedFormField:
 
 
 async def extract_form_fields(url: str) -> list[ExtractedFormField]:
+    """Open a page and return its visible, user-editable form controls."""
+
+    return await run_playwright_compatible(lambda: _extract_form_fields(url))
+
+
+async def _extract_form_fields(url: str) -> list[ExtractedFormField]:
     """Open a page and return its visible, user-editable form controls."""
 
     async with async_playwright() as playwright:

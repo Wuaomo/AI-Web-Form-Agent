@@ -24,7 +24,7 @@ CORS_ORIGINS = [
 
 # LLM field mapping is optional. The API exposes provider readiness so the
 # frontend can guide users before a request is made.
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai").lower()
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "deepseek").lower()
 LLM_REQUEST_TIMEOUT_SECONDS = float(
     os.getenv("LLM_REQUEST_TIMEOUT_SECONDS", "30")
 )
