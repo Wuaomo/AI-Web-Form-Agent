@@ -40,6 +40,13 @@ function TaskDetail() {
   const [notice, setNotice] = useState(location.state?.notice || "");
 
   useEffect(() => {
+    if (location.state?.notice) {
+      setNotice(location.state.notice);
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.pathname, location.state, navigate]);
+
+  useEffect(() => {
     Promise.all([
       api.getTask(taskId),
       api.listTaskLogs(taskId),
@@ -85,15 +92,20 @@ function TaskDetail() {
     }
   }
 
-  async function mapFieldsAndReview() {
-    setBusyAction("map");
+  function getMappingOptions() {
+    return {
+      mode: mappingMode,
+      provider: mappingMode === "llm" ? selectedLlmProvider : undefined,
+    };
+  }
+
+  async function analyzeAndReview() {
+    setBusyAction("analyze");
     setError("");
     setNotice("");
     try {
-      await api.mapTaskFields(taskId, {
-        mode: mappingMode,
-        provider: mappingMode === "llm" ? selectedLlmProvider : undefined,
-      });
+      await api.analyzeTask(taskId);
+      await api.mapTaskFields(taskId, getMappingOptions());
       await refreshTaskHistory();
       navigate(`/tasks/${taskId}/review-mapping`);
     } catch (requestError) {
@@ -225,12 +237,12 @@ function TaskDetail() {
                 </button>
               )}
               <button
-                className="button button-secondary"
+                className="button"
                 type="button"
-                onClick={mapFieldsAndReview}
-                disabled={isBusy || task.form_fields.length === 0 || llmUnavailable}
+                onClick={analyzeAndReview}
+                disabled={isBusy || llmUnavailable || task.status === "LOGIN_REQUIRED"}
               >
-                {busyAction === "map" ? "Mapping..." : "Map Fields"}
+                {busyAction === "analyze" ? "Analyzing..." : "Analyze & Review"}
               </button>
               <Link className="button button-secondary" to={`/tasks/${task.id}/review-mapping`}>
                 Review Mapping
@@ -239,7 +251,11 @@ function TaskDetail() {
                 className="button"
                 type="button"
                 onClick={() =>
-                  runAction("fill", () => api.fillTask(taskId), "Form filled. Review before submit.")
+                  runAction(
+                    "fill",
+                    () => api.fillTask(taskId),
+                    "Form filled. Review the screenshot before final submission.",
+                  )
                 }
                 disabled={isBusy || !canFill}
               >
@@ -253,12 +269,12 @@ function TaskDetail() {
                     runAction(
                       "confirm",
                       () => api.confirmSubmit(taskId),
-                      "Submission approval recorded.",
+                      "Form submitted after your approval.",
                     )
                   }
                   disabled={isBusy}
                 >
-                  {busyAction === "confirm" ? "Confirming..." : "Confirm Submit"}
+                  {busyAction === "confirm" ? "Submitting..." : "Submit Form"}
                 </button>
               )}
             </div>
