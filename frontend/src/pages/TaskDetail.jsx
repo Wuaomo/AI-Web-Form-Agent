@@ -37,7 +37,7 @@ function TaskDetail() {
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState("");
   const [error, setError] = useState(location.state?.error || "");
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState(location.state?.notice || "");
 
   useEffect(() => {
     Promise.all([
@@ -103,6 +103,30 @@ function TaskDetail() {
     }
   }
 
+  async function loginAnalyzeAndMap() {
+    setBusyAction("login");
+    setError("");
+    setNotice("");
+    try {
+      const analyzedTask = await api.loginAndAnalyzeTask(taskId);
+      await refreshTaskHistory(analyzedTask);
+      if (!llmUnavailable && selectedLlmProvider) {
+        await api.mapTaskFields(taskId, {
+          mode: mappingMode,
+          provider: selectedLlmProvider,
+        });
+        navigate(`/tasks/${taskId}/review-mapping`);
+        return;
+      }
+      setNotice("Login complete. Choose a model provider, then map fields.");
+    } catch (requestError) {
+      setError(requestError.message);
+      await refreshTaskHistory();
+    } finally {
+      setBusyAction("");
+    }
+  }
+
   function updateSelectedLlmProvider(provider) {
     setSelectedLlmProvider(provider);
     saveLlmProvider(provider);
@@ -138,6 +162,13 @@ function TaskDetail() {
             </div>
             <span className="badge badge-large">{task.status}</span>
           </div>
+
+          {task.status === "LOGIN_REQUIRED" && (
+            <div className="message message-warning">
+              This site requires login before the form can be extracted. Log in
+              in the browser window, then close it to continue.
+            </div>
+          )}
 
           <article className="card">
             <dl className="detail-list">
@@ -183,6 +214,16 @@ function TaskDetail() {
               disabled={isBusy}
             />
             <div className="button-row">
+              {task.status === "LOGIN_REQUIRED" && (
+                <button
+                  className="button"
+                  type="button"
+                  onClick={loginAnalyzeAndMap}
+                  disabled={isBusy}
+                >
+                  {busyAction === "login" ? "Waiting for login..." : "Login and Continue"}
+                </button>
+              )}
               <button
                 className="button button-secondary"
                 type="button"

@@ -238,33 +238,11 @@ async def analyze_task(
     db.commit()
 
     try:
-        extracted_fields = await extract_fields_with_login_retry(task, db)
-
-        # Re-analysis replaces stale fields instead of creating duplicates.
-        db.execute(delete(FormField).where(FormField.task_id == task.id))
-        for field in extracted_fields:
-            db.add(
-                FormField(
-                    task_id=task.id,
-                    label=field.label,
-                    selector=field.selector,
-                    field_type=field.field_type,
-                    placeholder=field.placeholder,
-                    name=field.name,
-                    html_id=field.html_id,
-                    required=field.required,
-                )
-            )
-
-        task.status = "MAPPING_READY"
-        create_log(
-            task_id=task.id,
-            step=get_next_log_step(task.id, db),
-            action="extract_fields",
-            message=f"Extracted and saved {len(extracted_fields)} form fields.",
-            status="SUCCESS",
-            db=db,
-        )
+        analysis = await extract_form_analysis(task.url, task.profile_id)
+        if analysis.login_required:
+            mark_login_required(task, db)
+        else:
+            save_extracted_fields(task, analysis, db)
         db.commit()
     except Exception as exc:
         db.rollback()
@@ -538,6 +516,97 @@ async def fill_task_form(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Form filling failed",
+        ) from exc
+
+    statement = (
+        select(Task)
+        .options(selectinload(Task.form_fields))
+        .where(Task.id == task.id)
+    )
+    return db.scalar(statement)
+
+
+@router.post("/{task_id}/login-and-analyze", response_model=TaskResponse)
+async def login_and_analyze_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+) -> Task:
+    """Let the user log in, then retry extracting the original target form."""
+
+    task = get_task_or_404(task_id, db)
+    step = get_next_log_step(task.id, db)
+    task.status = "LOGIN_IN_PROGRESS"
+    create_log(
+        task_id=task.id,
+        step=step,
+        action="manual_login",
+        message="Opened login browser. Close it after login to continue analysis.",
+        status="STARTED",
+        db=db,
+    )
+    db.commit()
+
+    try:
+        _, timed_out = await prepare_login_session(
+            url=task.url,
+            profile_id=task.profile_id,
+        )
+        if timed_out:
+            task.status = "LOGIN_REQUIRED"
+            create_log(
+                task_id=task.id,
+                step=get_next_log_step(task.id, db),
+                action="manual_login",
+                message="Login browser timed out before it was closed.",
+                status="TIMEOUT",
+                db=db,
+            )
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Login browser timed out. Try logging in again.",
+            )
+
+        task.status = "ANALYZING"
+        create_log(
+            task_id=task.id,
+            step=get_next_log_step(task.id, db),
+            action="resume_after_login",
+            message="Reopened the original URL with saved login state.",
+            status="STARTED",
+            db=db,
+        )
+        db.commit()
+
+        analysis = await extract_form_analysis(task.url, task.profile_id)
+        if analysis.login_required:
+            mark_login_required(task, db)
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Login is still required. Complete login and close the browser window.",
+            )
+
+        save_extracted_fields(task, analysis, db)
+        db.commit()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        db.rollback()
+        task = get_task_or_404(task_id, db)
+        task.status = "FAILED"
+        create_log(
+            task_id=task.id,
+            step=get_next_log_step(task.id, db),
+            action="manual_login",
+            message=f"Login and analysis failed: {exc}",
+            status="FAILED",
+            db=db,
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Login and analysis failed",
         ) from exc
 
     statement = (

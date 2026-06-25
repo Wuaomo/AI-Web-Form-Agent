@@ -51,7 +51,15 @@ function CreateTask() {
         profile_id: Number(form.profile_id),
         description: form.description || null,
       });
-      await api.analyzeTask(task.id);
+      const analyzedTask = await api.analyzeTask(task.id);
+      if (analyzedTask.status === "LOGIN_REQUIRED") {
+        navigate(`/tasks/${task.id}`, {
+          state: {
+            notice: "This form requires login before fields can be extracted.",
+          },
+        });
+        return;
+      }
       await api.mapTaskFields(task.id, {
         mode: "llm",
         provider: selectedLlmProvider,

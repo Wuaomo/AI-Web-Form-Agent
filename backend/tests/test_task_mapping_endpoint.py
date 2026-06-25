@@ -220,11 +220,47 @@ def test_fill_rejects_missing_required_values_before_browser_work(
     assert "Required fields need values" in response.json()["detail"]
 
 
-def test_analyze_retries_original_url_after_manual_login(
+def test_analyze_pauses_when_login_is_required(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     client, session = test_environment
     task = create_task_without_fields(session)
+
+    with (
+        patch(
+            "app.routers.tasks.extract_form_analysis",
+            new=AsyncMock(
+                return_value=SimpleNamespace(fields=[], login_required=True),
+            ),
+        ) as extract_analysis,
+        patch("app.routers.tasks.prepare_login_session") as prepare_login,
+    ):
+        response = client.post(f"/tasks/{task.id}/analyze")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "LOGIN_REQUIRED"
+    assert response.json()["form_fields"] == []
+    assert extract_analysis.await_count == 1
+    prepare_login.assert_not_called()
+
+    logs = list(
+        session.scalars(
+            select(ActionLog)
+            .where(ActionLog.task_id == task.id)
+            .order_by(ActionLog.step)
+        )
+    )
+    assert [log.action for log in logs] == ["analyze_form", "login_required"]
+    assert logs[-1].status == "WAITING"
+
+
+def test_login_and_analyze_retries_original_url_after_manual_login(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task = create_task_without_fields(session)
+    task.status = "LOGIN_REQUIRED"
+    session.commit()
     extracted_field = ExtractedFormField(
         label="Email",
         selector="#email",
@@ -237,29 +273,29 @@ def test_analyze_retries_original_url_after_manual_login(
 
     with (
         patch(
-            "app.routers.tasks.extract_form_analysis",
-            new=AsyncMock(
-                side_effect=[
-                    SimpleNamespace(fields=[], login_required=True),
-                    SimpleNamespace(fields=[extracted_field], login_required=False),
-                ],
-            ),
-        ) as extract_analysis,
-        patch(
             "app.routers.tasks.prepare_login_session",
             new=AsyncMock(return_value=("browser-session", False)),
         ) as prepare_login,
+        patch(
+            "app.routers.tasks.extract_form_analysis",
+            new=AsyncMock(
+                return_value=SimpleNamespace(
+                    fields=[extracted_field],
+                    login_required=False,
+                ),
+            ),
+        ) as extract_analysis,
     ):
-        response = client.post(f"/tasks/{task.id}/analyze")
+        response = client.post(f"/tasks/{task.id}/login-and-analyze")
 
     assert response.status_code == 200
     assert response.json()["status"] == "MAPPING_READY"
     assert response.json()["form_fields"][0]["selector"] == "#email"
-    assert extract_analysis.await_count == 2
     prepare_login.assert_awaited_once_with(
         url=task.url,
         profile_id=task.profile_id,
     )
+    extract_analysis.assert_awaited_once_with(task.url, task.profile_id)
 
     logs = list(
         session.scalars(
@@ -269,8 +305,7 @@ def test_analyze_retries_original_url_after_manual_login(
         )
     )
     assert [log.action for log in logs] == [
-        "analyze_form",
-        "login_required",
+        "manual_login",
         "resume_after_login",
         "extract_fields",
     ]

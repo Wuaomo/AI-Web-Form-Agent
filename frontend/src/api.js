@@ -58,6 +58,8 @@ export const api = {
   listTaskScreenshots: (taskId) => request(`/tasks/${taskId}/screenshots`),
   analyzeTask: (taskId) =>
     request(`/tasks/${taskId}/analyze`, { method: "POST" }),
+  loginAndAnalyzeTask: (taskId) =>
+    request(`/tasks/${taskId}/login-and-analyze`, { method: "POST" }),
   mapTaskFields: (taskId, options = {}) => {
     const params = new URLSearchParams();
     if (typeof options === "string") {
