@@ -1,0 +1,21 @@
+{
+  "case_id": "05_internship_application_mixed_controls",
+  "title": "Internship application with mixed controls",
+  "html_file": "../forms/05_internship_application_mixed_controls.html",
+  "tags": ["select", "textarea", "mixed-controls", "action-safety"],
+  "expected": {
+    "login_required": false,
+    "not_extracted_selectors": [],
+    "fields": [
+      {"selector": "#candidate-name", "profile_key": "full_name", "required": true},
+      {"selector": "#contact-email", "profile_key": "email", "required": true},
+      {"selector": "#school-select", "profile_key": "university", "required": true},
+      {"selector": "#field-of-study", "profile_key": "major", "required": true},
+      {"selector": "#linkedin-url", "profile_key": "linkedin", "required": false},
+      {"selector": "#personal-statement", "profile_key": "self_intro", "required": true},
+      {"selector": "#reset-form", "profile_key": null, "required": false, "reason": "non_fillable_action"},
+      {"selector": "#submit-internship", "profile_key": null, "required": false, "reason": "non_fillable_action"}
+    ]
+  }
+}
+

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Benchmark 02 - Semantic Mentor Application</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 32px; max-width: 720px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    label { display: block; margin: 14px 0 6px; font-weight: 700; }
+    input, textarea { width: 100%; padding: 9px; }
+  </style>
+</head>
+<body>
+  <h1>Mentor Program Application</h1>
+  <form>
+    <div class="grid">
+      <div>
+        <label for="given-name">Given name</label>
+        <input id="given-name" name="given_name" type="text" required>
+      </div>
+      <div>
+        <label for="family-name">Family name</label>
+        <input id="family-name" name="family_name" type="text" required>
+      </div>
+    </div>
+
+    <label for="reach-me">Where can we reach you?</label>
+    <input id="reach-me" name="best_contact_destination" type="email" required>
+
+    <label for="campus-home">Current campus or institution</label>
+    <input id="campus-home" name="academic_home" type="text" required>
+
+    <label for="study-focus">What do you study most closely?</label>
+    <input id="study-focus" name="learning_focus" type="text" required>
+
+    <label for="code-portfolio">Show us your code portfolio</label>
+    <input id="code-portfolio" name="developer_portfolio" type="url">
+
+    <label for="personal-note">Tell the review team about yourself</label>
+    <textarea id="personal-note" name="review_team_note" required></textarea>
+
+    <button id="submit-application" type="submit">Submit application</button>
+  </form>
+</body>
+</html>
+

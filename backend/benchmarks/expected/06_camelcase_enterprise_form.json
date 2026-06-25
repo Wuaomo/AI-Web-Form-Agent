@@ -1,0 +1,22 @@
+{
+  "case_id": "06_camelcase_enterprise_form",
+  "title": "CamelCase enterprise form",
+  "html_file": "../forms/06_camelcase_enterprise_form.html",
+  "tags": ["camelcase", "selector-metadata", "label-missing"],
+  "expected": {
+    "login_required": false,
+    "not_extracted_selectors": [],
+    "fields": [
+      {"selector": "#candidateFullName", "profile_key": "full_name", "required": true},
+      {"selector": "#candidateEmailAddress", "profile_key": "email", "required": true},
+      {"selector": "#candidatePhoneNumber", "profile_key": "phone", "required": false},
+      {"selector": "#almaMater", "profile_key": "university", "required": false},
+      {"selector": "#degreeMajor", "profile_key": "major", "required": false},
+      {"selector": "#linkedInProfile", "profile_key": "linkedin", "required": false},
+      {"selector": "#githubUrl", "profile_key": "github", "required": false},
+      {"selector": "#personalIntroduction", "profile_key": "self_intro", "required": false},
+      {"selector": "#continueButton", "profile_key": null, "required": false, "reason": "non_fillable_action"}
+    ]
+  }
+}
+
