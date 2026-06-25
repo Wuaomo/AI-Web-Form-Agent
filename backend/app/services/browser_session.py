@@ -122,7 +122,7 @@ def _prepare_login_session_sync(
             page = context.pages[0] if context.pages else context.new_page()
             page.goto(url, wait_until="domcontentloaded", timeout=30_000)
             try:
-                context.wait_for_event("close", timeout=timeout_seconds * 1000)
+                page.wait_for_event("close", timeout=timeout_seconds * 1000)
                 timed_out = False
             except PlaywrightTimeoutError:
                 timed_out = True
