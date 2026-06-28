@@ -268,6 +268,7 @@ def test_login_and_analyze_retries_original_url_after_manual_login(
         placeholder=None,
         name="email",
         html_id="email",
+        current_value=None,
         required=True,
     )
 

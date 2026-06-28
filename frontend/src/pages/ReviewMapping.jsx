@@ -32,6 +32,13 @@ function fieldDisplayName(field) {
   return field.label || field.name || field.placeholder || field.selector;
 }
 
+function fieldHint(field) {
+  if (!field.placeholder || field.placeholder === fieldDisplayName(field)) {
+    return "";
+  }
+  return field.placeholder;
+}
+
 function needsRequiredInput(field) {
   return field.required && isFillableField(field) && !field.mapped_value;
 }
@@ -203,9 +210,19 @@ function ReviewMapping() {
                 <tr className={needsRequiredInput(field) ? "row-needs-input" : ""} key={field.id}>
                   <td>
                     <strong>{fieldDisplayName(field)}</strong>
+                    {fieldHint(field) && (
+                      <small className="field-meta">
+                        Hint: {fieldHint(field)}
+                      </small>
+                    )}
                     {field.required && <span className="required"> required</span>}
                     {needsRequiredInput(field) && (
                       <span className="required"> needs input</span>
+                    )}
+                    {field.current_value && (
+                      <small className="field-meta">
+                        Current: {field.current_value}
+                      </small>
                     )}
                   </td>
                   <td>{field.field_type || "—"}</td>

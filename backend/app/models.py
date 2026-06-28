@@ -76,6 +76,7 @@ class FormField(Base):
     placeholder: Mapped[Optional[str]] = mapped_column(String(500))
     name: Mapped[Optional[str]] = mapped_column(String(500))
     html_id: Mapped[Optional[str]] = mapped_column(String(500))
+    current_value: Mapped[Optional[str]] = mapped_column(Text)
     required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     mapped_profile_key: Mapped[Optional[str]] = mapped_column(String(100))
     mapped_value: Mapped[Optional[str]] = mapped_column(Text)

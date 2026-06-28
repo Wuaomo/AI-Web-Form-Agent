@@ -151,6 +151,7 @@ def save_extracted_fields(
                 placeholder=field.placeholder,
                 name=field.name,
                 html_id=field.html_id,
+                current_value=field.current_value,
                 required=field.required,
             )
         )

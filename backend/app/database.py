@@ -56,6 +56,7 @@ def _add_missing_form_field_columns() -> None:
     missing_columns = {
         "name": "VARCHAR(500)",
         "html_id": "VARCHAR(500)",
+        "current_value": "TEXT",
     }
 
     with engine.begin() as connection:

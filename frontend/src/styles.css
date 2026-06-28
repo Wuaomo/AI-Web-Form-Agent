@@ -401,6 +401,13 @@ th {
   font-size: 0.75rem;
 }
 
+.field-meta {
+  display: block;
+  margin-top: 0.35rem;
+  color: #687386;
+  overflow-wrap: anywhere;
+}
+
 .row-needs-input {
   background: #fffaf2;
 }

@@ -18,6 +18,7 @@ class ExtractedFormField:
     placeholder: str | None
     name: str | None
     html_id: str | None
+    current_value: str | None
     required: bool
 
 
@@ -206,10 +207,17 @@ _EXTRACT_FIELDS_SCRIPT = """
     const title = normalizeText(element.getAttribute("title"));
     if (title) return title;
 
+    const groupQuestion = questionFor(element);
+    if (groupQuestion) return groupQuestion;
+
     const placeholder = normalizeText(element.getAttribute("placeholder"));
     if (placeholder) return placeholder;
 
-    const formItem = element.closest([
+    return null;
+  }
+
+  function formItemFor(element) {
+    return element.closest([
       ".form-item",
       ".form-group",
       ".field",
@@ -219,9 +227,34 @@ _EXTRACT_FIELDS_SCRIPT = """
       "[class*='form_group' i]",
       "[class*='field' i]",
     ].join(", "));
+  }
+
+  function questionFor(element) {
+    const fieldset = element.closest("fieldset");
+    if (fieldset) {
+      const legendText = normalizeText(
+        fieldset.querySelector("legend")?.innerText ||
+        fieldset.querySelector("legend")?.textContent
+      );
+      if (legendText) return legendText;
+    }
+
+    const formItem = formItemFor(element);
     if (formItem) {
-      const labelNode = formItem.querySelector("label");
-      const labelText = normalizeText(labelNode?.innerText || labelNode?.textContent);
+      const labelNode = formItem.querySelector([
+        ".label",
+        ".title",
+        ".question",
+        ".ant-form-item-label",
+        ".el-form-item__label",
+        "label",
+        "[class*='label' i]",
+        "[class*='title' i]",
+        "[class*='question' i]",
+      ].join(", "));
+      const labelText = normalizeText(
+        labelNode?.innerText || labelNode?.textContent
+      );
       if (labelText) return labelText;
     }
 
@@ -234,6 +267,16 @@ _EXTRACT_FIELDS_SCRIPT = """
     }
 
     return null;
+  }
+
+  function displayLabelFor(element) {
+    const ownLabel = labelFor(element);
+    const type = (element.type || "").toLowerCase();
+    if (!["radio", "checkbox"].includes(type)) return ownLabel;
+
+    const question = questionFor(element);
+    if (!question || !ownLabel || question === ownLabel) return ownLabel;
+    return `${question} - ${ownLabel}`;
   }
 
   function hasUsefulIdentity(element, label) {
@@ -252,6 +295,17 @@ _EXTRACT_FIELDS_SCRIPT = """
     return `${field.field_type}:selector:${field.selector}`;
   }
 
+  function currentValueFor(element, fieldType) {
+    if (fieldType === "checkbox" || fieldType === "radio") {
+      return element.checked ? "checked" : null;
+    }
+    if (element.tagName.toLowerCase() === "select") {
+      return normalizeText(element.selectedOptions?.[0]?.textContent) ||
+        normalizeText(element.value);
+    }
+    return normalizeText(element.value);
+  }
+
   const fields = [];
   const seen = new Set();
 
@@ -262,7 +316,7 @@ _EXTRACT_FIELDS_SCRIPT = """
     const fieldType = tagName === "input"
       ? (element.type || "text").toLowerCase()
       : tagName;
-    const label = labelFor(element);
+    const label = displayLabelFor(element);
     if (!hasUsefulIdentity(element, label)) return;
 
     const field = {
@@ -272,6 +326,7 @@ _EXTRACT_FIELDS_SCRIPT = """
       placeholder: normalizeText(element.getAttribute("placeholder")),
       name: normalizeText(element.getAttribute("name")),
       html_id: normalizeText(element.id),
+      current_value: currentValueFor(element, fieldType),
       required:
         Boolean(element.required) ||
         element.getAttribute("aria-required") === "true",
