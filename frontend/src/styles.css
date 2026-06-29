@@ -401,6 +401,26 @@ th {
   font-size: 0.75rem;
 }
 
+.field-title {
+  display: block;
+  margin-top: 0.15rem;
+}
+
+.field-meta {
+  display: block;
+  margin-top: 0.35rem;
+  color: #687386;
+  overflow-wrap: anywhere;
+}
+
+.field-ref {
+  display: inline-block;
+  margin-top: 0.45rem;
+  color: #8a94a6;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.72rem;
+}
+
 .row-needs-input {
   background: #fffaf2;
 }

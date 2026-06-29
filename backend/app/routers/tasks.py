@@ -146,12 +146,16 @@ def save_extracted_fields(
         db.add(
             FormField(
                 task_id=task.id,
+                element_ref=field.element_ref,
+                form_title=field.form_title,
+                section_title=field.section_title,
                 label=field.label,
                 selector=field.selector,
                 field_type=field.field_type,
                 placeholder=field.placeholder,
                 name=field.name,
                 html_id=field.html_id,
+                current_value=field.current_value,
                 required=field.required,
             )
         )

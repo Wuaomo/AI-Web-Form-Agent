@@ -70,18 +70,34 @@ class FormField(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), nullable=False)
+    element_ref: Mapped[Optional[str]] = mapped_column(String(100))
+    form_title: Mapped[Optional[str]] = mapped_column(String(500))
+    section_title: Mapped[Optional[str]] = mapped_column(String(500))
     label: Mapped[Optional[str]] = mapped_column(String(500))
     selector: Mapped[str] = mapped_column(String(1000), nullable=False)
     field_type: Mapped[Optional[str]] = mapped_column(String(100))
     placeholder: Mapped[Optional[str]] = mapped_column(String(500))
     name: Mapped[Optional[str]] = mapped_column(String(500))
     html_id: Mapped[Optional[str]] = mapped_column(String(500))
+    current_value: Mapped[Optional[str]] = mapped_column(Text)
     required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     mapped_profile_key: Mapped[Optional[str]] = mapped_column(String(100))
     mapped_value: Mapped[Optional[str]] = mapped_column(Text)
     confidence: Mapped[Optional[float]] = mapped_column(Float)
 
     task: Mapped["Task"] = relationship(back_populates="form_fields")
+
+    @property
+    def field_label(self) -> Optional[str]:
+        """Semantic alias for the input's own title."""
+
+        return self.label
+
+    @property
+    def hint(self) -> Optional[str]:
+        """Semantic alias for the input placeholder/help text."""
+
+        return self.placeholder
 
 
 class ActionLog(Base):

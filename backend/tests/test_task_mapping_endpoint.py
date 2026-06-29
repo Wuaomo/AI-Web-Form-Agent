@@ -262,12 +262,16 @@ def test_login_and_analyze_retries_original_url_after_manual_login(
     task.status = "LOGIN_REQUIRED"
     session.commit()
     extracted_field = ExtractedFormField(
+        element_ref="field_1",
+        form_title="Contact information",
+        section_title=None,
         label="Email",
         selector="#email",
         field_type="email",
         placeholder=None,
         name="email",
         html_id="email",
+        current_value=None,
         required=True,
     )
 

@@ -12,12 +12,16 @@ from app.services.browser_session import run_with_persistent_page
 class ExtractedFormField:
     """A serializable form control discovered on a web page."""
 
+    element_ref: str
+    form_title: str | None
+    section_title: str | None
     label: str | None
     selector: str
     field_type: str
     placeholder: str | None
     name: str | None
     html_id: str | None
+    current_value: str | None
     required: bool
 
 
@@ -106,6 +110,86 @@ _EXTRACT_FIELDS_SCRIPT = """
     return (normalizeText(value) || "").toLowerCase();
   }
 
+  function cleanLabelText(value) {
+    const text = normalizeText(value);
+    if (!text) return null;
+    const withoutRequiredMarker = text
+      .replace(/^[*＊\\s]+/, "")
+      .replace(/[*＊\\s]+$/, "")
+      .replace(/^(必填|必选|required)\\s*[:：]?\\s*/i, "")
+      .replace(/\\s*(必填|必选|required)$/i, "")
+      .replace(/[\\s\\u00a0]+\\+[\\s\\u00a0]*\\d[\\d\\s\\u00a0-]*.*$/, "")
+      .replace(/[\\s\\u00a0]+(请输入|请填写|请选择|please enter|please input|please select)$/i, "")
+      .replace(/[\\s\\u00a0]*[-–—~至到]+$/, "")
+      .trim();
+    return withoutRequiredMarker || text;
+  }
+
+  function elementIsVisible(element) {
+    if (element.hidden || element.getAttribute("aria-hidden") === "true") {
+      return false;
+    }
+
+    const style = window.getComputedStyle(element);
+    if (
+      style.display === "none" ||
+      style.visibility === "hidden" ||
+      Number(style.opacity) === 0
+    ) {
+      return false;
+    }
+
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  function visibleTextFrom(node) {
+    if (!node || !elementIsVisible(node)) return null;
+    return normalizeText(node.innerText || node.textContent);
+  }
+
+  function isInHiddenTree(element) {
+    return Boolean(
+      element.closest('[hidden], [aria-hidden="true"], [inert]')
+    );
+  }
+
+  function isInsideTransientChoiceList(element) {
+    const transientContainer = element.closest([
+      '[role="listbox"]',
+      '[role="menu"]',
+      '[role="option"]',
+      '[role="tree"]',
+      '[role="grid"]',
+      '[class*="dropdown" i]',
+      '[class*="popover" i]',
+      '[class*="menu" i]',
+      '[class*="select-dropdown" i]',
+      '[class*="cascader" i]',
+    ].join(", "));
+    if (!transientContainer) return false;
+
+    const form = element.closest("form");
+    return !form || !form.contains(transientContainer);
+  }
+
+  function isSupportedControl(element) {
+    const tagName = element.tagName.toLowerCase();
+    if (!["input", "textarea", "select"].includes(tagName)) return false;
+    if (element.disabled) return false;
+    if (!elementIsVisible(element) || isInHiddenTree(element)) return false;
+    if (isInsideTransientChoiceList(element)) return false;
+
+    const type = (element.type || "text").toLowerCase();
+    return !(tagName === "input" && NON_FILLABLE_INPUT_TYPES.has(type));
+  }
+
+  function shortTextFrom(node) {
+    const text = normalizeText(node?.innerText || node?.textContent);
+    if (!text || text.length > 160) return null;
+    return text;
+  }
+
   function isUnique(selector) {
     try {
       return document.querySelectorAll(selector).length === 1;
@@ -170,38 +254,6 @@ _EXTRACT_FIELDS_SCRIPT = """
     return path.join(" > ");
   }
 
-  function elementIsVisible(element) {
-    if (element.hidden || element.getAttribute("aria-hidden") === "true") {
-      return false;
-    }
-
-    const style = window.getComputedStyle(element);
-    if (
-      style.display === "none" ||
-      style.visibility === "hidden" ||
-      Number(style.opacity) === 0
-    ) {
-      return false;
-    }
-
-    const rect = element.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
-  }
-
-  function isSkippableControl(element) {
-    const tagName = element.tagName.toLowerCase();
-    const fieldType = tagName === "input"
-      ? (element.type || "text").toLowerCase()
-      : tagName;
-
-    if (!elementIsVisible(element)) return true;
-    if (element.disabled || element.readOnly) return true;
-    if (tagName === "input" && NON_FILLABLE_INPUT_TYPES.has(fieldType)) {
-      return true;
-    }
-    return false;
-  }
-
   function isTextNodeVisible(node) {
     const parent = node.parentElement;
     return parent && elementIsVisible(parent);
@@ -238,10 +290,57 @@ _EXTRACT_FIELDS_SCRIPT = """
     return normalizeText(parts.join(" "));
   }
 
+  function uniqueTextParts(parts) {
+    const seen = new Set();
+    return parts.filter(part => {
+      const normalized = normalizedLowerText(part);
+      if (!normalized || seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    });
+  }
+
+  function formItemFor(element) {
+    let current = element.parentElement;
+    while (current && current !== document.body) {
+      const className =
+        typeof current.className === "string" ? current.className : "";
+      const normalizedClass = className.toLowerCase();
+      const isFormItemPart =
+        /(^|[-_\\s])(control|content|core|label|help|extra|feedback|message)([-_\\s]|$)/.test(
+          normalizedClass
+        ) || normalizedClass.includes("date-uxform-field-cascade");
+      const isDirectFormItem = current.matches([
+        ".form-item",
+        ".form-group",
+        ".next-form-item",
+        ".kuma-uxform-field",
+        ".ant-form-item",
+        ".el-form-item",
+        ".arco-form-item",
+        ".semi-form-field",
+        ".semi-form-field-wrapper",
+        "[role='group']",
+      ].join(", "));
+      const isNamedFormItem =
+        /form[-_]?item|form[-_]?field|formgroup|form_group|uxform[-_]?field/.test(
+          normalizedClass
+        );
+
+      if ((isDirectFormItem || isNamedFormItem) && !isFormItemPart) {
+        return current;
+      }
+
+      current = current.parentElement;
+    }
+
+    return element.closest(".field, .field-row, .control-group, li, label");
+  }
+
   function fieldsetLegendText(element) {
     const fieldset = element.closest("fieldset");
     const legend = fieldset?.querySelector("legend");
-    return normalizeText(legend?.innerText || legend?.textContent);
+    return cleanLabelText(legend?.innerText || legend?.textContent);
   }
 
   function previousSiblingText(element) {
@@ -258,53 +357,48 @@ _EXTRACT_FIELDS_SCRIPT = """
   }
 
   function ancestorContextText(element) {
-    const selector = [
-      ".ant-form-item",
-      ".el-form-item",
-      ".semi-form-field",
-      ".form-item",
-      ".form-group",
-      ".field",
-      ".field-row",
-      ".control-group",
-      "[role='group']",
-      "li",
-      "label",
-    ].join(",");
-    let current = element.parentElement;
-    let fallback = null;
+    const formItem = formItemFor(element);
+    if (formItem) {
+      const labelNode = formItem.querySelector([
+        ".kuma-label .label-content",
+        ".kuma-label",
+        ".next-form-item-label",
+        ".label",
+        ".title",
+        ".question",
+        ".ant-form-item-label",
+        ".ant-form-item-required",
+        ".el-form-item__label",
+        ".arco-form-label-item",
+        ".semi-form-field-label",
+        "label",
+        "[class*='item-label' i]",
+        "[class*='form-label' i]",
+        "[class*='label' i]",
+        "[class*='title' i]",
+        "[class*='question' i]",
+      ].join(", "));
+      const labelText = cleanLabelText(
+        labelNode?.innerText || labelNode?.textContent
+      );
+      if (labelText) return labelText;
 
-    while (current && current !== document.body) {
-      if (current.matches(selector)) {
-        const text = textOutsideControls(current, element);
-        if (text && text.length <= 180) return text;
-        if (text && text.length <= 280 && !fallback) fallback = text;
-      }
-      current = current.parentElement;
+      const text = textOutsideControls(formItem, element);
+      if (text && text.length <= 180) return text;
     }
 
-    return fallback;
-  }
-
-  function uniqueTextParts(parts) {
-    const seen = new Set();
-    return parts.filter(part => {
-      const normalized = normalizedLowerText(part);
-      if (!normalized || seen.has(normalized)) return false;
-      seen.add(normalized);
-      return true;
-    });
+    return null;
   }
 
   function labelFor(element) {
     const labels = element.labels
       ? Array.from(element.labels)
-          .map(label => normalizeText(label.innerText || label.textContent))
+          .map(label => cleanLabelText(label.innerText || label.textContent))
           .filter(Boolean)
       : [];
     if (labels.length) return labels.join(" ");
 
-    const ariaLabel = normalizeText(element.getAttribute("aria-label"));
+    const ariaLabel = cleanLabelText(element.getAttribute("aria-label"));
     if (ariaLabel) return ariaLabel;
 
     const labelledBy = element.getAttribute("aria-labelledby");
@@ -313,22 +407,208 @@ _EXTRACT_FIELDS_SCRIPT = """
         .split(/\\s+/)
         .map(id => document.getElementById(id))
         .filter(Boolean)
-        .map(node => normalizeText(node.innerText || node.textContent))
+        .map(node => cleanLabelText(node.innerText || node.textContent))
         .filter(Boolean)
         .join(" ");
       if (text) return text;
     }
 
-    const title = normalizeText(element.getAttribute("title"));
+    const legend = fieldsetLegendText(element);
+    const ancestor = ancestorContextText(element);
+    const previous = previousSiblingText(element);
+    const context = normalizeText(
+      uniqueTextParts([legend, ancestor, previous].filter(Boolean)).join(" ")
+    );
+    if (context) return cleanLabelText(context);
+
+    const title = cleanLabelText(element.getAttribute("title"));
     if (title) return title;
 
-    const legend = fieldsetLegendText(element);
-    const previous = previousSiblingText(element);
-    const ancestor = ancestorContextText(element);
-    const context = normalizeText(
-      uniqueTextParts([legend, previous, ancestor].filter(Boolean)).join(" ")
+    return placeholderFor(element);
+  }
+
+  function requiredFor(element, label) {
+    if (Boolean(element.required) || element.getAttribute("aria-required") === "true") {
+      return true;
+    }
+
+    const formItem = formItemFor(element);
+    const requiredContainer = element.closest('[aria-required="true"], [required]');
+    if (requiredContainer) return true;
+
+    if (formItem) {
+      const requiredNode = formItem.querySelector([
+        ".required",
+        ".ant-form-item-required",
+        ".el-form-item.is-required",
+        ".next-form-item-required",
+        ".semi-form-field-label-required",
+        ".arco-form-label-item-required",
+        "[class*='required' i]",
+        "[class*='asterisk' i]",
+      ].join(", "));
+      if (requiredNode && elementIsVisible(requiredNode)) return true;
+
+      const labelText = visibleTextFrom(formItem.querySelector([
+        ".kuma-label",
+        ".next-form-item-label",
+        ".ant-form-item-label",
+        ".el-form-item__label",
+        ".arco-form-label-item",
+        ".semi-form-field-label",
+        "label",
+        "[class*='item-label' i]",
+        "[class*='form-label' i]",
+        "[class*='label' i]",
+      ].join(", ")));
+      if (/^[\\s*＊]+/.test(labelText || "") || /[*＊]/.test(labelText || "")) {
+        return true;
+      }
+
+      const validationText = visibleTextFrom(formItem);
+      if (/不能为空|不可为空|必填|必选|required|must not be empty|please enter/i.test(validationText || "")) {
+        return true;
+      }
+    }
+
+    return /^[\\s*＊]+/.test(label || "");
+  }
+
+  function textByIds(value) {
+    if (!value) return null;
+    const text = value
+      .split(/\\s+/)
+      .map(id => document.getElementById(id))
+      .filter(Boolean)
+      .map(shortTextFrom)
+      .filter(Boolean)
+      .join(" ");
+    return normalizeText(text);
+  }
+
+  function headingBefore(element) {
+    const headings = Array.from(
+      document.querySelectorAll("h1, h2, h3, h4, legend, [role='heading']")
+    ).filter(heading => {
+      if (!elementIsVisible(heading)) return false;
+      const position = heading.compareDocumentPosition(element);
+      return Boolean(position & Node.DOCUMENT_POSITION_FOLLOWING);
+    });
+    return shortTextFrom(headings.at(-1));
+  }
+
+  function headingBeforeWithin(container, element) {
+    if (!container) return null;
+    const headings = Array.from(
+      container.querySelectorAll("h2, h3, h4, h5, legend, [role='heading']")
+    ).filter(heading => {
+      if (!elementIsVisible(heading)) return false;
+      const position = heading.compareDocumentPosition(element);
+      return Boolean(position & Node.DOCUMENT_POSITION_FOLLOWING);
+    });
+    return shortTextFrom(headings.at(-1));
+  }
+
+  function formTitleFor(element) {
+    const container = element.closest(
+      "form, section, article, [role='form'], .uxcore-card, .form-card, [class*='form-card' i]"
     );
-    if (context) return context;
+    if (container) {
+      const labelledText = textByIds(container.getAttribute("aria-labelledby"));
+      if (labelledText) return labelledText;
+
+      const ariaLabel = normalizeText(container.getAttribute("aria-label"));
+      if (ariaLabel) return ariaLabel;
+
+      const heading = Array.from(
+        container.querySelectorAll([
+          "h1",
+          "h2",
+          "h3",
+          "h4",
+          "legend",
+          "[role='heading']",
+          ".uxcore-card-title",
+          ".next-card-title",
+          ".card-title",
+          "[class*='card-title' i]",
+          "[class*='section-title' i]",
+        ].join(", "))
+      )
+        .map(shortTextFrom)
+        .find(Boolean);
+      if (heading) return heading;
+    }
+
+    return headingBefore(element);
+  }
+
+  function sectionTitleFor(element, fieldLabel) {
+    const fieldset = element.closest("fieldset");
+    if (fieldset) {
+      const legendText = shortTextFrom(fieldset.querySelector("legend"));
+      if (legendText && legendText !== fieldLabel) return legendText;
+    }
+
+    const container = element.closest([
+      "[class*='section' i]",
+      "[class*='card' i]",
+      "[class*='panel' i]",
+      "[class*='collapse' i]",
+      "[class*='experience' i]",
+      "[class*='education' i]",
+      "section",
+      "article",
+      "li",
+    ].join(", "));
+    const heading = headingBeforeWithin(container, element);
+    if (heading && heading !== fieldLabel) return heading;
+
+    return null;
+  }
+
+  function displayLabelFor(element) {
+    const ownLabel = labelFor(element);
+    const type = (element.type || "").toLowerCase();
+    if (!["radio", "checkbox"].includes(type)) return ownLabel;
+
+    const question = ancestorContextText(element) || fieldsetLegendText(element);
+    if (!question || !ownLabel || question === ownLabel) return ownLabel;
+    const normalizedQuestion = normalizedLowerText(cleanLabelText(question));
+    const normalizedOwnLabel = normalizedLowerText(cleanLabelText(ownLabel));
+    if (
+      normalizedQuestion === normalizedOwnLabel ||
+      normalizedQuestion.includes(normalizedOwnLabel) ||
+      normalizedOwnLabel.includes(normalizedQuestion)
+    ) {
+      return cleanLabelText(ownLabel);
+    }
+    return `${question} - ${ownLabel}`;
+  }
+
+  function placeholderFor(element) {
+    const nativePlaceholder = normalizeText(element.getAttribute("placeholder"));
+    if (nativePlaceholder) return nativePlaceholder;
+
+    const formItem = formItemFor(element);
+    if (formItem) {
+      const componentPlaceholder = [
+        ".kuma-select2-selection__placeholder",
+        ".next-select-placeholder",
+        ".ant-select-selection-placeholder",
+        ".el-input__inner[placeholder]",
+        "[class*='placeholder' i]",
+      ]
+        .map(selector => formItem.querySelector(selector))
+        .filter(Boolean)
+        .map(node => normalizeText(
+          node.getAttribute("placeholder") ||
+          node.innerText ||
+          node.textContent
+        ))
+        .find(Boolean);
+      if (componentPlaceholder) return componentPlaceholder;
+    }
 
     return null;
   }
@@ -351,28 +631,56 @@ _EXTRACT_FIELDS_SCRIPT = """
     return !hasOnlyGenericPrompt;
   }
 
-  return elements.map(element => {
-    if (isSkippableControl(element)) return null;
+  function fieldKey(field) {
+    return `${field.field_type}:selector:${field.selector}`;
+  }
+
+  function currentValueFor(element, fieldType) {
+    if (fieldType === "checkbox" || fieldType === "radio") {
+      return element.checked ? "checked" : null;
+    }
+    if (element.tagName.toLowerCase() === "select") {
+      return normalizeText(element.selectedOptions?.[0]?.textContent) ||
+        normalizeText(element.value);
+    }
+    return normalizeText(element.value);
+  }
+
+  const fields = [];
+  const seen = new Set();
+
+  elements.forEach(element => {
+    if (!isSupportedControl(element)) return;
 
     const tagName = element.tagName.toLowerCase();
     const fieldType = tagName === "input"
       ? (element.type || "text").toLowerCase()
       : tagName;
-
+    const label = displayLabelFor(element);
     const field = {
-      label: labelFor(element),
+      element_ref: "",
+      form_title: formTitleFor(element),
+      section_title: sectionTitleFor(element, label),
+      label,
       selector: selectorFor(element),
       field_type: fieldType,
-      placeholder: normalizeText(element.getAttribute("placeholder")),
+      placeholder: placeholderFor(element),
       name: normalizeText(element.getAttribute("name")),
       html_id: normalizeText(element.id),
-      required:
-        Boolean(element.required) ||
-        element.getAttribute("aria-required") === "true",
+      current_value: currentValueFor(element, fieldType),
+      required: requiredFor(element, label),
     };
+    if (!hasMeaningfulMetadata(field)) return;
 
-    return hasMeaningfulMetadata(field) ? field : null;
-  }).filter(Boolean);
+    const key = fieldKey(field);
+    if (seen.has(key)) return;
+
+    seen.add(key);
+    field.element_ref = `field_${fields.length + 1}`;
+    fields.push(field);
+  });
+
+  return fields;
 }
 """
 

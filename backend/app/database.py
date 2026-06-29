@@ -54,8 +54,12 @@ def _add_missing_form_field_columns() -> None:
         column["name"] for column in inspector.get_columns("form_fields")
     }
     missing_columns = {
+        "element_ref": "VARCHAR(100)",
+        "form_title": "VARCHAR(500)",
+        "section_title": "VARCHAR(500)",
         "name": "VARCHAR(500)",
         "html_id": "VARCHAR(500)",
+        "current_value": "TEXT",
     }
 
     with engine.begin() as connection:

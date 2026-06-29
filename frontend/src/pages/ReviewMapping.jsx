@@ -35,7 +35,29 @@ function isFillableField(field) {
 }
 
 function fieldDisplayName(field) {
-  return field.label || field.name || field.placeholder || field.selector;
+  return field.field_label || field.label || field.name || field.hint || field.placeholder || field.selector;
+}
+
+function fieldHint(field) {
+  const hint = field.hint || field.placeholder;
+  if (!hint || hint === fieldDisplayName(field)) {
+    return "";
+  }
+  return hint;
+}
+
+function fieldFormTitle(field) {
+  if (!field.form_title || field.form_title === fieldDisplayName(field)) {
+    return "";
+  }
+  return field.form_title;
+}
+
+function fieldSectionTitle(field) {
+  if (!field.section_title || field.section_title === fieldDisplayName(field)) {
+    return "";
+  }
+  return field.section_title;
 }
 
 function needsRequiredInput(field) {
@@ -208,10 +230,35 @@ function ReviewMapping() {
               {fields.map((field) => (
                 <tr className={needsRequiredInput(field) ? "row-needs-input" : ""} key={field.id}>
                   <td>
-                    <strong>{fieldDisplayName(field)}</strong>
+                    {fieldFormTitle(field) && (
+                      <small className="field-meta">
+                        Form: {fieldFormTitle(field)}
+                      </small>
+                    )}
+                    {fieldSectionTitle(field) && (
+                      <small className="field-meta">
+                        Section: {fieldSectionTitle(field)}
+                      </small>
+                    )}
+                    <strong className="field-title">
+                      Field: {fieldDisplayName(field)}
+                    </strong>
+                    {fieldHint(field) && (
+                      <small className="field-meta">
+                        Hint: {fieldHint(field)}
+                      </small>
+                    )}
                     {field.required && <span className="required"> required</span>}
                     {needsRequiredInput(field) && (
                       <span className="required"> needs input</span>
+                    )}
+                    {field.current_value && (
+                      <small className="field-meta">
+                        Current: {field.current_value}
+                      </small>
+                    )}
+                    {field.element_ref && (
+                      <small className="field-ref">{field.element_ref}</small>
                     )}
                   </td>
                   <td>{field.field_type || "—"}</td>

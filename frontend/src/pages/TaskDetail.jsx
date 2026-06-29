@@ -16,7 +16,7 @@ function isFillableField(field) {
 }
 
 function fieldDisplayName(field) {
-  return field.label || field.name || field.placeholder || field.selector;
+  return field.field_label || field.label || field.name || field.hint || field.placeholder || field.selector;
 }
 
 function needsRequiredInput(field) {

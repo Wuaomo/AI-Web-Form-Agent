@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Taotian Social Resume Mock</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: #202733;
+      background: #f5f6f8;
+      font-family: Arial, "Microsoft YaHei", sans-serif;
+    }
+    .page {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 20px 0 60px;
+      background: #fff;
+    }
+    .uxcore-card.form-card {
+      margin-bottom: 22px;
+      border-bottom: 1px solid #eef0f4;
+      background: #fff;
+    }
+    .uxcore-card-title {
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid #e8ebf0;
+      font-size: 20px;
+      font-weight: 700;
+    }
+    .uxcore-card-content {
+      padding: 24px 20px 28px;
+    }
+    .kuma-uxform-row,
+    .field-group-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 34px 30px;
+    }
+    .kuma-uxform-field {
+      min-width: 0;
+    }
+    .kuma-label {
+      display: block;
+      margin-bottom: 8px;
+      color: #333b49;
+      font-size: 14px;
+    }
+    .required {
+      color: #ff3b30;
+      margin-right: 6px;
+    }
+    .kuma-input,
+    .kuma-textarea {
+      width: 100%;
+      border: 1px solid #ff3b30;
+      color: #222;
+      background: #fff4f4;
+      font: inherit;
+      outline: none;
+    }
+    .kuma-input {
+      height: 46px;
+      padding: 0 12px;
+      font-size: 18px;
+    }
+    .kuma-textarea {
+      height: 156px;
+      padding: 14px 12px;
+      resize: none;
+      font-size: 18px;
+    }
+    .kuma-select2-selection__placeholder {
+      height: 46px;
+      padding: 12px;
+      border: 1px solid #ff3b30;
+      color: #9aa3b2;
+      background: #fff4f4;
+      font-size: 18px;
+    }
+    .kuma-date-uxform-field-cascade {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 20px minmax(0, 1fr);
+      align-items: center;
+      gap: 6px;
+    }
+    .kuma-uxform-split {
+      text-align: center;
+      color: #aab2c0;
+    }
+    .kuma-uxform-textarea-count {
+      margin-top: -30px;
+      padding-right: 10px;
+      text-align: right;
+      font-size: 18px;
+    }
+    .upload-box {
+      display: inline-block;
+      padding: 10px 18px;
+      border: 1px solid #d3d8e2;
+      color: #1677ff;
+      background: #fff;
+    }
+    .upload-help {
+      margin-top: 8px;
+      color: #758195;
+      font-size: 13px;
+    }
+    .add-row {
+      width: 100%;
+      padding: 26px 0 0;
+      color: #1890ff;
+      font-size: 18px;
+    }
+    .save-button {
+      margin-top: 26px;
+      padding: 12px 22px;
+      border: 0;
+      border-radius: 4px;
+      color: #fff;
+      background: #ff6a00;
+      font-size: 14px;
+    }
+    .declaration {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      line-height: 1.7;
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="uxcore-card form-card" aria-labelledby="upload-title">
+      <div class="uxcore-card-title" id="upload-title">上传简历</div>
+      <div class="uxcore-card-content">
+        <div class="resume-upload-wrap">
+          <label class="kuma-upload-picker">
+            <input type="file" accept=".pdf,.docx,.txt,.jpg,.png">
+            <span class="upload-box">手动上传简历</span>
+          </label>
+          <div class="upload-help">进行自动解析。请将您的简历文件控制在10M以内，支持格式.pdf/.docx/.txt/.jpg/.png。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="uxcore-card form-card" aria-labelledby="profile-title">
+      <div class="uxcore-card-title" id="profile-title">个人信息</div>
+      <div class="uxcore-card-content">
+        <div class="kuma-uxform kuma-uxform-edit-mode">
+          <div class="kuma-uxform-row">
+            <div class="kuma-uxform-field kuma-input-uxform-field kuma-uxform-field__layout-v" style="width: calc(50% - 15px);">
+              <label class="kuma-label vertical-align"><span class="required">* </span><span class="label-content">姓名</span></label>
+              <ul class="kuma-uxform-field-content edit-mode"><li class="kuma-uxform-field-core"><div class="kuma-uxform-input"><input class="kuma-input" type="text" name="name" placeholder="请输入" title="请输入"></div></li></ul>
+            </div>
+            <div class="kuma-uxform-field kuma-uxform-field__layout-v" style="width: calc(50% - 15px);">
+              <label class="kuma-label vertical-align"><span class="required">* </span><span class="label-content">手机</span></label>
+              <ul class="kuma-uxform-field-content edit-mode"><li class="kuma-uxform-field-core"><div class="intlTelInput"><div class="selecttion-wrapper"><span>+86</span><input class="intl-tel-number kuma-input" type="text" placeholder="请输入"></div></div></li></ul>
+            </div>
+            <div class="kuma-uxform-field kuma-input-uxform-field kuma-uxform-field__layout-v" style="width: calc(50% - 15px);">
+              <label class="kuma-label vertical-align"><span class="required">* </span><span class="label-content">邮箱</span></label>
+              <ul class="kuma-uxform-field-content edit-mode"><li class="kuma-uxform-field-core"><div class="kuma-uxform-input"><input class="kuma-input" type="text" name="email" placeholder="请输入" title="请输入"></div></li></ul>
+            </div>
+            <div class="kuma-uxform-field kuma-select-uxform-field kuma-uxform-field__layout-v" style="width: calc(50% - 15px);">
+              <label class="kuma-label vertical-align"><span class="label-content">目前所在城市</span></label>
+              <ul class="kuma-uxform-field-content edit-mode"><li class="kuma-uxform-field-core"><div class="kuma-select2-selection__placeholder">请输入</div><input class="kuma-select2-search__field" type="text"></li></ul>
+            </div>
+            <div class="kuma-uxform-field kuma-select-uxform-field kuma-uxform-field__layout-v" style="width: 100%;">
+              <label class="kuma-label vertical-align"><span class="label-content">期望工作城市</span></label>
+              <ul class="kuma-uxform-field-content edit-mode"><li class="kuma-uxform-field-core"><div class="kuma-select2-selection__placeholder">请输入</div><input class="kuma-select2-search__field" type="text"></li></ul>
+            </div>
+          </div>
+          <button class="save-button" type="button">保存</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="uxcore-card form-card" aria-labelledby="work-title">
+      <div class="uxcore-card-title" id="work-title">工作经历</div>
+      <div class="uxcore-card-content">
+        <div class="field-group-row field-group-row-with-dividing with-horizontal-delete-btn-row">
+          <div class="kuma-uxform-field kuma-select-uxform-field kuma-uxform-field__layout-v" style="width: calc(50% - 15px);">
+            <label class="kuma-label vertical-align"><span class="required">* </span><span class="label-content">公司名称</span></label>
+            <ul class="kuma-uxform-field-content edit-mode"><li class="kuma-uxform-field-core"><div class="kuma-select2-selection__placeholder">请输入</div><input class="kuma-select2-search__field" type="text"></li></ul>
+          </div>
+          <div class="kuma-uxform-field kuma-input-uxform-field kuma-uxform-field__layout-v" style="width: calc(50% - 15px);">
+            <label class="kuma-label vertical-align"><span class="required">* </span><span class="label-content">职务</span></label>
+            <ul class="kuma-uxform-field-content edit-mode"><li class="kuma-uxform-field-core"><input class="kuma-input" type="text" name="position" placeholder="请输入" title="请输入"></li></ul>
+          </div>
+          <div class="kuma-uxform-field kuma-date-uxform-field kuma-cascade-date-uxform-field kuma-uxform-field__layout-v" style="width: 100%;">
+            <label class="kuma-label vertical-align"><span class="required">* </span><span class="label-content">时间</span></label>
+            <ul class="kuma-uxform-field-content edit-mode"><li class="kuma-uxform-field-core"><div class="kuma-date-uxform-field-cascade"><input class="kuma-input" type="text" placeholder="开始日期"><span class="kuma-uxform-split">-</span><input class="kuma-input" type="text" placeholder="结束日期"></div></li></ul>
+          </div>
+          <div class="kuma-uxform-field kuma-textarea-uxform-field kuma-uxform-field__layout-v" style="width: 100%;">
+            <label class="kuma-label vertical-align"><span class="required">* </span><span class="label-content">职务描述</span></label>
+            <ul class="kuma-uxform-field-content edit-mode"><li class="kuma-uxform-field-core"><div class="has-count"><textarea class="kuma-textarea" placeholder="请输入"></textarea><div class="kuma-uxform-textarea-count">0/3000</div></div></li></ul>
+          </div>
+          <div class="add-row">+ 添加工作经历</div>
+        </div>
+        <button class="save-button" type="button">保存</button>
+      </div>
+    </section>
+
+    <section class="uxcore-card form-card" aria-labelledby="project-title">
+      <div class="uxcore-card-title" id="project-title">项目经历</div>
+      <div class="uxcore-card-content">
+        <div class="field-group-row">
+          <div class="kuma-uxform-field kuma-input-uxform-field kuma-uxform-field__layout-v" style="width: calc(50% - 15px);">
+            <label class="kuma-label vertical-align"><span class="required">* </span><span class="label-content">项目名称</span></label>
+            <ul class="kuma-uxform-field-content edit-mode"><li class="kuma-uxform-field-core"><input class="kuma-input" type="text" name="name" placeholder="请输入" title="请输入"></li></ul>
+          </div>
+          <div class="kuma-uxform-field kuma-date-uxform-field kuma-cascade-date-uxform-field kuma-uxform-field__layout-v" style="width: calc(50% - 15px);">
+            <label class="kuma-label vertical-align"><span class="required">* </span><span class="label-content">时间</span></label>
+            <ul class="kuma-uxform-field-content edit-mode"><li class="kuma-uxform-field-core"><div class="kuma-date-uxform-field-cascade"><input class="kuma-input" type="text" placeholder="开始日期"><span class="kuma-uxform-split">-</span><input class="kuma-input" type="text" placeholder="结束日期"></div></li></ul>
+          </div>
+          <div class="kuma-uxform-field kuma-textarea-uxform-field kuma-uxform-field__layout-v" style="width: 100%;">
+            <label class="kuma-label vertical-align"><span class="required">* </span><span class="label-content">职责描述</span></label>
+            <ul class="kuma-uxform-field-content edit-mode"><li class="kuma-uxform-field-core"><textarea class="kuma-textarea" placeholder="请输入"></textarea></li></ul>
+          </div>
+          <div class="add-row">+ 添加项目经历</div>
+        </div>
+        <button class="save-button" type="button">保存</button>
+      </div>
+    </section>
+
+    <section class="uxcore-card form-card" aria-labelledby="education-title">
+      <div class="uxcore-card-title" id="education-title">教育情况</div>
+      <div class="uxcore-card-content">
+        <div class="field-group-row">
+          <div class="kuma-uxform-field kuma-select-uxform-field kuma-uxform-field__layout-v" style="width: calc(50% - 15px);">
+            <label class="kuma-label vertical-align"><span class="required">* </span><span class="label-content">学历</span></label>
+            <ul class="kuma-uxform-field-content edit-mode"><li class="kuma-uxform-field-core"><div class="kuma-select2-selection__placeholder">请选择</div><input class="kuma-select2-search__field" type="text"></li></ul>
+          </div>
+          <div class="kuma-uxform-field kuma-date-uxform-field kuma-cascade-date-uxform-field kuma-uxform-field__layout-v" style="width: calc(50% - 15px);">
+            <label class="kuma-label vertical-align"><span class="required">* </span><span class="label-content">时间</span></label>
+            <ul class="kuma-uxform-field-content edit-mode"><li class="kuma-uxform-field-core"><div class="kuma-date-uxform-field-cascade"><input class="kuma-input" type="text" placeholder="开始日期"><span class="kuma-uxform-split">-</span><input class="kuma-input" type="text" placeholder="结束日期"></div></li></ul>
+          </div>
+          <div class="kuma-uxform-field kuma-select-uxform-field kuma-uxform-field__layout-v" style="width: calc(50% - 15px);">
+            <label class="kuma-label vertical-align"><span class="required">* </span><span class="label-content">学校全称</span></label>
+            <ul class="kuma-uxform-field-content edit-mode"><li class="kuma-uxform-field-core"><div class="kuma-select2-selection__placeholder">请输入</div><input class="kuma-select2-search__field" type="text"></li></ul>
+          </div>
+          <div class="kuma-uxform-field kuma-input-uxform-field kuma-uxform-field__layout-v" style="width: calc(50% - 15px);">
+            <label class="kuma-label vertical-align"><span class="required">* </span><span class="label-content">专业</span></label>
+            <ul class="kuma-uxform-field-content edit-mode"><li class="kuma-uxform-field-core"><input class="kuma-input" type="text" name="major" placeholder="请输入" title="请输入"></li></ul>
+          </div>
+          <div class="kuma-uxform-field kuma-textarea-uxform-field kuma-uxform-field__layout-v" style="width: 100%;">
+            <label class="kuma-label vertical-align"><span class="required">* </span><span class="label-content">学校经历内容</span></label>
+            <ul class="kuma-uxform-field-content edit-mode"><li class="kuma-uxform-field-core"><textarea class="kuma-textarea" placeholder="请输入"></textarea></li></ul>
+          </div>
+          <div class="add-row">+ 添加教育情况</div>
+        </div>
+        <button class="save-button" type="button">保存</button>
+      </div>
+    </section>
+
+    <section class="uxcore-card form-card" aria-labelledby="other-title">
+      <div class="uxcore-card-title" id="other-title">其他</div>
+      <div class="uxcore-card-content">
+        <div class="kuma-uxform-field kuma-upload-uxform-field kuma-uxform-field__layout-v">
+          <label class="kuma-label vertical-align"><span class="label-content">作品集等素材</span></label>
+          <ul class="kuma-uxform-field-content edit-mode"><li class="kuma-uxform-field-core"><label class="upload-box">上传<input type="file" accept=".rar,.zip,.doc,.docx,.pdf,.jpg"></label><div class="upload-help">支持扩展名：.rar .zip .doc .docx .pdf .jpg ，单文件请小于100M，最多可上传3个文件</div></li></ul>
+        </div>
+        <div class="kuma-uxform-field kuma-upload-uxform-field kuma-uxform-field__layout-v">
+          <label class="kuma-label vertical-align"><span class="label-content">培训及获奖证书</span></label>
+          <ul class="kuma-uxform-field-content edit-mode"><li class="kuma-uxform-field-core"><label class="upload-box">上传<input type="file" accept=".rar,.zip,.doc,.docx,.pdf,.jpg"></label><div class="upload-help">支持扩展名：.rar .zip .doc .docx .pdf .jpg ，单文件请小于100M，最多可上传3个文件</div></li></ul>
+        </div>
+        <button class="save-button" type="button">保存</button>
+      </div>
+    </section>
+
+    <section class="uxcore-card form-card" aria-labelledby="terms-title">
+      <div class="uxcore-card-title" id="terms-title">声明条款</div>
+      <div class="uxcore-card-content">
+        <label class="declaration">
+          <input type="checkbox" required>
+          <span><span class="required">*</span>申请此职位表明您已经阅读淘天有限公司及其关联公司《申请工作机会须知》相关内容</span>
+        </label>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
