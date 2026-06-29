@@ -33,6 +33,7 @@ PROFILE_KEYS: tuple[ProfileKey, ...] = (
 
 NON_FILLABLE_FIELD_TYPES = {
     "button",
+    "file",
     "submit",
     "reset",
     "image",

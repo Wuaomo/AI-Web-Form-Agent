@@ -1,0 +1,16 @@
+{
+  "case_id": "08_login_gate_detection",
+  "title": "Login gate detection",
+  "html_file": "../forms/08_login_gate_detection.html",
+  "tags": ["login-gate", "password-field", "safety"],
+  "expected": {
+    "login_required": true,
+    "not_extracted_selectors": [],
+    "fields": [
+      {"selector": "#login-email", "profile_key": null, "required": false, "reason": "login_gate"},
+      {"selector": "#login-password", "profile_key": null, "required": false, "reason": "login_gate"},
+      {"selector": "#sign-in", "profile_key": null, "required": false, "reason": "login_gate_action"}
+    ]
+  }
+}
+

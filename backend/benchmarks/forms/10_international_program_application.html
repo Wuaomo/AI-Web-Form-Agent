@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Benchmark 10 - International Program Application</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 32px; max-width: 720px; }
+    label { display: block; margin: 14px 0 6px; font-weight: 700; }
+    input, textarea { width: 100%; padding: 9px; }
+  </style>
+</head>
+<body>
+  <h1>International Research Program</h1>
+  <form>
+    <label for="passport-display-name">Name as it should appear on records</label>
+    <input id="passport-display-name" name="record_display_name" type="text" required>
+
+    <label for="preferred-inbox">Preferred inbox for official notices</label>
+    <input id="preferred-inbox" name="preferred_inbox" type="email" required>
+
+    <label for="home-institution">Home institution</label>
+    <input id="home-institution" name="home_institution" type="text" required>
+
+    <label for="academic-specialty">Academic specialty</label>
+    <input id="academic-specialty" name="academic_specialty" type="text" required>
+
+    <label for="professional-network">Professional network profile</label>
+    <input id="professional-network" name="professional_network" type="url">
+
+    <label for="public-code-profile">Public code profile</label>
+    <input id="public-code-profile" name="public_code_profile" type="url">
+
+    <label for="brief-biography">Brief biography</label>
+    <textarea id="brief-biography" name="brief_biography"></textarea>
+
+    <button id="send-program-application" type="submit">Send application</button>
+  </form>
+</body>
+</html>
+

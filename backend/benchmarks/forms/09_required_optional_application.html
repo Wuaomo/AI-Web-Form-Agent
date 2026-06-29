@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Benchmark 09 - Required Optional Application</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 32px; max-width: 680px; }
+    label { display: block; margin: 14px 0 6px; font-weight: 700; }
+    input, textarea { width: 100%; padding: 9px; }
+  </style>
+</head>
+<body>
+  <h1>Club Application</h1>
+  <form>
+    <label for="legal-name">Applicant name</label>
+    <input id="legal-name" name="legal_name" type="text" required>
+
+    <label for="primary-email">Primary email</label>
+    <input id="primary-email" name="primary_email" type="email" required>
+
+    <label for="mobile-number">Mobile number</label>
+    <input id="mobile-number" name="mobile_number" type="tel" required>
+
+    <label for="about-yourself">About yourself</label>
+    <textarea id="about-yourself" name="about_yourself" required></textarea>
+
+    <label for="twitter-profile">Twitter profile</label>
+    <input id="twitter-profile" name="twitter_profile" type="url">
+
+    <label for="referral-code">Referral code</label>
+    <input id="referral-code" name="referral_code" type="text">
+
+    <button id="apply-club" type="submit">Apply</button>
+  </form>
+</body>
+</html>
+

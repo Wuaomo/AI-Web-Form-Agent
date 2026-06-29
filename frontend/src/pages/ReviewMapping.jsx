@@ -22,7 +22,13 @@ const profileKeys = [
   "self_intro",
 ];
 
-const nonFillableFieldTypes = new Set(["button", "submit", "reset", "image"]);
+const nonFillableFieldTypes = new Set([
+  "button",
+  "file",
+  "submit",
+  "reset",
+  "image",
+]);
 
 function isFillableField(field) {
   return !nonFillableFieldTypes.has((field.field_type || "").toLowerCase());

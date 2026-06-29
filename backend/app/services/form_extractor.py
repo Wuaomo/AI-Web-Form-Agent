@@ -72,20 +72,80 @@ async def extract_form_fields(url: str, profile_id: int) -> list[ExtractedFormFi
 
 _EXTRACT_FIELDS_SCRIPT = """
 (elements) => {
+  const NON_FILLABLE_INPUT_TYPES = new Set([
+    "hidden",
+    "button",
+    "submit",
+    "reset",
+    "image",
+    "file",
+  ]);
+  const GENERIC_PROMPTS = new Set([
+    "input",
+    "enter",
+    "please enter",
+    "please input",
+    "select",
+    "please select",
+    "请输入",
+    "请填写",
+    "请选择",
+  ]);
+  const STABLE_ATTRIBUTES = [
+    "data-testid",
+    "data-test",
+    "data-cy",
+    "aria-label",
+    "autocomplete",
+    "placeholder",
+  ];
+
   function normalizeText(value) {
     if (!value) return null;
     const normalized = value.replace(/\\s+/g, " ").trim();
     return normalized || null;
   }
 
-  function isVisible(element) {
+  function normalizedLowerText(value) {
+    return (normalizeText(value) || "").toLowerCase();
+  }
+
+  function cleanLabelText(value) {
+    const text = normalizeText(value);
+    if (!text) return null;
+    const withoutRequiredMarker = text
+      .replace(/^[*＊\\s]+/, "")
+      .replace(/[*＊\\s]+$/, "")
+      .replace(/^(必填|必选|required)\\s*[:：]?\\s*/i, "")
+      .replace(/\\s*(必填|必选|required)$/i, "")
+      .replace(/[\\s\\u00a0]+\\+[\\s\\u00a0]*\\d[\\d\\s\\u00a0-]*.*$/, "")
+      .replace(/[\\s\\u00a0]+(请输入|请填写|请选择|please enter|please input|please select)$/i, "")
+      .replace(/[\\s\\u00a0]*[-–—~至到]+$/, "")
+      .trim();
+    return withoutRequiredMarker || text;
+  }
+
+  function elementIsVisible(element) {
+    if (element.hidden || element.getAttribute("aria-hidden") === "true") {
+      return false;
+    }
+
     const style = window.getComputedStyle(element);
+    if (
+      style.display === "none" ||
+      style.visibility === "hidden" ||
+      Number(style.opacity) === 0
+    ) {
+      return false;
+    }
+
     const rect = element.getBoundingClientRect();
-    return style.visibility !== "hidden" &&
-      style.display !== "none" &&
-      style.opacity !== "0" &&
-      rect.width > 0 &&
-      rect.height > 0;
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  function visibleTextFrom(node) {
+    if (!node || !elementIsVisible(node)) return null;
+    return normalizeText(node.innerText || node.textContent);
   }
 
   function isInHiddenTree(element) {
@@ -117,18 +177,11 @@ _EXTRACT_FIELDS_SCRIPT = """
     const tagName = element.tagName.toLowerCase();
     if (!["input", "textarea", "select"].includes(tagName)) return false;
     if (element.disabled) return false;
-    if (!isVisible(element) || isInHiddenTree(element)) return false;
+    if (!elementIsVisible(element) || isInHiddenTree(element)) return false;
     if (isInsideTransientChoiceList(element)) return false;
 
     const type = (element.type || "text").toLowerCase();
-    return ![
-      "hidden",
-      "button",
-      "submit",
-      "reset",
-      "image",
-      "file",
-    ].includes(type);
+    return !(tagName === "input" && NON_FILLABLE_INPUT_TYPES.has(type));
   }
 
   function shortTextFrom(node) {
@@ -137,29 +190,18 @@ _EXTRACT_FIELDS_SCRIPT = """
     return text;
   }
 
-  function cleanLabelText(value) {
-    const text = normalizeText(value);
-    if (!text) return null;
-    const withoutRequiredMarker = text
-      .replace(/^[*＊\\s]+/, "")
-      .replace(/[*＊\\s]+$/, "")
-      .replace(/^(必填|必选|required)\\s*[:：]?\\s*/i, "")
-      .replace(/\\s*(必填|必选|required)$/i, "")
-      .trim();
-    return withoutRequiredMarker || text;
-  }
-
-  function visibleTextFrom(node) {
-    if (!node || !isVisible(node)) return null;
-    return normalizeText(node.innerText || node.textContent);
-  }
-
   function isUnique(selector) {
     try {
       return document.querySelectorAll(selector).length === 1;
     } catch {
       return false;
     }
+  }
+
+  function attrSelector(element, attribute) {
+    const value = normalizeText(element.getAttribute(attribute));
+    if (!value) return null;
+    return `${element.tagName.toLowerCase()}[${attribute}="${CSS.escape(value)}"]`;
   }
 
   function selectorFor(element) {
@@ -179,6 +221,11 @@ _EXTRACT_FIELDS_SCRIPT = """
           `[name="${CSS.escape(element.name)}"]`;
         if (isUnique(typedNameSelector)) return typedNameSelector;
       }
+    }
+
+    for (const attribute of STABLE_ATTRIBUTES) {
+      const selector = attrSelector(element, attribute);
+      if (selector && isUnique(selector)) return selector;
     }
 
     const path = [];
@@ -207,39 +254,50 @@ _EXTRACT_FIELDS_SCRIPT = """
     return path.join(" > ");
   }
 
-  function labelFor(element) {
-    const labels = element.labels
-      ? Array.from(element.labels)
-          .map(label => cleanLabelText(label.innerText || label.textContent))
-          .filter(Boolean)
-      : [];
-    if (labels.length) return labels.join(" ");
+  function isTextNodeVisible(node) {
+    const parent = node.parentElement;
+    return parent && elementIsVisible(parent);
+  }
 
-    const ariaLabel = cleanLabelText(element.getAttribute("aria-label"));
-    if (ariaLabel) return ariaLabel;
+  function isInsideControl(node, rootControl) {
+    const parent = node.parentElement;
+    return Boolean(
+      parent?.closest("input, textarea, select, button, option, script, style") &&
+      !parent.closest("label")?.contains(rootControl)
+    );
+  }
 
-    const labelledBy = element.getAttribute("aria-labelledby");
-    if (labelledBy) {
-      const text = labelledBy
-        .split(/\\s+/)
-        .map(id => document.getElementById(id))
-        .filter(Boolean)
-        .map(node => cleanLabelText(node.innerText || node.textContent))
-        .filter(Boolean)
-        .join(" ");
-      if (text) return text;
+  function textOutsideControls(container, rootControl) {
+    const walker = document.createTreeWalker(
+      container,
+      NodeFilter.SHOW_TEXT,
+      {
+        acceptNode(node) {
+          if (!isTextNodeVisible(node)) return NodeFilter.FILTER_REJECT;
+          if (isInsideControl(node, rootControl)) return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_ACCEPT;
+        },
+      }
+    );
+
+    const parts = [];
+    let node = walker.nextNode();
+    while (node) {
+      const text = normalizeText(node.textContent);
+      if (text) parts.push(text);
+      node = walker.nextNode();
     }
+    return normalizeText(parts.join(" "));
+  }
 
-    const groupQuestion = questionFor(element);
-    if (groupQuestion) return groupQuestion;
-
-    const title = cleanLabelText(element.getAttribute("title"));
-    if (title) return title;
-
-    const placeholder = placeholderFor(element);
-    if (placeholder) return placeholder;
-
-    return null;
+  function uniqueTextParts(parts) {
+    const seen = new Set();
+    return parts.filter(part => {
+      const normalized = normalizedLowerText(part);
+      if (!normalized || seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    });
   }
 
   function formItemFor(element) {
@@ -262,6 +320,7 @@ _EXTRACT_FIELDS_SCRIPT = """
         ".arco-form-item",
         ".semi-form-field",
         ".semi-form-field-wrapper",
+        "[role='group']",
       ].join(", "));
       const isNamedFormItem =
         /form[-_]?item|form[-_]?field|formgroup|form_group|uxform[-_]?field/.test(
@@ -275,19 +334,29 @@ _EXTRACT_FIELDS_SCRIPT = """
       current = current.parentElement;
     }
 
-    return element.closest(".field");
+    return element.closest(".field, .field-row, .control-group, li, label");
   }
 
-  function questionFor(element) {
+  function fieldsetLegendText(element) {
     const fieldset = element.closest("fieldset");
-    if (fieldset) {
-      const legendText = cleanLabelText(
-        fieldset.querySelector("legend")?.innerText ||
-        fieldset.querySelector("legend")?.textContent
-      );
-      if (legendText) return legendText;
-    }
+    const legend = fieldset?.querySelector("legend");
+    return cleanLabelText(legend?.innerText || legend?.textContent);
+  }
 
+  function previousSiblingText(element) {
+    const parts = [];
+    let sibling = element.previousElementSibling;
+    while (sibling && parts.join(" ").length < 140) {
+      if (!sibling.matches("input, textarea, select, button")) {
+        const text = textOutsideControls(sibling, element);
+        if (text) parts.unshift(text);
+      }
+      sibling = sibling.previousElementSibling;
+    }
+    return normalizeText(parts.join(" "));
+  }
+
+  function ancestorContextText(element) {
     const formItem = formItemFor(element);
     if (formItem) {
       const labelNode = formItem.querySelector([
@@ -313,17 +382,49 @@ _EXTRACT_FIELDS_SCRIPT = """
         labelNode?.innerText || labelNode?.textContent
       );
       if (labelText) return labelText;
-    }
 
-    const previousText = normalizeText(
-      element.previousElementSibling?.innerText ||
-      element.previousElementSibling?.textContent
-    );
-    if (previousText && previousText.length <= 120) {
-      return previousText;
+      const text = textOutsideControls(formItem, element);
+      if (text && text.length <= 180) return text;
     }
 
     return null;
+  }
+
+  function labelFor(element) {
+    const labels = element.labels
+      ? Array.from(element.labels)
+          .map(label => cleanLabelText(label.innerText || label.textContent))
+          .filter(Boolean)
+      : [];
+    if (labels.length) return labels.join(" ");
+
+    const ariaLabel = cleanLabelText(element.getAttribute("aria-label"));
+    if (ariaLabel) return ariaLabel;
+
+    const labelledBy = element.getAttribute("aria-labelledby");
+    if (labelledBy) {
+      const text = labelledBy
+        .split(/\\s+/)
+        .map(id => document.getElementById(id))
+        .filter(Boolean)
+        .map(node => cleanLabelText(node.innerText || node.textContent))
+        .filter(Boolean)
+        .join(" ");
+      if (text) return text;
+    }
+
+    const legend = fieldsetLegendText(element);
+    const ancestor = ancestorContextText(element);
+    const previous = previousSiblingText(element);
+    const context = normalizeText(
+      uniqueTextParts([legend, ancestor, previous].filter(Boolean)).join(" ")
+    );
+    if (context) return cleanLabelText(context);
+
+    const title = cleanLabelText(element.getAttribute("title"));
+    if (title) return title;
+
+    return placeholderFor(element);
   }
 
   function requiredFor(element, label) {
@@ -346,7 +447,7 @@ _EXTRACT_FIELDS_SCRIPT = """
         "[class*='required' i]",
         "[class*='asterisk' i]",
       ].join(", "));
-      if (requiredNode && isVisible(requiredNode)) return true;
+      if (requiredNode && elementIsVisible(requiredNode)) return true;
 
       const labelText = visibleTextFrom(formItem.querySelector([
         ".kuma-label",
@@ -389,7 +490,7 @@ _EXTRACT_FIELDS_SCRIPT = """
     const headings = Array.from(
       document.querySelectorAll("h1, h2, h3, h4, legend, [role='heading']")
     ).filter(heading => {
-      if (!isVisible(heading)) return false;
+      if (!elementIsVisible(heading)) return false;
       const position = heading.compareDocumentPosition(element);
       return Boolean(position & Node.DOCUMENT_POSITION_FOLLOWING);
     });
@@ -401,7 +502,7 @@ _EXTRACT_FIELDS_SCRIPT = """
     const headings = Array.from(
       container.querySelectorAll("h2, h3, h4, h5, legend, [role='heading']")
     ).filter(heading => {
-      if (!isVisible(heading)) return false;
+      if (!elementIsVisible(heading)) return false;
       const position = heading.compareDocumentPosition(element);
       return Boolean(position & Node.DOCUMENT_POSITION_FOLLOWING);
     });
@@ -471,8 +572,17 @@ _EXTRACT_FIELDS_SCRIPT = """
     const type = (element.type || "").toLowerCase();
     if (!["radio", "checkbox"].includes(type)) return ownLabel;
 
-    const question = questionFor(element);
+    const question = ancestorContextText(element) || fieldsetLegendText(element);
     if (!question || !ownLabel || question === ownLabel) return ownLabel;
+    const normalizedQuestion = normalizedLowerText(cleanLabelText(question));
+    const normalizedOwnLabel = normalizedLowerText(cleanLabelText(ownLabel));
+    if (
+      normalizedQuestion === normalizedOwnLabel ||
+      normalizedQuestion.includes(normalizedOwnLabel) ||
+      normalizedOwnLabel.includes(normalizedQuestion)
+    ) {
+      return cleanLabelText(ownLabel);
+    }
     return `${question} - ${ownLabel}`;
   }
 
@@ -503,13 +613,22 @@ _EXTRACT_FIELDS_SCRIPT = """
     return null;
   }
 
-  function hasUsefulIdentity(element, label) {
-    return Boolean(
-      label ||
-      placeholderFor(element) ||
-      normalizeText(element.getAttribute("name")) ||
-      normalizeText(element.id)
-    );
+  function hasMeaningfulMetadata(field) {
+    const metadata = [
+      field.label,
+      field.name,
+      field.html_id,
+      field.placeholder,
+    ].filter(Boolean).join(" ");
+    if (!metadata) return false;
+
+    const placeholder = normalizedLowerText(field.placeholder);
+    const hasOnlyGenericPrompt =
+      !field.label &&
+      !field.name &&
+      !field.html_id &&
+      GENERIC_PROMPTS.has(placeholder);
+    return !hasOnlyGenericPrompt;
   }
 
   function fieldKey(field) {
@@ -538,9 +657,8 @@ _EXTRACT_FIELDS_SCRIPT = """
       ? (element.type || "text").toLowerCase()
       : tagName;
     const label = displayLabelFor(element);
-    if (!hasUsefulIdentity(element, label)) return;
-
     const field = {
+      element_ref: "",
       form_title: formTitleFor(element),
       section_title: sectionTitleFor(element, label),
       label,
@@ -552,6 +670,8 @@ _EXTRACT_FIELDS_SCRIPT = """
       current_value: currentValueFor(element, fieldType),
       required: requiredFor(element, label),
     };
+    if (!hasMeaningfulMetadata(field)) return;
+
     const key = fieldKey(field);
     if (seen.has(key)) return;
 

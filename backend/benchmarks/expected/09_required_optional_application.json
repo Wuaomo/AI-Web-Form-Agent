@@ -1,0 +1,20 @@
+{
+  "case_id": "09_required_optional_application",
+  "title": "Required and optional application fields",
+  "html_file": "../forms/09_required_optional_application.html",
+  "tags": ["required-fields", "unsupported-fields", "completion-rate"],
+  "expected": {
+    "login_required": false,
+    "not_extracted_selectors": [],
+    "fields": [
+      {"selector": "#legal-name", "profile_key": "full_name", "required": true},
+      {"selector": "#primary-email", "profile_key": "email", "required": true},
+      {"selector": "#mobile-number", "profile_key": "phone", "required": true},
+      {"selector": "#about-yourself", "profile_key": "self_intro", "required": true},
+      {"selector": "#twitter-profile", "profile_key": null, "required": false, "reason": "unsupported_profile_key"},
+      {"selector": "#referral-code", "profile_key": null, "required": false, "reason": "unsupported_profile_key"},
+      {"selector": "#apply-club", "profile_key": null, "required": false, "reason": "non_fillable_action"}
+    ]
+  }
+}
+

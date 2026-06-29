@@ -1,0 +1,23 @@
+{
+  "case_id": "01_clear_student_registration",
+  "title": "Clear student registration",
+  "html_file": "../forms/01_clear_student_registration.html",
+  "tags": ["clear-labels", "baseline", "required-fields"],
+  "expected": {
+    "login_required": false,
+    "not_extracted_selectors": [],
+    "fields": [
+      {"selector": "#full-name", "profile_key": "full_name", "required": true},
+      {"selector": "#email", "profile_key": "email", "required": true},
+      {"selector": "#phone", "profile_key": "phone", "required": true},
+      {"selector": "#university", "profile_key": "university", "required": true},
+      {"selector": "#major", "profile_key": "major", "required": true},
+      {"selector": "#linkedin", "profile_key": "linkedin", "required": false},
+      {"selector": "#github", "profile_key": "github", "required": false},
+      {"selector": "#self-intro", "profile_key": "self_intro", "required": true},
+      {"selector": "#terms", "profile_key": null, "required": true, "reason": "no_supported_profile_key"},
+      {"selector": "#submit-registration", "profile_key": null, "required": false, "reason": "non_fillable_action"}
+    ]
+  }
+}
+

@@ -14,7 +14,7 @@ from app.models import FormField, Screenshot
 from app.services.browser_session import run_with_persistent_page
 
 SCREENSHOTS_DIR = BACKEND_DIR / "screenshots"
-NON_FILLABLE_FIELD_TYPES = {"button", "submit", "reset", "image"}
+NON_FILLABLE_FIELD_TYPES = {"button", "file", "submit", "reset", "image"}
 
 
 def _new_screenshot_path(task_id: int) -> tuple[str, Path]:

@@ -1,0 +1,21 @@
+{
+  "case_id": "02_semantic_mentor_application",
+  "title": "Semantic mentor application",
+  "html_file": "../forms/02_semantic_mentor_application.html",
+  "tags": ["semantic-labels", "split-name", "llm-challenge"],
+  "expected": {
+    "login_required": false,
+    "not_extracted_selectors": [],
+    "fields": [
+      {"selector": "#given-name", "profile_key": "first_name", "required": true},
+      {"selector": "#family-name", "profile_key": "last_name", "required": true},
+      {"selector": "#reach-me", "profile_key": "email", "required": true},
+      {"selector": "#campus-home", "profile_key": "university", "required": true},
+      {"selector": "#study-focus", "profile_key": "major", "required": true},
+      {"selector": "#code-portfolio", "profile_key": "github", "required": false},
+      {"selector": "#personal-note", "profile_key": "self_intro", "required": true},
+      {"selector": "#submit-application", "profile_key": null, "required": false, "reason": "non_fillable_action"}
+    ]
+  }
+}
+

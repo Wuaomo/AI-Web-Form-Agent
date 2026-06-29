@@ -221,6 +221,33 @@ class LLMFieldMapperTests(unittest.TestCase):
         self.assertIsNone(mapped_by_id[submit_field.id].mapped_profile_key)
         self.assertIsNone(mapped_by_id[submit_field.id].mapped_value)
 
+    def test_file_upload_mapping_is_rejected(self) -> None:
+        upload_field = self._add_field(
+            label="Resume",
+            selector="input[name='resume']",
+            field_type="file",
+        )
+        unsafe_json = json.dumps(
+            {
+                "mappings": [
+                    {
+                        "field_id": upload_field.id,
+                        "mapped_profile_key": "email",
+                        "confidence": 1,
+                    }
+                ]
+            }
+        )
+
+        with patch(
+            "app.services.field_mapper._request_llm_mapping",
+            return_value=unsafe_json,
+        ):
+            mapped = map_fields_with_llm(self.task_id, self.db)
+
+        self.assertIsNone(mapped[0].mapped_profile_key)
+        self.assertIsNone(mapped[0].mapped_value)
+
     def test_deepseek_provider_routes_mapping_request(self) -> None:
         field = self._add_field(
             label="Where should we send updates?",

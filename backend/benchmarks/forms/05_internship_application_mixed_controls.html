@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Benchmark 05 - Internship Application Mixed Controls</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 32px; max-width: 700px; }
+    label { display: block; margin: 14px 0 6px; font-weight: 700; }
+    input, textarea, select { width: 100%; padding: 9px; }
+    .actions { margin-top: 18px; display: flex; gap: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Internship Application</h1>
+  <form>
+    <label for="candidate-name">Candidate name</label>
+    <input id="candidate-name" name="candidate_name" type="text" required>
+
+    <label for="contact-email">Email address</label>
+    <input id="contact-email" name="contact_email" type="email" required>
+
+    <label for="school-select">School</label>
+    <select id="school-select" name="school" required>
+      <option value="">Choose one</option>
+      <option>Ada University</option>
+      <option>Example State University</option>
+      <option>Northbridge College</option>
+    </select>
+
+    <label for="field-of-study">Field of study</label>
+    <input id="field-of-study" name="field_of_study" type="text" required>
+
+    <label for="linkedin-url">LinkedIn URL</label>
+    <input id="linkedin-url" name="linkedin_url" type="url">
+
+    <label for="personal-statement">Personal statement</label>
+    <textarea id="personal-statement" name="personal_statement" required></textarea>
+
+    <div class="actions">
+      <button id="reset-form" type="reset">Reset</button>
+      <button id="submit-internship" type="submit">Submit internship application</button>
+    </div>
+  </form>
+</body>
+</html>
+
