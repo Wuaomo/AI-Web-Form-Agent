@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { api, API_BASE_URL } from "../api";
+import { buildAgentTimeline, fieldDisplayName } from "../agentTimeline";
 import LlmMappingControls from "../components/LlmMappingControls";
 import {
   getSavedLlmProvider,
@@ -13,10 +14,6 @@ import {
   getTaskRunSummary,
   isFillableField,
 } from "../taskRunState";
-
-function fieldDisplayName(field) {
-  return field.field_label || field.label || field.name || field.hint || field.placeholder || field.selector;
-}
 
 function needsRequiredInput(field) {
   return field.required && isFillableField(field) && !field.mapped_value;
@@ -158,6 +155,7 @@ function TaskDetail() {
   );
   const llmUnavailable = mappingMode === "llm" && !selectedProvider?.configured;
   const missingRequiredFields = task?.form_fields.filter(needsRequiredInput) || [];
+  const agentTimeline = buildAgentTimeline(logs, task?.form_fields || []);
   const runState = getTaskRunState(task);
   const runSummary = getTaskRunSummary(task);
   const primaryDisabled =
@@ -316,6 +314,49 @@ function TaskDetail() {
 
           <section className="section-block">
             <div className="section-heading">
+              <h3>Action Logs</h3>
+            </div>
+            {logs.length === 0 ? (
+              <div className="card empty-state">
+                <p>No action logs yet.</p>
+              </div>
+            ) : (
+              <div className="agent-log-list">
+                {agentTimeline.map((entry) => (
+                  <article className="agent-log-entry" key={entry.id}>
+                    <div className="agent-log-marker" aria-hidden="true" />
+                    <div className="agent-log-body">
+                      <div className="agent-log-main">
+                        <div>
+                          <p className="agent-log-title">{entry.title}</p>
+                          <time className="agent-log-time" dateTime={entry.createdAt}>
+                            {new Date(entry.createdAt).toLocaleString()}
+                          </time>
+                        </div>
+                        <span className="badge">{entry.status}</span>
+                      </div>
+                      {entry.details.length > 0 && (
+                        <details className="agent-log-details">
+                          <summary>Technical details</summary>
+                          <dl>
+                            {entry.details.map((detail, index) => (
+                              <div key={`${detail.label}-${index}`}>
+                                <dt>{detail.label}</dt>
+                                <dd>{detail.value}</dd>
+                              </div>
+                            ))}
+                          </dl>
+                        </details>
+                      )}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="section-block">
+            <div className="section-heading">
               <h3>Screenshots</h3>
             </div>
             {screenshots.length === 0 ? (
@@ -345,42 +386,6 @@ function TaskDetail() {
               </div>
             )}
           </section>
-
-          <details className="section-block technical-details">
-            <summary>Technical details</summary>
-            {logs.length === 0 ? (
-              <div className="card empty-state">
-                <p>No action logs yet.</p>
-              </div>
-            ) : (
-              <div className="table-wrapper card">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Step</th>
-                      <th>Action</th>
-                      <th>Status</th>
-                      <th>Message</th>
-                      <th>Time</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {logs.map((log) => (
-                      <tr key={log.id}>
-                        <td>{log.step}</td>
-                        <td>{log.action}</td>
-                        <td>
-                          <span className="badge">{log.status}</span>
-                        </td>
-                        <td>{log.message || "—"}</td>
-                        <td>{new Date(log.created_at).toLocaleString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </details>
         </>
       )}
     </section>
