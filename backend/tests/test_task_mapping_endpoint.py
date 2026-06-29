@@ -202,7 +202,10 @@ def test_confirm_mapping_allows_required_values_after_manual_entry(
     response = client.post(f"/tasks/{task.id}/confirm-mapping")
 
     assert response.status_code == 200
-    assert response.json()["status"] == "MAPPING_READY"
+    assert response.json()["status"] == "READY_TO_FILL"
+
+    session.refresh(task)
+    assert task.status == "READY_TO_FILL"
 
 
 def test_fill_rejects_missing_required_values_before_browser_work(
@@ -210,6 +213,7 @@ def test_fill_rejects_missing_required_values_before_browser_work(
 ) -> None:
     client, session = test_environment
     task, field = create_task_with_field(session)
+    task.status = "READY_TO_FILL"
     field.mapped_profile_key = "email"
     field.mapped_value = None
     session.commit()
@@ -218,6 +222,26 @@ def test_fill_rejects_missing_required_values_before_browser_work(
 
     assert response.status_code == 409
     assert "Required fields need values" in response.json()["detail"]
+
+
+def test_fill_rejects_mapped_fields_before_user_confirms_mapping(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_profile_key = "email"
+    field.mapped_value = "ada@example.com"
+    session.commit()
+
+    with patch(
+        "app.routers.tasks.fill_form_and_capture_screenshot",
+        new_callable=AsyncMock,
+    ) as fill_form:
+        response = client.post(f"/tasks/{task.id}/fill")
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Review and confirm mapping before filling"}
+    fill_form.assert_not_awaited()
 
 
 def test_analyze_pauses_when_login_is_required(

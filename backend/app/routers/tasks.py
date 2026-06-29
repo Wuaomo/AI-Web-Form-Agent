@@ -441,7 +441,7 @@ def confirm_task_mapping(
             detail=missing_required_detail(missing_required_fields),
         )
 
-    task.status = "MAPPING_READY"
+    task.status = "READY_TO_FILL"
     db.commit()
     return MappingConfirmationResponse(task_id=task.id, status=task.status)
 
@@ -454,6 +454,12 @@ async def fill_task_form(
     """Fill mapped fields and pause before any final submission."""
 
     task = get_task_or_404(task_id, db)
+    if task.status != "READY_TO_FILL":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Review and confirm mapping before filling",
+        )
+
     fields = list(
         db.scalars(
             select(FormField)
