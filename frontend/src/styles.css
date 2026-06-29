@@ -238,6 +238,59 @@ textarea {
   margin-top: 1rem;
 }
 
+.run-panel {
+  display: grid;
+  gap: 1.1rem;
+}
+
+.run-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.run-panel-header h3 {
+  margin-bottom: 0.35rem;
+  font-size: 1.4rem;
+}
+
+.run-panel-header p {
+  margin-bottom: 0;
+  color: #5c6677;
+}
+
+.run-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.run-summary-grid div {
+  padding: 0.85rem;
+  background: #f7f9fc;
+  border: 1px solid #e1e7f0;
+  border-radius: 0.45rem;
+}
+
+.run-summary-grid strong,
+.run-summary-grid span {
+  display: block;
+}
+
+.run-summary-grid strong {
+  margin-bottom: 0.2rem;
+  color: #17202a;
+  font-size: 1.45rem;
+}
+
+.run-summary-grid span {
+  color: #687386;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
 .mapping-controls {
   display: grid;
   grid-template-columns: repeat(2, minmax(220px, 1fr));
@@ -271,6 +324,18 @@ textarea {
   cursor: pointer;
   background: none;
   border: 0;
+}
+
+.technical-details summary {
+  width: fit-content;
+  color: #3157b8;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.technical-details .table-wrapper,
+.technical-details .empty-state {
+  margin-top: 1rem;
 }
 
 .message {
@@ -469,8 +534,13 @@ th {
 
   .card-grid,
   .two-column,
-  .mapping-controls {
+  .mapping-controls,
+  .run-summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .run-panel-header {
+    flex-direction: column;
   }
 }
 
