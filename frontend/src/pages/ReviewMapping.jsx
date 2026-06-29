@@ -8,60 +8,28 @@ import {
   saveLlmProvider,
 } from "../llmProviderPreference";
 import Message from "../components/Message";
+import {
+  buildReviewGroups,
+  fieldDisplayName,
+  fieldFormTitle,
+  fieldHint,
+  fieldSectionTitle,
+  formatConfidence,
+  formatMappingSummary,
+  needsRequiredInput,
+  profileKeys,
+  valueControlLabel,
+} from "../reviewMappingPresentation";
 
-const profileKeys = [
-  "first_name",
-  "last_name",
-  "full_name",
-  "email",
-  "phone",
-  "university",
-  "major",
-  "linkedin",
-  "github",
-  "self_intro",
-];
-
-const nonFillableFieldTypes = new Set([
-  "button",
-  "file",
-  "submit",
-  "reset",
-  "image",
-]);
-
-function isFillableField(field) {
-  return !nonFillableFieldTypes.has((field.field_type || "").toLowerCase());
-}
-
-function fieldDisplayName(field) {
-  return field.field_label || field.label || field.name || field.hint || field.placeholder || field.selector;
-}
-
-function fieldHint(field) {
-  const hint = field.hint || field.placeholder;
-  if (!hint || hint === fieldDisplayName(field)) {
-    return "";
+function checkboxControlValue(value) {
+  const normalizedValue = (value || "").toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalizedValue)) {
+    return "true";
   }
-  return hint;
-}
-
-function fieldFormTitle(field) {
-  if (!field.form_title || field.form_title === fieldDisplayName(field)) {
-    return "";
+  if (["0", "false", "no", "off"].includes(normalizedValue)) {
+    return "false";
   }
-  return field.form_title;
-}
-
-function fieldSectionTitle(field) {
-  if (!field.section_title || field.section_title === fieldDisplayName(field)) {
-    return "";
-  }
-  return field.section_title;
-}
-
-function needsRequiredInput(field) {
-  return field.required && isFillableField(field) && !field.mapped_value;
+  return "";
 }
 
 function ReviewMapping() {
@@ -134,6 +102,56 @@ function ReviewMapping() {
     }
   }
 
+  function stageFieldValue(fieldId, mappedValue) {
+    setFields((current) =>
+      current.map((item) =>
+        item.id === fieldId ? { ...item, mapped_value: mappedValue } : item,
+      ),
+    );
+  }
+
+  function renderValueControl(field) {
+    const fieldType = (field.field_type || "").toLowerCase();
+    const label = valueControlLabel(field);
+
+    if (fieldType === "checkbox") {
+      return (
+        <label>
+          {label}
+          <select
+            aria-label={`${label} for ${fieldDisplayName(field)}`}
+            value={checkboxControlValue(field.mapped_value)}
+            onChange={(event) => {
+              const mappedValue = event.target.value || null;
+              stageFieldValue(field.id, mappedValue);
+              updateField(field.id, { mapped_value: mappedValue });
+            }}
+          >
+            <option value="">Not chosen</option>
+            <option value="true">Checked</option>
+            <option value="false">Unchecked</option>
+          </select>
+        </label>
+      );
+    }
+
+    return (
+      <label>
+        {label}
+        <input
+          aria-label={`${label} for ${fieldDisplayName(field)}`}
+          value={field.mapped_value || ""}
+          onChange={(event) => stageFieldValue(field.id, event.target.value)}
+          onBlur={(event) =>
+            updateField(field.id, {
+              mapped_value: event.target.value || null,
+            })
+          }
+        />
+      </label>
+    );
+  }
+
   async function confirmMapping() {
     if (missingRequiredFields.length > 0) {
       setError("Please enter values for all required fields before confirming.");
@@ -159,6 +177,7 @@ function ReviewMapping() {
   );
   const llmUnavailable = mappingMode === "llm" && !selectedProvider?.configured;
   const missingRequiredFields = fields.filter(needsRequiredInput);
+  const reviewGroups = buildReviewGroups(fields);
 
   return (
     <section>
@@ -166,7 +185,7 @@ function ReviewMapping() {
         <div>
           <p className="eyebrow">Task #{taskId}</p>
           <h2>Review Mapping</h2>
-          <p>Review profile keys and values before any form-filling step.</p>
+          <p>Review what the agent will enter or select before filling the form.</p>
         </div>
         <Link to={`/tasks/${taskId}`}>Back to task</Link>
       </div>
@@ -215,95 +234,105 @@ function ReviewMapping() {
         <div className="card empty-state">
           <p>No fields found. Create the task again or check the task logs.</p>
         </div>
+      ) : reviewGroups.length === 0 ? (
+        <div className="card empty-state">
+          <p>
+            No reviewable fields found. Create the task again or check the task
+            logs.
+          </p>
+        </div>
       ) : (
-        <div className="table-wrapper card">
-          <table>
-            <thead>
-              <tr>
-                <th>Form field</th>
-                <th>Type</th>
-                <th>Profile key</th>
-                <th>Mapped value</th>
-              </tr>
-            </thead>
-            <tbody>
-              {fields.map((field) => (
-                <tr className={needsRequiredInput(field) ? "row-needs-input" : ""} key={field.id}>
-                  <td>
-                    {fieldFormTitle(field) && (
-                      <small className="field-meta">
-                        Form: {fieldFormTitle(field)}
-                      </small>
-                    )}
-                    {fieldSectionTitle(field) && (
-                      <small className="field-meta">
-                        Section: {fieldSectionTitle(field)}
-                      </small>
-                    )}
-                    <strong className="field-title">
-                      Field: {fieldDisplayName(field)}
-                    </strong>
-                    {fieldHint(field) && (
-                      <small className="field-meta">
-                        Hint: {fieldHint(field)}
-                      </small>
-                    )}
-                    {field.required && <span className="required"> required</span>}
-                    {needsRequiredInput(field) && (
-                      <span className="required"> needs input</span>
-                    )}
-                    {field.current_value && (
-                      <small className="field-meta">
-                        Current: {field.current_value}
-                      </small>
-                    )}
-                    {field.element_ref && (
-                      <small className="field-ref">{field.element_ref}</small>
-                    )}
-                  </td>
-                  <td>{field.field_type || "—"}</td>
-                  <td>
-                    <select
-                      aria-label={`Profile key for ${field.label || field.selector}`}
-                      value={field.mapped_profile_key || ""}
-                      onChange={(event) =>
-                        updateField(field.id, {
-                          mapped_profile_key: event.target.value || null,
-                        })
-                      }
-                    >
-                      <option value="">Not mapped</option>
-                      {profileKeys.map((key) => (
-                        <option key={key} value={key}>
-                          {key}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td>
-                    <input
-                      aria-label={`Mapped value for ${field.label || field.selector}`}
-                      value={field.mapped_value || ""}
-                      onChange={(event) =>
-                        setFields((current) =>
-                          current.map((item) =>
-                            item.id === field.id
-                              ? { ...item, mapped_value: event.target.value }
-                              : item,
-                          ),
-                        )
-                      }
-                      onBlur={(event) =>
-                        updateField(field.id, {
-                          mapped_value: event.target.value || null,
-                        })
-                      }
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="review-queue">
+          {reviewGroups.map((group) => (
+            <section className="review-group" key={group.title}>
+              <div className="review-group-heading">
+                <h3>{group.title}</h3>
+                <span className="badge">{group.fields.length} fields</span>
+              </div>
+
+              <div className="review-card-list">
+                {group.fields.map((field) => (
+                  <article
+                    className={`card review-card${
+                      needsRequiredInput(field) ? " review-card-needs-input" : ""
+                    }`}
+                    key={field.id}
+                  >
+                    <div className="review-card-main">
+                      <div className="review-card-title-row">
+                        <h4>{fieldDisplayName(field)}</h4>
+                        <div className="review-card-badges">
+                          {field.required && (
+                            <span className="required-badge">Required</span>
+                          )}
+                          {needsRequiredInput(field) && (
+                            <span className="required-badge">Needs input</span>
+                          )}
+                          <span className="badge">{field.field_type || "field"}</span>
+                        </div>
+                      </div>
+
+                      <dl className="review-summary">
+                        <div>
+                          <dt>Web field</dt>
+                          <dd>{fieldDisplayName(field)}</dd>
+                        </div>
+                        <div>
+                          <dt>Agent chose</dt>
+                          <dd>{formatMappingSummary(field)}</dd>
+                        </div>
+                        <div>
+                          <dt>Confidence</dt>
+                          <dd>{formatConfidence(field.confidence)}</dd>
+                        </div>
+                      </dl>
+
+                      {(fieldFormTitle(field) || fieldSectionTitle(field)) && (
+                        <p className="field-meta">
+                          {fieldFormTitle(field) && `Form: ${fieldFormTitle(field)}`}
+                          {fieldFormTitle(field) && fieldSectionTitle(field) && " | "}
+                          {fieldSectionTitle(field) &&
+                            `Section: ${fieldSectionTitle(field)}`}
+                        </p>
+                      )}
+                      {fieldHint(field) && (
+                        <p className="field-meta">Hint: {fieldHint(field)}</p>
+                      )}
+                      {field.current_value && (
+                        <p className="field-meta">Current: {field.current_value}</p>
+                      )}
+                      {field.element_ref && (
+                        <small className="field-ref">{field.element_ref}</small>
+                      )}
+                    </div>
+
+                    <div className="review-card-controls">
+                      <label>
+                        Change source
+                        <select
+                          aria-label={`Source for ${fieldDisplayName(field)}`}
+                          value={field.mapped_profile_key || ""}
+                          onChange={(event) =>
+                            updateField(field.id, {
+                              mapped_profile_key: event.target.value || null,
+                            })
+                          }
+                        >
+                          <option value="">Manual / not mapped</option>
+                          {profileKeys.map((key) => (
+                            <option key={key} value={key}>
+                              {key}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {renderValueControl(field)}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ))}
         </div>
       )}
     </section>
