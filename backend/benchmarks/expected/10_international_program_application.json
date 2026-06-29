@@ -1,0 +1,21 @@
+{
+  "case_id": "10_international_program_application",
+  "title": "International program application",
+  "html_file": "../forms/10_international_program_application.html",
+  "tags": ["semantic-labels", "professional-profile", "llm-challenge"],
+  "expected": {
+    "login_required": false,
+    "not_extracted_selectors": [],
+    "fields": [
+      {"selector": "#passport-display-name", "profile_key": "full_name", "required": true},
+      {"selector": "#preferred-inbox", "profile_key": "email", "required": true},
+      {"selector": "#home-institution", "profile_key": "university", "required": true},
+      {"selector": "#academic-specialty", "profile_key": "major", "required": true},
+      {"selector": "#professional-network", "profile_key": "linkedin", "required": false},
+      {"selector": "#public-code-profile", "profile_key": "github", "required": false},
+      {"selector": "#brief-biography", "profile_key": "self_intro", "required": false},
+      {"selector": "#send-program-application", "profile_key": null, "required": false, "reason": "non_fillable_action"}
+    ]
+  }
+}
+

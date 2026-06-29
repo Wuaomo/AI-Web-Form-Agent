@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Benchmark 01 - Clear Student Registration</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 32px; max-width: 680px; }
+    label { display: block; margin: 14px 0 6px; font-weight: 700; }
+    input, textarea { width: 100%; padding: 9px; }
+    button { margin-top: 18px; padding: 10px 16px; }
+  </style>
+</head>
+<body>
+  <h1>Student Registration</h1>
+  <form>
+    <label for="full-name">Full name</label>
+    <input id="full-name" name="full_name" type="text" required>
+
+    <label for="email">Email address</label>
+    <input id="email" name="email" type="email" required>
+
+    <label for="phone">Phone number</label>
+    <input id="phone" name="phone" type="tel" required>
+
+    <label for="university">University</label>
+    <input id="university" name="university" type="text" required>
+
+    <label for="major">Major</label>
+    <input id="major" name="major" type="text" required>
+
+    <label for="linkedin">LinkedIn profile</label>
+    <input id="linkedin" name="linkedin" type="url">
+
+    <label for="github">GitHub profile</label>
+    <input id="github" name="github" type="url">
+
+    <label for="self-intro">Self introduction</label>
+    <textarea id="self-intro" name="self_intro" required></textarea>
+
+    <label>
+      <input id="terms" name="terms" type="checkbox" required>
+      I agree to the program terms
+    </label>
+
+    <button id="submit-registration" type="submit">Submit registration</button>
+  </form>
+</body>
+</html>
+

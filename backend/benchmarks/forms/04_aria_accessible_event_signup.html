@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Benchmark 04 - Aria Accessible Event Signup</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 32px; max-width: 620px; }
+    input, textarea { display: block; width: 100%; padding: 10px; margin: 12px 0; }
+  </style>
+</head>
+<body>
+  <h1>Accessible Event Signup</h1>
+  <form>
+    <input id="attendee" name="attendee" type="text" aria-label="Applicant name" required>
+    <input id="reply-to" name="reply_to" type="email" aria-label="Contact email" required>
+    <input id="institution" name="institution" type="text" aria-label="Institution" required>
+    <input id="telephone" name="telephone" type="tel" aria-label="Telephone number">
+    <textarea id="about-you" name="about_you" aria-label="About yourself"></textarea>
+    <button id="register-event" type="submit">Register</button>
+  </form>
+</body>
+</html>
+

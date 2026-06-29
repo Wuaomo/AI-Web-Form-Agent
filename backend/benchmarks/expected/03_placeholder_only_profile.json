@@ -1,0 +1,20 @@
+{
+  "case_id": "03_placeholder_only_profile",
+  "title": "Placeholder-only profile card",
+  "html_file": "../forms/03_placeholder_only_profile.html",
+  "tags": ["placeholder-only", "label-missing", "metadata-fallback"],
+  "expected": {
+    "login_required": false,
+    "not_extracted_selectors": [],
+    "fields": [
+      {"selector": "#profile-name", "profile_key": "full_name", "required": true},
+      {"selector": "#profile-email", "profile_key": "email", "required": true},
+      {"selector": "#profile-phone", "profile_key": "phone", "required": false},
+      {"selector": "#profile-school", "profile_key": "university", "required": false},
+      {"selector": "#profile-specialization", "profile_key": "major", "required": false},
+      {"selector": "#profile-bio", "profile_key": "self_intro", "required": false},
+      {"selector": "#save-profile", "profile_key": null, "required": false, "reason": "non_fillable_action"}
+    ]
+  }
+}
+
