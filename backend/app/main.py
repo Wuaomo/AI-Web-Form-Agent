@@ -1,5 +1,6 @@
 """FastAPI application entry point."""
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -18,6 +19,19 @@ from app.routers.profiles import router as profiles_router
 from app.routers.tasks import router as tasks_router
 from app.schemas import HealthResponse, LLMProviderResponse
 from app.services.llm_provider_config import list_llm_providers
+
+
+def configure_application_logging() -> None:
+    """Make backend application logs visible during local development."""
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s:     %(message)s",
+    )
+    logging.getLogger("app").setLevel(logging.INFO)
+
+
+configure_application_logging()
 
 
 @asynccontextmanager
