@@ -31,6 +31,10 @@ from app.services.field_mapper import (
     map_fields_with_llm,
 )
 from app.services.form_extractor import ExtractedFormAnalysis, extract_form_analysis
+from app.services.form_analysis_cache import (
+    read_form_analysis_cache,
+    write_form_analysis_cache,
+)
 from app.services.browser_session import prepare_login_session
 from app.services.llm_provider_config import (
     get_provider_setup_hint,
@@ -247,7 +251,10 @@ async def analyze_task(
     db.commit()
 
     try:
-        analysis = await extract_form_analysis(task.url, task.profile_id)
+        analysis = read_form_analysis_cache(db, task.url)
+        if analysis is None:
+            analysis = await extract_form_analysis(task.url, task.profile_id)
+            write_form_analysis_cache(db, task.url, analysis)
         if analysis.login_required:
             mark_login_required(task, db)
         else:

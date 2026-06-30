@@ -322,6 +322,45 @@ def test_analyze_pauses_when_login_is_required(
     assert logs[-1].status == "WAITING"
 
 
+def test_analyze_reuses_cached_form_analysis_for_same_url(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    first_task = create_task_without_fields(session)
+    second_task = create_task_without_fields(session)
+    extracted_field = ExtractedFormField(
+        element_ref="field_1",
+        form_title="Contact information",
+        section_title=None,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        placeholder=None,
+        name="email",
+        html_id="email",
+        current_value=None,
+        required=True,
+    )
+
+    with patch(
+        "app.routers.tasks.extract_form_analysis",
+        new=AsyncMock(
+            return_value=SimpleNamespace(
+                fields=[extracted_field],
+                login_required=False,
+            ),
+        ),
+    ) as extract_analysis:
+        first_response = client.post(f"/tasks/{first_task.id}/analyze")
+        second_response = client.post(f"/tasks/{second_task.id}/analyze")
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert extract_analysis.await_count == 1
+    assert first_response.json()["form_fields"][0]["selector"] == "#email"
+    assert second_response.json()["form_fields"][0]["selector"] == "#email"
+
+
 def test_login_and_analyze_retries_original_url_after_manual_login(
     test_environment: tuple[TestClient, Session],
 ) -> None:

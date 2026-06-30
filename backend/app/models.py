@@ -184,3 +184,18 @@ class UserMappingOverrideCache(Base):
     hit_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class FormAnalysisCache(Base):
+    """Reusable extracted form metadata for one normalized public URL."""
+
+    __tablename__ = "form_analysis_cache"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    url_cache_key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    normalized_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    source_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    fields_json: Mapped[str] = mapped_column(Text, nullable=False)
+    hit_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
