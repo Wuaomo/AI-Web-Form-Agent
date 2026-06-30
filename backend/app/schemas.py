@@ -109,6 +109,25 @@ class ScreenshotResponse(BaseModel):
     created_at: datetime
 
 
+class LLMApiUsageLogResponse(BaseModel):
+    """Token usage reported by an LLM provider for one task."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_id: int
+    provider: str
+    model: str
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    cache_hit_tokens: int
+    cache_miss_tokens: int
+    cache_hit: bool
+    cache_hit_rate: float
+    created_at: datetime
+
+
 class FormFieldResponse(BaseModel):
     """An extracted form field and its current profile mapping."""
 

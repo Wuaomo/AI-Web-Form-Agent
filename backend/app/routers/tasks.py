@@ -7,11 +7,12 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
-from app.models import ActionLog, FormField, Profile, Screenshot, Task
+from app.models import ActionLog, FormField, LLMApiUsageLog, Profile, Screenshot, Task
 from app.schemas import (
     ActionLogResponse,
     FormFieldMappingUpdate,
     FormFieldResponse,
+    LLMApiUsageLogResponse,
     LLMProvider,
     MappingConfirmationResponse,
     ScreenshotResponse,
@@ -36,6 +37,7 @@ from app.services.llm_provider_config import (
     is_provider_configured,
     resolve_llm_provider,
 )
+from app.services.llm_usage_service import list_llm_usage_logs
 from app.services.log_service import create_log
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -287,6 +289,20 @@ def list_task_logs(task_id: int, db: Session = Depends(get_db)) -> list[ActionLo
         .order_by(ActionLog.step, ActionLog.created_at, ActionLog.id)
     )
     return list(db.scalars(statement))
+
+
+@router.get(
+    "/{task_id}/llm-usage",
+    response_model=list[LLMApiUsageLogResponse],
+)
+def list_task_llm_usage(
+    task_id: int,
+    db: Session = Depends(get_db),
+) -> list[LLMApiUsageLog]:
+    """Return token usage reported by LLM providers for a task."""
+
+    get_task_or_404(task_id, db)
+    return list_llm_usage_logs(task_id, db)
 
 
 @router.post(

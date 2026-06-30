@@ -9,8 +9,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base
-from app.models import FormField, Profile, Task
-from app.services.field_mapper import _request_deepseek_mapping, map_fields_with_llm
+from app.models import FormField, LLMApiUsageLog, Profile, Task
+from app.services.field_mapper import (
+    LLMMappingRequestResult,
+    _request_deepseek_mapping,
+    map_fields_with_llm,
+)
 
 
 class LLMFieldMapperTests(unittest.TestCase):
@@ -268,8 +272,8 @@ class LLMFieldMapperTests(unittest.TestCase):
         with (
             patch("app.services.field_mapper.config.LLM_PROVIDER", "deepseek"),
             patch(
-                "app.services.field_mapper._request_deepseek_mapping",
-                return_value=llm_json,
+                "app.services.field_mapper._request_deepseek_mapping_result",
+                return_value=LLMMappingRequestResult(text=llm_json),
             ) as deepseek,
         ):
             mapped = map_fields_with_llm(self.task_id, self.db)
@@ -280,6 +284,13 @@ class LLMFieldMapperTests(unittest.TestCase):
 
     def test_deepseek_request_uses_chat_completion_api(self) -> None:
         response = {
+            "usage": {
+                "prompt_tokens": 979,
+                "completion_tokens": 197,
+                "total_tokens": 1176,
+                "prompt_cache_hit_tokens": 0,
+                "prompt_cache_miss_tokens": 979,
+            },
             "choices": [
                 {
                     "message": {
@@ -313,6 +324,51 @@ class LLMFieldMapperTests(unittest.TestCase):
         self.assertEqual(payload["response_format"], {"type": "json_object"})
         self.assertEqual(headers["Authorization"], "Bearer test-key")
         self.assertEqual(result, response["choices"][0]["message"]["content"])
+
+    def test_deepseek_usage_is_recorded_for_successful_mapping(self) -> None:
+        field = self._add_field(
+            label="Where should we send updates?",
+            selector="#contact-destination",
+        )
+        llm_json = json.dumps(
+            {
+                "mappings": [
+                    {
+                        "field_id": field.id,
+                        "mapped_profile_key": "email",
+                        "confidence": 0.92,
+                    }
+                ]
+            }
+        )
+        response = {
+            "usage": {
+                "prompt_tokens": 979,
+                "completion_tokens": 197,
+                "total_tokens": 1176,
+                "prompt_cache_hit_tokens": 0,
+                "prompt_cache_miss_tokens": 979,
+            },
+            "choices": [{"message": {"content": llm_json}}],
+        }
+
+        with (
+            patch("app.services.field_mapper.config.DEEPSEEK_API_KEY", "test-key"),
+            patch("app.services.field_mapper.config.DEEPSEEK_MODEL", "deepseek-v4-flash"),
+            patch("app.services.field_mapper._post_json", return_value=response),
+        ):
+            mapped = map_fields_with_llm(self.task_id, self.db, provider="deepseek")
+
+        usage_log = self.db.query(LLMApiUsageLog).one()
+        self.assertEqual(mapped[0].mapped_profile_key, "email")
+        self.assertEqual(usage_log.task_id, self.task_id)
+        self.assertEqual(usage_log.provider, "deepseek")
+        self.assertEqual(usage_log.model, "deepseek-v4-flash")
+        self.assertEqual(usage_log.prompt_tokens, 979)
+        self.assertEqual(usage_log.completion_tokens, 197)
+        self.assertEqual(usage_log.total_tokens, 1176)
+        self.assertFalse(usage_log.cache_hit)
+        self.assertEqual(usage_log.cache_miss_tokens, 979)
 
 
 if __name__ == "__main__":
