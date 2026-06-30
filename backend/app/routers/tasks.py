@@ -13,6 +13,7 @@ from app.schemas import (
     FormFieldMappingUpdate,
     FormFieldResponse,
     LLMProvider,
+    TaskLlmUsageResponse,
     MappingConfirmationResponse,
     ScreenshotResponse,
     SubmissionConfirmationResponse,
@@ -36,6 +37,7 @@ from app.services.llm_provider_config import (
     is_provider_configured,
     resolve_llm_provider,
 )
+from app.services.llm_usage_service import list_llm_usage_logs, summarize_llm_usage
 from app.services.log_service import create_log
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -287,6 +289,21 @@ def list_task_logs(task_id: int, db: Session = Depends(get_db)) -> list[ActionLo
         .order_by(ActionLog.step, ActionLog.created_at, ActionLog.id)
     )
     return list(db.scalars(statement))
+
+
+@router.get("/{task_id}/llm-usage", response_model=TaskLlmUsageResponse)
+def get_task_llm_usage(
+    task_id: int,
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    """Return internal LLM usage records and totals for one task."""
+
+    get_task_or_404(task_id, db)
+    return {
+        "task_id": task_id,
+        "summary": summarize_llm_usage(db, task_id=task_id),
+        "items": list_llm_usage_logs(db, task_id=task_id),
+    }
 
 
 @router.post(
