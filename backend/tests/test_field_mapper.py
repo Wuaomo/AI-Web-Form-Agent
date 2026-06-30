@@ -206,6 +206,33 @@ class LLMFieldMapperTests(unittest.TestCase):
         self.assertIn(f'"field_id": {first_field.id}', first_prompt)
         self.assertIn(f'"field_id": {second_field.id}', second_prompt)
 
+    def test_llm_prompt_has_long_stable_prefix_across_different_forms(self) -> None:
+        email_field = self._add_field(
+            label="Where should we send updates?",
+            selector="#contact-destination",
+        )
+        phone_field = self._add_field(
+            label="Best number to reach you",
+            selector="#phone-number",
+            field_type="tel",
+        )
+
+        email_prompt = _build_llm_prompt(
+            [email_field],
+            {"full_name": "Ada Lovelace", "email": "ada@example.com"},
+        )
+        phone_prompt = _build_llm_prompt(
+            [phone_field],
+            {"full_name": "Grace Hopper", "phone": "+1 555 0101"},
+        )
+        marker = "Stable form fields:\n"
+
+        self.assertEqual(
+            email_prompt.split(marker)[0],
+            phone_prompt.split(marker)[0],
+        )
+        self.assertGreater(len(email_prompt.split(marker)[0]), 2500)
+
     def test_llm_maps_split_name_fields_from_full_name(self) -> None:
         first_name = self._add_field(
             label="Given name",
