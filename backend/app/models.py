@@ -225,3 +225,86 @@ class FormAnalysisCache(Base):
     hit_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class BenchmarkRun(Base):
+    """One execution of the local benchmark suite."""
+
+    __tablename__ = "benchmark_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    mode: Mapped[str] = mapped_column(String(50), nullable=False)
+    provider: Mapped[Optional[str]] = mapped_column(String(50))
+    total_cases: Mapped[int] = mapped_column(Integer, nullable=False)
+    average_score: Mapped[float] = mapped_column(Float, nullable=False)
+    summary_metrics_json: Mapped[str] = mapped_column("summary_metrics", Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    case_results: Mapped[list["BenchmarkCaseResult"]] = relationship(
+        back_populates="run"
+    )
+
+    @property
+    def summary_metrics(self) -> dict[str, float]:
+        """Return structured aggregate benchmark metrics."""
+
+        try:
+            parsed = json.loads(self.summary_metrics_json)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+
+class BenchmarkCaseResult(Base):
+    """Metrics and failures for one benchmark case in a run."""
+
+    __tablename__ = "benchmark_case_results"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("benchmark_runs.id"), nullable=False)
+    case_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    metrics_json: Mapped[str] = mapped_column("metrics", Text, nullable=False)
+    failures_json: Mapped[str] = mapped_column("failures", Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    run: Mapped["BenchmarkRun"] = relationship(back_populates="case_results")
+
+    @property
+    def metrics(self) -> dict[str, float]:
+        """Return structured metrics for this case."""
+
+        try:
+            parsed = json.loads(self.metrics_json)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    @property
+    def failures(self) -> list[dict[str, object]]:
+        """Return structured failure details for this case."""
+
+        try:
+            parsed = json.loads(self.failures_json)
+        except json.JSONDecodeError:
+            return []
+        return parsed if isinstance(parsed, list) else []
+
+
+class TaskActionTrace(Base):
+    """Detailed admin-only trace of browser automation actions."""
+
+    __tablename__ = "task_action_traces"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), nullable=False)
+    step: Mapped[int] = mapped_column(Integer, nullable=False)
+    phase: Mapped[str] = mapped_column(String(100), nullable=False)
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    selector: Mapped[Optional[str]] = mapped_column(String(1000))
+    field_id: Mapped[Optional[int]] = mapped_column(Integer)
+    input_value: Mapped[Optional[str]] = mapped_column(Text)
+    result: Mapped[str] = mapped_column(String(50), nullable=False)
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
+    screenshot_id: Mapped[Optional[int]] = mapped_column(ForeignKey("screenshots.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

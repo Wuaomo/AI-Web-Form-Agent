@@ -436,6 +436,127 @@ dd {
   margin-bottom: 0;
 }
 
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.metric-card {
+  padding: 1rem;
+  background: #fff;
+  border: 1px solid #dfe4ec;
+  border-radius: 0.5rem;
+}
+
+.metric-card span {
+  display: block;
+  color: #687386;
+  font-size: 0.82rem;
+}
+
+.metric-card strong {
+  display: block;
+  margin-top: 0.35rem;
+  color: #17202a;
+  font-size: 1.7rem;
+}
+
+.benchmark-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.28fr) minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.benchmark-runs {
+  align-self: start;
+}
+
+.benchmark-runs button {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.65rem;
+  padding: 0.65rem 0.75rem;
+  text-align: left;
+  background: #f8fafc;
+  border: 1px solid #e3e7ee;
+  border-radius: 0.45rem;
+}
+
+.benchmark-runs button.active {
+  background: #eaf3ff;
+  border-color: #9cc7ff;
+}
+
+.benchmark-detail {
+  display: grid;
+  gap: 1rem;
+}
+
+.metric-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.metric-list.compact {
+  margin: 0.75rem 0;
+}
+
+.metric-list div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.65rem 0.75rem;
+  background: #f8fafc;
+  border-radius: 0.4rem;
+}
+
+.metric-list dt {
+  color: #687386;
+}
+
+.metric-list dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+.benchmark-case-list {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.benchmark-case-list details {
+  padding: 0.8rem;
+  border: 1px solid #e3e7ee;
+  border-radius: 0.45rem;
+}
+
+.benchmark-case-list summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  cursor: pointer;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.data-table th,
+.data-table td {
+  padding: 0.55rem;
+  border-bottom: 1px solid #edf1f6;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
 .table-wrapper {
   margin-top: 1rem;
   overflow-x: auto;
