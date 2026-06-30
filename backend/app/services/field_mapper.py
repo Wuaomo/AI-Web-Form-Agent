@@ -15,6 +15,7 @@ from app.database import SessionLocal
 from app.models import FormField, Profile, Task
 from app.schemas import LLMProvider, ProfileKey
 from app.services.llm_provider_config import resolve_llm_provider
+from app.services.llm_usage_service import record_llm_api_usage
 
 logger = logging.getLogger(__name__)
 
@@ -411,6 +412,74 @@ def _extract_chat_completion_output_text(
     return content
 
 
+def _usage_int(usage: dict[str, object], key: str) -> int | None:
+    """Return an integer usage metric when the provider sent one."""
+
+    value = usage.get(key)
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return None
+
+
+def _extract_deepseek_usage(response: dict[str, object]) -> dict[str, object]:
+    """Build internal token and cache metrics from DeepSeek's usage payload."""
+
+    usage = response.get("usage")
+    if not isinstance(usage, dict):
+        return {
+            "provider": "deepseek",
+            "model": config.DEEPSEEK_MODEL,
+            "usage_available": False,
+        }
+
+    prompt_tokens = _usage_int(usage, "prompt_tokens") or 0
+    completion_tokens = _usage_int(usage, "completion_tokens") or 0
+    total_tokens = _usage_int(usage, "total_tokens")
+    cache_hit_tokens = _usage_int(usage, "prompt_cache_hit_tokens") or 0
+    cache_miss_tokens = _usage_int(usage, "prompt_cache_miss_tokens")
+
+    if total_tokens is None:
+        total_tokens = prompt_tokens + completion_tokens
+    if cache_miss_tokens is None:
+        cache_miss_tokens = max(prompt_tokens - cache_hit_tokens, 0)
+
+    return {
+        "provider": "deepseek",
+        "model": config.DEEPSEEK_MODEL,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "cache_hit_tokens": cache_hit_tokens,
+        "cache_miss_tokens": cache_miss_tokens,
+        "cache_hit": cache_hit_tokens > 0,
+        "cache_hit_rate": (
+            cache_hit_tokens / prompt_tokens if prompt_tokens else 0
+        ),
+    }
+
+
+def _log_deepseek_usage(usage: dict[str, object]) -> None:
+    """Record DeepSeek usage metrics without exposing prompt or response text."""
+
+    logger.info(
+        "DeepSeek API usage: %s",
+        json.dumps(usage, ensure_ascii=False),
+    )
+
+
+def _record_deepseek_usage(
+    response: dict[str, object],
+    task_id: int | None,
+    db: Session | None,
+) -> None:
+    """Log usage and persist it when this request belongs to a task."""
+
+    usage = _extract_deepseek_usage(response)
+    _log_deepseek_usage(usage)
+    if task_id is not None:
+        record_llm_api_usage(task_id=task_id, usage=usage, db=db)
+
+
 def _request_openai_mapping(prompt: str) -> str:
     """Request schema-constrained JSON from the OpenAI Responses API."""
 
@@ -466,7 +535,11 @@ def _request_gemini_mapping(prompt: str) -> str:
         raise ValueError("Gemini response did not contain output text") from exc
 
 
-def _request_deepseek_mapping(prompt: str) -> str:
+def _request_deepseek_mapping(
+    prompt: str,
+    task_id: int | None = None,
+    db: Session | None = None,
+) -> str:
     """Request JSON field mappings from DeepSeek's OpenAI-compatible API."""
 
     if not config.DEEPSEEK_API_KEY:
@@ -499,6 +572,7 @@ def _request_deepseek_mapping(prompt: str) -> str:
         },
         {"Authorization": f"Bearer {config.DEEPSEEK_API_KEY}"},
     )
+    _record_deepseek_usage(response, task_id=task_id, db=db)
     output_text = _extract_chat_completion_output_text(response, "DeepSeek")
     logger.warning("DeepSeek mapping API returned output text")
     return output_text
@@ -507,6 +581,8 @@ def _request_deepseek_mapping(prompt: str) -> str:
 def _request_llm_mapping(
     prompt: str,
     provider: LLMProvider | None = None,
+    task_id: int | None = None,
+    db: Session | None = None,
 ) -> str:
     """Route the mapping request to the configured provider."""
 
@@ -516,7 +592,7 @@ def _request_llm_mapping(
     if selected_provider == "gemini":
         return _request_gemini_mapping(prompt)
     if selected_provider == "deepseek":
-        return _request_deepseek_mapping(prompt)
+        return _request_deepseek_mapping(prompt, task_id=task_id, db=db)
     raise ValueError("LLM_PROVIDER must be 'openai', 'gemini', or 'deepseek'")
 
 
@@ -604,7 +680,12 @@ def _map_fields_with_llm(
 
     try:
         prompt = _build_llm_prompt(fields, profile)
-        raw_response = _request_llm_mapping(prompt, provider)
+        raw_response = _request_llm_mapping(
+            prompt,
+            provider,
+            task_id=task_id,
+            db=db,
+        )
         result = _validate_llm_response(raw_response, fields, profile)
         mapped_fields = _apply_llm_mappings(fields, profile, result, db)
         logger.warning(

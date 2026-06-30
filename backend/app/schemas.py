@@ -97,6 +97,46 @@ class ActionLogResponse(BaseModel):
     created_at: datetime
 
 
+class LlmApiUsageLogResponse(BaseModel):
+    """One internal LLM API usage record."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_id: int
+    provider: str
+    model: str
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    cache_hit_tokens: int
+    cache_miss_tokens: int
+    cache_hit: bool
+    cache_hit_rate: float
+    created_at: datetime
+
+
+class LlmUsageSummaryResponse(BaseModel):
+    """Aggregated LLM token and cache usage."""
+
+    task_id: int | None
+    request_count: int
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    cache_hit_tokens: int
+    cache_miss_tokens: int
+    cache_hit_rate: float
+
+
+class TaskLlmUsageResponse(BaseModel):
+    """Task-specific LLM usage details plus totals."""
+
+    task_id: int
+    summary: LlmUsageSummaryResponse
+    items: list[LlmApiUsageLogResponse]
+
+
 class ScreenshotResponse(BaseModel):
     """Metadata for a screenshot captured during task execution."""
 

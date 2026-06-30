@@ -62,6 +62,9 @@ class Task(Base):
     form_fields: Mapped[list["FormField"]] = relationship(back_populates="task")
     action_logs: Mapped[list["ActionLog"]] = relationship(back_populates="task")
     screenshots: Mapped[list["Screenshot"]] = relationship(back_populates="task")
+    llm_usage_logs: Mapped[list["LlmApiUsageLog"]] = relationship(
+        back_populates="task"
+    )
 
 
 class FormField(Base):
@@ -140,6 +143,27 @@ class ActionLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     task: Mapped["Task"] = relationship(back_populates="action_logs")
+
+
+class LlmApiUsageLog(Base):
+    """Internal token and cache usage from one LLM API response."""
+
+    __tablename__ = "llm_api_usage_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), nullable=False)
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    model: Mapped[str] = mapped_column(String(100), nullable=False)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    cache_hit_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    cache_miss_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    cache_hit: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    cache_hit_rate: Mapped[float] = mapped_column(Float, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    task: Mapped["Task"] = relationship(back_populates="llm_usage_logs")
 
 
 class Screenshot(Base):
