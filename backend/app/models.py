@@ -152,3 +152,21 @@ class LLMApiUsageLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     task: Mapped["Task"] = relationship(back_populates="llm_usage_logs")
+
+
+class LLMMappingCache(Base):
+    """Reusable LLM field-to-profile-key mappings for stable form structures."""
+
+    __tablename__ = "llm_mapping_cache"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    cache_key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    model: Mapped[str] = mapped_column(String(100), nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String(50), nullable=False)
+    fields_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    profile_keys_signature: Mapped[str] = mapped_column(String(64), nullable=False)
+    response_json: Mapped[str] = mapped_column(Text, nullable=False)
+    hit_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
