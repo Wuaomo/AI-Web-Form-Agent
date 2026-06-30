@@ -290,13 +290,18 @@ def _profile_payload(task: Task) -> dict[str, str]:
     }
 
 
-def _fields_payload(fields: list[FormField]) -> list[dict[str, object]]:
-    """Serialize field metadata without exposing browser actions."""
+def _stable_ref(field: FormField, index: int) -> str:
+    """Return a task-independent field reference for prompt structure."""
+
+    return field.element_ref or f"field_{index + 1}"
+
+
+def _stable_fields_payload(fields: list[FormField]) -> list[dict[str, object]]:
+    """Serialize cache-friendly field metadata without task-specific IDs."""
 
     return [
         {
-            "field_id": field.id,
-            "element_ref": field.element_ref,
+            "stable_ref": _stable_ref(field, index),
             "form_title": field.form_title,
             "section_title": field.section_title,
             "field_label": field.label,
@@ -310,7 +315,19 @@ def _fields_payload(fields: list[FormField]) -> list[dict[str, object]]:
             "required": field.required,
             "fillable": _is_fillable_field(field),
         }
-        for field in fields
+        for index, field in enumerate(fields)
+    ]
+
+
+def _field_id_map(fields: list[FormField]) -> list[dict[str, object]]:
+    """Map stable prompt references to current database IDs."""
+
+    return [
+        {
+            "stable_ref": _stable_ref(field, index),
+            "field_id": field.id,
+        }
+        for index, field in enumerate(fields)
     ]
 
 
@@ -318,12 +335,8 @@ def _build_llm_prompt(
     fields: list[FormField],
     profile: dict[str, str],
 ) -> str:
-    """Build a short prompt; the provider schema enforces the JSON shape."""
+    """Build a prompt with a stable prefix for provider-side context caching."""
 
-    input_data = {
-        "fields": _fields_payload(fields),
-        "profile": profile,
-    }
     output_data = {
         "mappings": [
             {
@@ -342,7 +355,15 @@ def _build_llm_prompt(
         "clicks, submits, selectors to execute, or invented values. "
         "Return only JSON matching this shape:\n"
         f"{json.dumps(output_data, ensure_ascii=False)}\n\n"
-        f"Input:\n{json.dumps(input_data, ensure_ascii=False)}"
+        "Use the stable_ref values to reason about the form. Use the current "
+        "run field id map at the end to return real field_id integers. "
+        "Do not return stable_ref in the final JSON.\n\n"
+        "Stable form fields:\n"
+        f"{json.dumps(_stable_fields_payload(fields), ensure_ascii=False)}"
+        "\n\nCurrent run field id map:\n"
+        f"{json.dumps(_field_id_map(fields), ensure_ascii=False)}"
+        "\n\nCurrent profile values:\n"
+        f"{json.dumps(profile, ensure_ascii=False)}"
     )
 
 

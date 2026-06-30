@@ -10,7 +10,11 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base
 from app.models import FormField, LlmApiUsageLog, Profile, Task
-from app.services.field_mapper import _request_deepseek_mapping, map_fields_with_llm
+from app.services.field_mapper import (
+    _build_llm_prompt,
+    _request_deepseek_mapping,
+    map_fields_with_llm,
+)
 
 
 class LLMFieldMapperTests(unittest.TestCase):
@@ -156,6 +160,51 @@ class LLMFieldMapperTests(unittest.TestCase):
         self.assertEqual(second_mapping[0].mapped_profile_key, "email")
         self.assertEqual(second_mapping[0].mapped_value, "grace@example.com")
         self.assertEqual(second_mapping[0].confidence, 0.93)
+
+    def test_llm_prompt_keeps_task_specific_data_after_cacheable_prefix(self) -> None:
+        first_field = self._add_field(
+            label="Where should we send updates?",
+            selector="#contact-destination",
+        )
+        second_profile = Profile(
+            profile_name="Second profile",
+            full_name="Grace Hopper",
+            email="grace@example.com",
+        )
+        second_task = Task(
+            url="https://example.com/form",
+            profile=second_profile,
+            status="MAPPING_READY",
+        )
+        self.db.add(second_task)
+        self.db.commit()
+        second_field = self._add_field(
+            task_id=second_task.id,
+            label="Where should we send updates?",
+            selector="#contact-destination",
+        )
+
+        first_prompt = _build_llm_prompt(
+            [first_field],
+            {"full_name": "Ada Lovelace", "email": "ada@example.com"},
+        )
+        second_prompt = _build_llm_prompt(
+            [second_field],
+            {"full_name": "Grace Hopper", "email": "grace@example.com"},
+        )
+        marker = "\nCurrent run field id map:\n"
+
+        self.assertIn(marker, first_prompt)
+        self.assertEqual(
+            first_prompt.split(marker)[0],
+            second_prompt.split(marker)[0],
+        )
+        stable_fields_section = first_prompt.split("Stable form fields:\n")[1].split(
+            marker
+        )[0]
+        self.assertNotIn('"field_id"', stable_fields_section)
+        self.assertIn(f'"field_id": {first_field.id}', first_prompt)
+        self.assertIn(f'"field_id": {second_field.id}', second_prompt)
 
     def test_llm_maps_split_name_fields_from_full_name(self) -> None:
         first_name = self._add_field(
