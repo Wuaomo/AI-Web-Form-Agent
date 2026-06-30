@@ -314,6 +314,59 @@ class LLMFieldMapperTests(unittest.TestCase):
         self.assertEqual(headers["Authorization"], "Bearer test-key")
         self.assertEqual(result, response["choices"][0]["message"]["content"])
 
+    def test_deepseek_request_logs_usage_statistics(self) -> None:
+        response = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "mappings": [
+                                    {
+                                        "field_id": 1,
+                                        "mapped_profile_key": "email",
+                                        "confidence": 0.9,
+                                    }
+                                ]
+                            }
+                        )
+                    }
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 25,
+                "total_tokens": 125,
+                "prompt_cache_hit_tokens": 60,
+                "prompt_cache_miss_tokens": 40,
+            },
+        }
+
+        with (
+            patch("app.services.field_mapper.config.DEEPSEEK_API_KEY", "test-key"),
+            patch("app.services.field_mapper._post_json", return_value=response),
+            patch("app.services.field_mapper.logger.info") as log_info,
+        ):
+            _request_deepseek_mapping("Map this field")
+
+        log_info.assert_called_once()
+        message, usage_json = log_info.call_args.args
+        self.assertEqual(message, "DeepSeek API usage: %s")
+        self.assertEqual(
+            json.loads(usage_json),
+            {
+                "provider": "deepseek",
+                "model": "deepseek-v4-flash",
+                "prompt_tokens": 100,
+                "completion_tokens": 25,
+                "total_tokens": 125,
+                "cache_hit_tokens": 60,
+                "cache_miss_tokens": 40,
+                "cache_hit": True,
+                "cache_hit_rate": 0.6,
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

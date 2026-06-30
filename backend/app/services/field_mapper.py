@@ -410,6 +410,62 @@ def _extract_chat_completion_output_text(
     return content
 
 
+def _usage_int(usage: dict[str, object], key: str) -> int | None:
+    """Return an integer usage metric when the provider sent one."""
+
+    value = usage.get(key)
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return None
+
+
+def _extract_deepseek_usage(response: dict[str, object]) -> dict[str, object]:
+    """Build internal token and cache metrics from DeepSeek's usage payload."""
+
+    usage = response.get("usage")
+    if not isinstance(usage, dict):
+        return {
+            "provider": "deepseek",
+            "model": config.DEEPSEEK_MODEL,
+            "usage_available": False,
+        }
+
+    prompt_tokens = _usage_int(usage, "prompt_tokens") or 0
+    completion_tokens = _usage_int(usage, "completion_tokens") or 0
+    total_tokens = _usage_int(usage, "total_tokens")
+    cache_hit_tokens = _usage_int(usage, "prompt_cache_hit_tokens") or 0
+    cache_miss_tokens = _usage_int(usage, "prompt_cache_miss_tokens")
+
+    if total_tokens is None:
+        total_tokens = prompt_tokens + completion_tokens
+    if cache_miss_tokens is None:
+        cache_miss_tokens = max(prompt_tokens - cache_hit_tokens, 0)
+
+    return {
+        "provider": "deepseek",
+        "model": config.DEEPSEEK_MODEL,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "cache_hit_tokens": cache_hit_tokens,
+        "cache_miss_tokens": cache_miss_tokens,
+        "cache_hit": cache_hit_tokens > 0,
+        "cache_hit_rate": (
+            cache_hit_tokens / prompt_tokens if prompt_tokens else 0
+        ),
+    }
+
+
+def _log_deepseek_usage(response: dict[str, object]) -> None:
+    """Record DeepSeek usage metrics without exposing prompt or response text."""
+
+    usage = _extract_deepseek_usage(response)
+    logger.info(
+        "DeepSeek API usage: %s",
+        json.dumps(usage, ensure_ascii=False),
+    )
+
+
 def _request_openai_mapping(prompt: str) -> str:
     """Request schema-constrained JSON from the OpenAI Responses API."""
 
@@ -498,6 +554,7 @@ def _request_deepseek_mapping(prompt: str) -> str:
         },
         {"Authorization": f"Bearer {config.DEEPSEEK_API_KEY}"},
     )
+    _log_deepseek_usage(response)
     output_text = _extract_chat_completion_output_text(response, "DeepSeek")
     logger.warning("DeepSeek mapping API returned output text")
     return output_text
