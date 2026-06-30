@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { api, API_BASE_URL } from "../api";
 import Message from "../components/Message";
+import { formatChinaTime } from "../dateTime";
 
 function Dashboard() {
   const [health, setHealth] = useState("checking");
@@ -112,7 +113,7 @@ function Dashboard() {
                     </td>
                     <td>{profilesById.get(task.profile_id) || task.profile_id}</td>
                     <td>{task.description || "—"}</td>
-                    <td>{new Date(task.created_at).toLocaleString()}</td>
+                    <td>{formatChinaTime(task.created_at)}</td>
                   </tr>
                 ))}
               </tbody>

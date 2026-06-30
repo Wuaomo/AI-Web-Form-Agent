@@ -8,6 +8,7 @@ import {
   getFieldChoiceOptions,
   hasFieldChoiceOptions,
   isReviewableField,
+  needsMappingReview,
 } from "./reviewMappingPresentation.js";
 
 test("review queue includes information controls and excludes action controls", () => {
@@ -97,4 +98,43 @@ test("field choice helpers expose structured select and radio options", () => {
     { label: "Office", value: "office" },
   ]);
   assert.equal(hasFieldChoiceOptions({ field_type: "text", options: [] }), false);
+});
+
+test("needsMappingReview only highlights fields that need attention", () => {
+  assert.equal(
+    needsMappingReview({
+      field_type: "text",
+      required: true,
+      mapped_value: "",
+      confidence: 1,
+    }),
+    true,
+  );
+  assert.equal(
+    needsMappingReview({
+      field_type: "text",
+      required: false,
+      mapped_value: "Alice",
+      confidence: 0.69,
+    }),
+    true,
+  );
+  assert.equal(
+    needsMappingReview({
+      field_type: "text",
+      required: false,
+      mapped_value: "Alice",
+      confidence: 0.7,
+    }),
+    false,
+  );
+  assert.equal(
+    needsMappingReview({
+      field_type: "text",
+      required: false,
+      mapped_value: "Alice",
+      confidence: 0.95,
+    }),
+    false,
+  );
 });

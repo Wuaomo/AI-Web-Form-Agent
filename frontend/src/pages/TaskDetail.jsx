@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { api, API_BASE_URL } from "../api";
-import { buildAgentTimeline, fieldDisplayName } from "../agentTimeline";
 import LlmMappingControls from "../components/LlmMappingControls";
+import { formatChinaTime } from "../dateTime";
 import {
   getSavedLlmProvider,
   saveLlmProvider,
@@ -19,12 +19,15 @@ function needsRequiredInput(field) {
   return field.required && isFillableField(field) && !field.mapped_value;
 }
 
+function fieldDisplayName(field) {
+  return field.field_label || field.label || field.name || field.selector;
+}
+
 function TaskDetail() {
   const { taskId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const [task, setTask] = useState(null);
-  const [logs, setLogs] = useState([]);
   const [screenshots, setScreenshots] = useState([]);
   const [profiles, setProfiles] = useState([]);
   const [llmProviders, setLlmProviders] = useState([]);
@@ -45,14 +48,12 @@ function TaskDetail() {
   useEffect(() => {
     Promise.all([
       api.getTask(taskId),
-      api.listTaskLogs(taskId),
       api.listTaskScreenshots(taskId),
       api.listProfiles(),
       api.listLlmProviders(),
     ])
-      .then(([taskResult, logItems, screenshotItems, profileItems, providerItems]) => {
+      .then(([taskResult, screenshotItems, profileItems, providerItems]) => {
         setTask(taskResult);
-        setLogs(logItems);
         setScreenshots(screenshotItems);
         setProfiles(profileItems);
         setLlmProviders(providerItems);
@@ -63,13 +64,11 @@ function TaskDetail() {
   }, [taskId]);
 
   async function refreshTaskHistory(nextTask = null) {
-    const [taskResult, logItems, screenshotItems] = await Promise.all([
+    const [taskResult, screenshotItems] = await Promise.all([
       nextTask ? Promise.resolve(nextTask) : api.getTask(taskId),
-      api.listTaskLogs(taskId),
       api.listTaskScreenshots(taskId),
     ]);
     setTask(taskResult);
-    setLogs(logItems);
     setScreenshots(screenshotItems);
   }
 
@@ -155,7 +154,6 @@ function TaskDetail() {
   );
   const llmUnavailable = mappingMode === "llm" && !selectedProvider?.configured;
   const missingRequiredFields = task?.form_fields.filter(needsRequiredInput) || [];
-  const agentTimeline = buildAgentTimeline(logs, task?.form_fields || []);
   const runState = getTaskRunState(task);
   const runSummary = getTaskRunSummary(task);
   const primaryDisabled =
@@ -314,49 +312,6 @@ function TaskDetail() {
 
           <section className="section-block">
             <div className="section-heading">
-              <h3>Action Logs</h3>
-            </div>
-            {logs.length === 0 ? (
-              <div className="card empty-state">
-                <p>No action logs yet.</p>
-              </div>
-            ) : (
-              <div className="agent-log-list">
-                {agentTimeline.map((entry) => (
-                  <article className="agent-log-entry" key={entry.id}>
-                    <div className="agent-log-marker" aria-hidden="true" />
-                    <div className="agent-log-body">
-                      <div className="agent-log-main">
-                        <div>
-                          <p className="agent-log-title">{entry.title}</p>
-                          <time className="agent-log-time" dateTime={entry.createdAt}>
-                            {new Date(entry.createdAt).toLocaleString()}
-                          </time>
-                        </div>
-                        <span className="badge">{entry.status}</span>
-                      </div>
-                      {entry.details.length > 0 && (
-                        <details className="agent-log-details">
-                          <summary>Technical details</summary>
-                          <dl>
-                            {entry.details.map((detail, index) => (
-                              <div key={`${detail.label}-${index}`}>
-                                <dt>{detail.label}</dt>
-                                <dd>{detail.value}</dd>
-                              </div>
-                            ))}
-                          </dl>
-                        </details>
-                      )}
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="section-block">
-            <div className="section-heading">
               <h3>Screenshots</h3>
             </div>
             {screenshots.length === 0 ? (
@@ -379,7 +334,7 @@ function TaskDetail() {
                     </a>
                     <p>
                       <strong>{screenshot.stage}</strong>
-                      <span>{new Date(screenshot.created_at).toLocaleString()}</span>
+                      <span>{formatChinaTime(screenshot.created_at)}</span>
                     </p>
                   </article>
                 ))}

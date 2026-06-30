@@ -18,6 +18,7 @@ import {
   formatMappingSummary,
   getFieldChoiceOptions,
   hasFieldChoiceOptions,
+  needsMappingReview,
   needsRequiredInput,
   profileKeys,
   valueControlLabel,
@@ -112,14 +113,12 @@ function ReviewMapping() {
     );
   }
 
-  function renderValueControl(field) {
+  function renderValueControl(field, { showLabel = true } = {}) {
     const fieldType = (field.field_type || "").toLowerCase();
     const label = valueControlLabel(field);
 
     if (fieldType === "checkbox") {
-      return (
-        <label>
-          {label}
+      const control = (
           <select
             aria-label={`${label} for ${fieldDisplayName(field)}`}
             value={checkboxControlValue(field.mapped_value)}
@@ -133,14 +132,12 @@ function ReviewMapping() {
             <option value="true">Checked</option>
             <option value="false">Unchecked</option>
           </select>
-        </label>
       );
+      return showLabel ? <label>{label}{control}</label> : control;
     }
 
     if (hasFieldChoiceOptions(field)) {
-      return (
-        <label>
-          {label}
+      const control = (
           <select
             aria-label={`${label} for ${fieldDisplayName(field)}`}
             value={field.mapped_value || ""}
@@ -157,13 +154,11 @@ function ReviewMapping() {
               </option>
             ))}
           </select>
-        </label>
       );
+      return showLabel ? <label>{label}{control}</label> : control;
     }
 
-    return (
-      <label>
-        {label}
+    const control = (
         <input
           aria-label={`${label} for ${fieldDisplayName(field)}`}
           value={field.mapped_value || ""}
@@ -174,6 +169,30 @@ function ReviewMapping() {
             })
           }
         />
+    );
+    return showLabel ? <label>{label}{control}</label> : control;
+  }
+
+  function renderSourceControl(field) {
+    return (
+      <label>
+        Use source
+        <select
+          aria-label={`Source for ${fieldDisplayName(field)}`}
+          value={field.mapped_profile_key || ""}
+          onChange={(event) =>
+            updateField(field.id, {
+              mapped_profile_key: event.target.value || null,
+            })
+          }
+        >
+          <option value="">Manual / not mapped</option>
+          {profileKeys.map((key) => (
+            <option key={key} value={key}>
+              {key}
+            </option>
+          ))}
+        </select>
       </label>
     );
   }
@@ -268,92 +287,85 @@ function ReviewMapping() {
           </p>
         </div>
       ) : (
-        <div className="review-queue">
+        <div className="review-form">
           {reviewGroups.map((group) => (
-            <section className="review-group" key={group.title}>
-              <div className="review-group-heading">
+            <section className="review-form-section" key={group.title}>
+              <div className="review-form-heading">
                 <h3>{group.title}</h3>
                 <span className="badge">{group.fields.length} fields</span>
               </div>
 
-              <div className="review-card-list">
+              <div className="review-field-list">
                 {group.fields.map((field) => (
                   <article
-                    className={`card review-card${
-                      needsRequiredInput(field) ? " review-card-needs-input" : ""
+                    className={`review-form-row${
+                      needsMappingReview(field) ? " review-form-row-needs-review" : ""
                     }`}
                     key={field.id}
                   >
-                    <div className="review-card-main">
-                      <div className="review-card-title-row">
-                        <h4>{fieldDisplayName(field)}</h4>
-                        <div className="review-card-badges">
-                          {field.required && (
-                            <span className="required-badge">Required</span>
-                          )}
-                          {needsRequiredInput(field) && (
-                            <span className="required-badge">Needs input</span>
-                          )}
-                          <span className="badge">{field.field_type || "field"}</span>
-                        </div>
-                      </div>
-
-                      <dl className="review-summary">
-                        <div>
-                          <dt>Web field</dt>
-                          <dd>{fieldDisplayName(field)}</dd>
-                        </div>
-                        <div>
-                          <dt>Agent chose</dt>
-                          <dd>{formatMappingSummary(field)}</dd>
-                        </div>
-                        <div>
-                          <dt>Confidence</dt>
-                          <dd>{formatConfidence(field.confidence)}</dd>
-                        </div>
-                      </dl>
-
-                      {(fieldFormTitle(field) || fieldSectionTitle(field)) && (
-                        <p className="field-meta">
-                          {fieldFormTitle(field) && `Form: ${fieldFormTitle(field)}`}
-                          {fieldFormTitle(field) && fieldSectionTitle(field) && " | "}
-                          {fieldSectionTitle(field) &&
-                            `Section: ${fieldSectionTitle(field)}`}
-                        </p>
-                      )}
-                      {fieldHint(field) && (
-                        <p className="field-meta">Hint: {fieldHint(field)}</p>
-                      )}
+                    <div className="review-form-input">
+                      <label className="review-field-control">
+                        <span className="review-field-label">
+                          <span>{fieldDisplayName(field)}</span>
+                          {field.required && <span className="required">*</span>}
+                        </span>
+                        {renderValueControl(field, { showLabel: false })}
+                      </label>
+                      <p className="review-field-source">
+                        {formatMappingSummary(field)} ·{" "}
+                        {formatConfidence(field.confidence)}
+                      </p>
+                      {fieldHint(field) && <p className="field-meta">{fieldHint(field)}</p>}
                       {field.current_value && (
                         <p className="field-meta">Current: {field.current_value}</p>
                       )}
-                      {field.element_ref && (
-                        <small className="field-ref">{field.element_ref}</small>
+                      {(fieldFormTitle(field) ||
+                        fieldSectionTitle(field) ||
+                        field.element_ref) && (
+                        <details className="technical-details review-field-details">
+                          <summary>Field details</summary>
+                          <dl>
+                            {fieldFormTitle(field) && (
+                              <div>
+                                <dt>Form</dt>
+                                <dd>{fieldFormTitle(field)}</dd>
+                              </div>
+                            )}
+                            {fieldSectionTitle(field) && (
+                              <div>
+                                <dt>Section</dt>
+                                <dd>{fieldSectionTitle(field)}</dd>
+                              </div>
+                            )}
+                            {field.element_ref && (
+                              <div>
+                                <dt>Reference</dt>
+                                <dd>{field.element_ref}</dd>
+                              </div>
+                            )}
+                          </dl>
+                        </details>
                       )}
                     </div>
 
-                    <div className="review-card-controls">
-                      <label>
-                        Change source
-                        <select
-                          aria-label={`Source for ${fieldDisplayName(field)}`}
-                          value={field.mapped_profile_key || ""}
-                          onChange={(event) =>
-                            updateField(field.id, {
-                              mapped_profile_key: event.target.value || null,
-                            })
-                          }
-                        >
-                          <option value="">Manual / not mapped</option>
-                          {profileKeys.map((key) => (
-                            <option key={key} value={key}>
-                              {key}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      {renderValueControl(field)}
-                    </div>
+                    {needsMappingReview(field) && (
+                      <aside className="review-field-assist">
+                        <div className="review-field-assist-heading">
+                          <strong>
+                            {needsRequiredInput(field)
+                              ? "Needs a value"
+                              : "Check this match"}
+                          </strong>
+                          <span>{formatConfidence(field.confidence)}</span>
+                        </div>
+                        <p>
+                          {needsRequiredInput(field)
+                            ? "This required field is empty."
+                            : "The agent is less confident here."}
+                        </p>
+                        {renderSourceControl(field)}
+                      </aside>
+                    )}
                   </article>
                 ))}
               </div>

@@ -75,6 +75,19 @@ export function needsRequiredInput(field) {
   return field.required && isReviewableField(field) && !field.mapped_value;
 }
 
+export function needsMappingReview(field) {
+  if (!isReviewableField(field)) {
+    return false;
+  }
+  if (needsRequiredInput(field)) {
+    return true;
+  }
+  if (field.confidence === null || field.confidence === undefined) {
+    return true;
+  }
+  return field.confidence < 0.7;
+}
+
 export function formatConfidence(confidence) {
   if (confidence === null || confidence === undefined) {
     return "Not scored";

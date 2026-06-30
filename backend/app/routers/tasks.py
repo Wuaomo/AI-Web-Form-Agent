@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.database import BACKEND_DIR
 from app.database import get_db
 from app.models import ActionLog, FormField, Profile, Screenshot, Task
 from app.schemas import (
@@ -356,7 +357,12 @@ def list_task_screenshots(
         .where(Screenshot.task_id == task_id)
         .order_by(Screenshot.created_at, Screenshot.id)
     )
-    return list(db.scalars(statement))
+    screenshots = list(db.scalars(statement))
+    return [
+        screenshot
+        for screenshot in screenshots
+        if (BACKEND_DIR / screenshot.file_path).is_file()
+    ]
 
 
 @router.post(
