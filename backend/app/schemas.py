@@ -218,3 +218,58 @@ class TaskResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     form_fields: list[FormFieldResponse] = Field(default_factory=list)
+
+
+class BenchmarkRunRequest(BaseModel):
+    """Options for running the local benchmark suite."""
+
+    mode: Literal["rules", "llm"] = "rules"
+    provider: LLMProvider | None = None
+
+
+class BenchmarkCaseResultResponse(BaseModel):
+    """Metrics and failure details for one benchmark case."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    run_id: int
+    case_id: str
+    title: str
+    metrics: dict[str, float]
+    failures: list[dict[str, object]]
+    created_at: datetime
+
+
+class BenchmarkRunResponse(BaseModel):
+    """Persisted benchmark run with optional case details."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    mode: str
+    provider: str | None
+    total_cases: int
+    average_score: float
+    summary_metrics: dict[str, float]
+    created_at: datetime
+    case_results: list[BenchmarkCaseResultResponse] = Field(default_factory=list)
+
+
+class TaskActionTraceResponse(BaseModel):
+    """Detailed admin-only action trace entry."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_id: int
+    step: int
+    phase: str
+    action: str
+    selector: str | None
+    field_id: int | None
+    input_value: str | None
+    result: str
+    error_message: str | None
+    screenshot_id: int | None
+    created_at: datetime

@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import Layout from "./components/Layout";
+import Benchmarks from "./pages/Benchmarks";
 import CreateTask from "./pages/CreateTask";
 import Dashboard from "./pages/Dashboard";
 import Profiles from "./pages/Profiles";
@@ -12,6 +13,7 @@ function App() {
     <Routes>
       <Route element={<Layout />}>
         <Route index element={<Dashboard />} />
+        <Route path="benchmarks" element={<Benchmarks />} />
         <Route path="profiles" element={<Profiles />} />
         <Route path="tasks/new" element={<CreateTask />} />
         <Route path="tasks/:taskId" element={<TaskDetail />} />

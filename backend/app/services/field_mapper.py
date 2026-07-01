@@ -106,6 +106,166 @@ TYPE_MATCHES = {
     "telephone": "phone",
 }
 
+PROFILE_KEY_GUIDE = {
+    "first_name": (
+        "Given name, first name, or the first part of a split personal name."
+    ),
+    "last_name": (
+        "Family name, surname, or the last part of a split personal name."
+    ),
+    "full_name": (
+        "One combined personal name field, such as full name or applicant name."
+    ),
+    "email": "Email address, contact email, or where updates should be sent.",
+    "university": "University, college, school, institution, or alma mater.",
+    "major": "Major, field of study, specialization, or degree area.",
+    "phone": "Phone, mobile, telephone, cell number, or best number to call.",
+    "linkedin": "LinkedIn profile URL or LinkedIn handle.",
+    "github": "GitHub profile URL, code portfolio, or GitHub handle.",
+    "self_intro": (
+        "Self introduction, biography, personal statement, or about-you text."
+    ),
+}
+
+LLM_MAPPING_FEW_SHOT_EXAMPLES = [
+    {
+        "name": "combined name and contact fields",
+        "stable_form_fields": [
+            {
+                "stable_ref": "field_1",
+                "form_title": "Student registration",
+                "section_title": "Personal details",
+                "field_label": "Applicant name",
+                "selector": "#applicant-name",
+                "type": "text",
+                "hint": "Full legal name",
+                "name": "applicant_name",
+                "html_id": "applicant-name",
+                "current_value": None,
+                "options": [],
+                "required": True,
+                "fillable": True,
+            },
+            {
+                "stable_ref": "field_2",
+                "form_title": "Student registration",
+                "section_title": "Personal details",
+                "field_label": "Where should we send updates?",
+                "selector": "#contact-email",
+                "type": "email",
+                "hint": None,
+                "name": "contact_email",
+                "html_id": "contact-email",
+                "current_value": None,
+                "options": [],
+                "required": True,
+                "fillable": True,
+            },
+        ],
+        "current_run_field_id_map": [
+            {"stable_ref": "field_1", "field_id": 101},
+            {"stable_ref": "field_2", "field_id": 102},
+        ],
+        "current_profile_values": {
+            "full_name": "Ada Lovelace",
+            "email": "ada@example.com",
+        },
+        "output": {
+            "mappings": [
+                {
+                    "field_id": 101,
+                    "mapped_profile_key": "full_name",
+                    "confidence": 0.96,
+                },
+                {
+                    "field_id": 102,
+                    "mapped_profile_key": "email",
+                    "confidence": 0.94,
+                },
+            ]
+        },
+    },
+    {
+        "name": "split name and optional portfolio",
+        "stable_form_fields": [
+            {
+                "stable_ref": "field_1",
+                "form_title": "Mentor application",
+                "section_title": "About you",
+                "field_label": "Given name",
+                "selector": "#given-name",
+                "type": "text",
+                "hint": None,
+                "name": "givenName",
+                "html_id": "given-name",
+                "current_value": None,
+                "options": [],
+                "required": True,
+                "fillable": True,
+            },
+            {
+                "stable_ref": "field_2",
+                "form_title": "Mentor application",
+                "section_title": "About you",
+                "field_label": "Family name",
+                "selector": "#family-name",
+                "type": "text",
+                "hint": None,
+                "name": "familyName",
+                "html_id": "family-name",
+                "current_value": None,
+                "options": [],
+                "required": True,
+                "fillable": True,
+            },
+            {
+                "stable_ref": "field_3",
+                "form_title": "Mentor application",
+                "section_title": "Links",
+                "field_label": "Show us your code portfolio",
+                "selector": "#code-portfolio",
+                "type": "url",
+                "hint": "GitHub URL",
+                "name": "portfolio",
+                "html_id": "code-portfolio",
+                "current_value": None,
+                "options": [],
+                "required": False,
+                "fillable": True,
+            },
+        ],
+        "current_run_field_id_map": [
+            {"stable_ref": "field_1", "field_id": 201},
+            {"stable_ref": "field_2", "field_id": 202},
+            {"stable_ref": "field_3", "field_id": 203},
+        ],
+        "current_profile_values": {
+            "first_name": "Grace",
+            "last_name": "Hopper",
+            "github": "https://github.com/grace",
+        },
+        "output": {
+            "mappings": [
+                {
+                    "field_id": 201,
+                    "mapped_profile_key": "first_name",
+                    "confidence": 0.96,
+                },
+                {
+                    "field_id": 202,
+                    "mapped_profile_key": "last_name",
+                    "confidence": 0.96,
+                },
+                {
+                    "field_id": 203,
+                    "mapped_profile_key": "github",
+                    "confidence": 0.9,
+                },
+            ]
+        },
+    },
+]
+
 LLM_MAPPING_SCHEMA = {
     "type": "object",
     "properties": {
@@ -368,6 +528,11 @@ def _build_llm_prompt(
             }
         ]
     }
+    stable_context = {
+        "profile_key_guide": PROFILE_KEY_GUIDE,
+        "output_shape": output_data,
+        "few_shot_examples": LLM_MAPPING_FEW_SHOT_EXAMPLES,
+    }
     return (
         "Map each fillable form field to the best matching profile key. "
         "Use first_name or last_name when a form splits a person's name into "
@@ -377,6 +542,8 @@ def _build_llm_prompt(
         "clicks, submits, selectors to execute, or invented values. "
         "Return only JSON matching this shape:\n"
         f"{json.dumps(output_data, ensure_ascii=False)}\n\n"
+        "Stable mapping context shared by every request:\n"
+        f"{json.dumps(stable_context, ensure_ascii=False)}\n\n"
         "Use the stable_ref values to reason about the form. Use the current "
         "run field id map at the end to return real field_id integers. "
         "Do not return stable_ref in the final JSON.\n\n"

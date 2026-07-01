@@ -34,6 +34,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 DEEPSEEK_API_KEY = _getenv_any("DEEPSEEK_API_KEY", "DEEPSEEKAPI")
 DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
+ADMIN_API_TOKEN = os.getenv("ADMIN_API_TOKEN", "")
 
 LLM_PROVIDER_DETAILS = {
     "openai": {

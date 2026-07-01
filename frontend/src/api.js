@@ -97,6 +97,13 @@ async function request(path, options = {}) {
 export const api = {
   health: () => request("/health"),
   listLlmProviders: () => request("/llm/providers"),
+  runBenchmarks: (options = {}) =>
+    request("/benchmarks/run", {
+      method: "POST",
+      body: JSON.stringify(options),
+    }),
+  listBenchmarkRuns: () => request("/benchmarks/runs"),
+  getBenchmarkRun: (runId) => request(`/benchmarks/runs/${runId}`),
 
   listProfiles: () => request("/profiles"),
   createProfile: (profile) =>
