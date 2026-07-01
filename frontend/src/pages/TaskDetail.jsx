@@ -37,10 +37,21 @@ function TaskDetail() {
   const [busyAction, setBusyAction] = useState("");
   const [error, setError] = useState(location.state?.error || "");
   const [notice, setNotice] = useState(location.state?.notice || "");
+  const [profileUpdates, setProfileUpdates] = useState(
+    location.state?.profileUpdates || [],
+  );
 
   useEffect(() => {
-    if (location.state?.notice) {
-      setNotice(location.state.notice);
+    if (
+      location.state?.notice ||
+      location.state?.profileUpdates
+    ) {
+      if (location.state?.notice) {
+        setNotice(location.state.notice);
+      }
+      if (location.state?.profileUpdates) {
+        setProfileUpdates(location.state.profileUpdates);
+      }
       navigate(location.pathname, { replace: true, state: null });
     }
   }, [location.pathname, location.state, navigate]);
@@ -205,6 +216,19 @@ function TaskDetail() {
     <section>
       <Message type="error">{error}</Message>
       <Message type="success">{notice}</Message>
+      {profileUpdates.length > 0 && (
+        <div className="card">
+          <h3>Profile updates</h3>
+          <ul>
+            {profileUpdates.map((item) => (
+              <li key={`${item.field_id}-${item.profile_key}`}>
+                <strong>{item.profile_key}</strong>:{" "}
+                {item.previous_value ?? "(empty)"} → {item.new_value}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {task && (
         <>
           <div className="page-heading">
