@@ -1,113 +1,143 @@
 # AI Web Form Agent
 
-A human-in-the-loop browser automation agent that analyzes web forms, maps user
-profile data to fields, fills the form in a real browser, and pauses before
+A review-first browser automation system that analyzes web forms, maps reusable
+profile data to form fields, fills the page in a real browser, and pauses before
 final submission.
 
-## Why This Project Exists
+The project is designed as a portfolio-grade example of safe browser
+automation: dynamic form discovery, user review, execution evidence, evaluation
+benchmarks, and clear guardrails around sensitive actions.
 
-Most form automation demos are hard-coded scripts. This project is different:
+## Highlights
 
-- It discovers form fields dynamically from the target page.
-- It maps reusable profile data with rules or an LLM provider.
-- It lets the user review and correct every mapped value.
-- It records logs, screenshots, benchmark results, and action traces.
-- It keeps final submission behind explicit user approval.
+- **Dynamic form discovery**: extracts inputs, textareas, selects, checkboxes,
+  radio controls, labels, placeholders, ARIA hints, options, and required
+  fields from arbitrary pages.
+- **Profile-based filling**: stores reusable profile data and maps it to
+  discovered form fields through deterministic rules and optional
+  provider-assisted semantic mapping.
+- **Human review loop**: routes extracted fields through a Review Mapping screen
+  so the user can inspect, correct, and confirm values before browser execution.
+- **Safe browser execution**: uses Playwright to fill forms in Chromium while
+  keeping final submission behind explicit approval.
+- **Profile memory**: writes reviewed reusable values back to built-in or custom
+  profile fields when safe, while skipping one-time or sensitive fields.
+- **Observability**: records task status, action logs, screenshots, usage
+  metrics, and detailed admin traces.
+- **Evaluation suite**: runs local benchmark forms with persisted results and
+  case-level failure details.
 
-## Current Features
+## Current Product Flow
 
-- Profile CRUD with built-in fields and reusable custom values.
-- Task workflow: create task, analyze page, map fields, review mapping, fill
-  form, approve final submit.
-- Dynamic field extraction for inputs, textareas, selects, checkboxes, radio
-  controls, buttons, labels, placeholders, ARIA labels, options, and required
-  fields.
-- Rule-based and LLM-assisted mapping.
-- LLM provider selection for OpenAI, Gemini, and DeepSeek.
-- LLM setup hints when provider keys are missing.
-- LLM mapping cache and user mapping override cache.
-- Form analysis cache for repeated URLs.
-- Confirm Mapping profile memory: reviewed reusable values are safely written
-  back into the current profile.
-- Manual-login recovery flow when a page blocks extraction behind login.
-- Browser screenshots for task stages.
-- User-facing logs plus admin action traces.
-- Local benchmark runner with persisted benchmark history.
-- React pages for Dashboard, Profiles, Create Task, Task Detail, Review
-  Mapping, and Benchmarks.
+```text
+Create Profile
+  -> Create Task
+  -> Analyze Form
+  -> Generate Field Mapping
+  -> Review Mapping
+  -> Confirm Mapping
+  -> Fill Form
+  -> Wait for Approval
+  -> Submit only if the user approves
+```
+
+## Core Results
+
+This repository already includes:
+
+- A FastAPI backend with SQLite persistence.
+- A React/Vite frontend with Dashboard, Profiles, Create Task, Task Detail,
+  Review Mapping, and Benchmarks pages.
+- A Playwright execution layer for real browser interaction.
+- Extracted form field persistence and reusable task state.
+- Rule-based and optional provider-assisted mapping.
+- Mapping caches, user override memory, and form analysis cache.
+- Screenshots and user-facing action logs for task evidence.
+- Admin action traces for debugging browser execution.
+- Local benchmark cases and persisted benchmark run history.
+- Backend pytest coverage and frontend Node test coverage.
+
+## Architecture
+
+```text
+React UI
+  -> FastAPI API
+    -> Task/Profile persistence (SQLite)
+    -> Form extraction service
+    -> Field mapping service
+    -> Browser execution service (Playwright)
+    -> Benchmark runner
+```
+
+The mapping layer proposes field-to-profile matches. The backend validates and
+persists reviewed mappings. Playwright only executes mapped field values after
+the user has confirmed them.
 
 ## Tech Stack
 
 - Backend: Python, FastAPI, SQLAlchemy, SQLite
 - Browser automation: Playwright
 - Frontend: React, Vite
-- LLM providers: OpenAI, Gemini, DeepSeek
+- Optional semantic mapping providers: OpenAI, Gemini, DeepSeek
 - Testing: pytest, Node test runner
 
 ## Project Structure
 
 ```text
-backend/                      FastAPI app, services, tests, examples
-backend/app/routers/           API routes
-backend/app/services/          agent services and caches
-backend/benchmarks/            local benchmark forms and expected answers
-frontend/                     React/Vite UI
-frontend/src/pages/            app pages
-docs/superpowers/specs/        feature design specs
-docs/superpowers/plans/        implementation plans
-AGENT_RULES.md                project rules and safety boundaries
-TASKS.md                      current development roadmap
-AI_Web_Form_Agent_Roadmap.md  staged project roadmap
+backend/                 FastAPI app, services, tests, examples
+backend/app/routers/      API routes
+backend/app/services/     extraction, mapping, browser, cache, benchmark logic
+backend/benchmarks/       local benchmark forms and expected answers
+frontend/                React/Vite UI
+frontend/src/pages/       application pages
+docs/                    architecture and demo documentation
+AGENT_RULES.md           project constraints and safety boundaries
+TASKS.md                 development roadmap
 ```
 
-## Local Run Guide
+## Local Setup
 
-Use two PowerShell terminals: one for the backend API and one for the frontend
-UI.
+Use two PowerShell terminals: one for the backend API and one for the frontend.
 
-First-time backend setup:
+Backend setup:
 
 ```powershell
 cd backend
 python -m pip install -r requirements.txt
 python -m playwright install chromium
-```
-
-Start the backend API:
-
-```powershell
-cd backend
-$env:LLM_PROVIDER="deepseek"
-$env:DEEPSEEK_API_KEY="your-key"
 uvicorn app.main:app --reload
 ```
 
-The API runs at `http://localhost:8000`. Verify it with:
+The API runs at:
+
+```text
+http://localhost:8000
+```
+
+Health check:
 
 ```text
 http://localhost:8000/health
 ```
 
-First-time frontend setup:
+Frontend setup:
 
 ```powershell
 cd frontend
 npm install
-```
-
-Start the frontend UI:
-
-```powershell
-cd frontend
 npm run dev
 ```
 
-Open the Vite URL printed in the terminal, usually `http://localhost:5173`.
+Open the Vite URL printed in the terminal, usually:
 
-## LLM Provider Setup
+```text
+http://localhost:5173
+```
 
-The UI lets you choose rule mode or an LLM provider before generating mappings.
-Configure any provider you want to use before starting the backend.
+## Optional Provider Setup
+
+The system can run with deterministic rules only. To enable semantic mapping,
+configure one provider before starting the backend:
 
 ```powershell
 # DeepSeek
@@ -126,44 +156,66 @@ $env:GEMINI_API_KEY="your-key"
 $env:GEMINI_MODEL="gemini-2.5-flash"
 ```
 
-If a selected provider is missing an API key, the backend returns a setup hint
-instead of silently using the wrong model. If an LLM request or response
-validation fails, the mapper falls back safely to local rules.
+If a selected provider is unavailable, the API returns a setup hint and the
+application can continue in rules mode.
 
-## Demo Flow
+## Demo Walkthrough
 
-1. Create a profile with reusable information.
-2. Create a task with a target URL and profile.
-3. Click the primary action to analyze the form and generate mappings.
-4. Review mapped fields, fix required values, and confirm mapping.
-5. Inspect the profile update summary.
-6. Fill the form with Playwright.
-7. Review the screenshot while the task is in `WAITING_APPROVAL`.
-8. Optionally approve final submission.
-9. Run Benchmarks to show measurable extraction and mapping quality.
+1. Create a profile with reusable contact and education information.
+2. Create a task with a target form URL.
+3. Analyze the page to extract form fields.
+4. Generate field mappings.
+5. Review and correct mapped values.
+6. Confirm mappings and inspect profile updates.
+7. Fill the form in the browser.
+8. Review the screenshot while the task is waiting for approval.
+9. Submit only after explicit user confirmation.
+10. Run benchmarks to inspect mapping quality and failure details.
 
 ## Safety Boundaries
 
-- The agent never auto-submits without approval.
-- The agent does not solve CAPTCHA.
-- The agent does not bypass login.
-- The agent does not automate payments, purchases, deletes, or other
-  destructive actions.
-- LLMs only propose mappings; backend validation and user review remain in the
-  loop.
+- No final submission without user approval.
+- No CAPTCHA solving or anti-bot bypassing.
+- No payment, purchase, delete, or destructive action automation.
+- No password, OTP, payment card, or one-time consent values are saved as
+  reusable profile memory.
+- Manual login support is user-controlled and does not bypass authentication.
 
-## Recommended Next Expansion
+## Evaluation
 
-The strongest next direction is reliability and evaluation, not adding broad
-new product surface area.
+The benchmark suite is designed to make form understanding measurable. It uses
+local HTML fixtures and expected mapping JSON to track:
 
-1. Add more benchmark cases for real-world form patterns.
-2. Improve option matching for selects, radios, and checkboxes.
-3. Improve Review Mapping ergonomics for low-confidence and required fields.
-4. Surface action traces in the UI so failures are explainable.
-5. Package the project with `docs/architecture.md`, `docs/demo-flow.md`,
-   screenshots, and a 1-2 minute demo video.
+- field extraction recall and precision
+- profile-key mapping accuracy
+- required-field coverage
+- non-fillable/action-field rejection
+- login-gate detection
+- case-level failure reasons
 
-See [TASKS.md](TASKS.md), [AGENT_RULES.md](AGENT_RULES.md), and
-[AI_Web_Form_Agent_Roadmap.md](AI_Web_Form_Agent_Roadmap.md) for the current
-development plan.
+This keeps improvements grounded in repeatable tests instead of one-off demos.
+
+## Roadmap
+
+The next improvements focus on reliability and presentation:
+
+1. Expand benchmark cases for realistic form patterns.
+2. Add rules/semantic mode selection to the benchmark UI.
+3. Improve select, radio, and checkbox option matching.
+4. Surface required and low-confidence fields more clearly in Review Mapping.
+5. Add a task timeline and debug report to Task Detail.
+6. Package the project with architecture, demo, and safety documentation.
+
+## Resume Summary
+
+```text
+AI Web Form Agent | Python, FastAPI, Playwright, React
+
+- Built a human-in-the-loop browser automation system that dynamically extracts
+  web form fields, maps reusable profile data, and fills forms through a real
+  Playwright browser session.
+- Implemented review-first safety controls, screenshots, action logs, and
+  approval checkpoints to prevent unsafe final submission.
+- Added reusable profile memory, mapping caches, admin action traces, and a
+  benchmark suite for evaluating extraction and mapping quality.
+```
