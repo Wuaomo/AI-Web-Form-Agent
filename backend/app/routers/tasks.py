@@ -18,6 +18,8 @@ from app.schemas import (
     LLMProvider,
     TaskLlmUsageResponse,
     MappingConfirmationResponse,
+    ProfileUpdateItem,
+    ProfileSkipItem,
     ScreenshotResponse,
     SubmissionConfirmationResponse,
     TaskCreate,
@@ -96,6 +98,89 @@ def normalize_profile_custom_key(raw_key: str | None) -> str:
 
     normalized = re.sub(r"[^a-zA-Z0-9_]+", "_", raw_key or "").strip("_").lower()
     return re.sub(r"_+", "_", normalized)
+
+
+BUILT_IN_PROFILE_WRITEBACK_KEYS = {
+    "full_name",
+    "email",
+    "phone",
+    "university",
+    "major",
+    "linkedin",
+    "github",
+    "self_intro",
+}
+
+DERIVED_PROFILE_WRITEBACK_KEYS = {"first_name", "last_name"}
+
+ONE_TIME_FIELD_PHRASES = ("sign in", "sign-in")
+
+ONE_TIME_FIELD_TOKENS = {
+    "terms",
+    "privacy",
+    "agree",
+    "consent",
+    "password",
+    "payment",
+    "card",
+    "billing",
+    "checkout",
+    "login",
+    "signin",
+    "otp",
+    "verification",
+    "verify",
+    "submit",
+    "reset",
+    "file",
+    "upload",
+    "button",
+}
+
+
+def is_one_time_field(field: FormField) -> bool:
+    """Return whether a field looks like a one-time or sensitive action."""
+
+    parts = [field.label, field.name, field.placeholder, field.selector]
+    haystack = " ".join(part for part in parts if part).lower()
+    if any(phrase in haystack for phrase in ONE_TIME_FIELD_PHRASES):
+        return True
+
+    normalized = re.sub(r"[^a-z0-9]+", " ", haystack)
+    tokens = {token for token in normalized.split() if token}
+    return bool(tokens & ONE_TIME_FIELD_TOKENS)
+
+
+def generate_deduped_custom_key(custom_values: dict[str, str], raw_key: str) -> str:
+    """Generate a stable custom_values key, adding a numeric suffix if needed."""
+
+    lowered = (raw_key or "").lower()
+    if "portfolio" in lowered:
+        raw_key = "code_portfolio" if "code" in lowered else "portfolio"
+
+    base_key = normalize_profile_custom_key(raw_key) or "custom_value"
+    if base_key not in custom_values:
+        return base_key
+    if custom_values.get(base_key) in (None, ""):
+        return base_key
+
+    suffix = 2
+    while True:
+        candidate = f"{base_key}_{suffix}"
+        if candidate not in custom_values:
+            return candidate
+        suffix += 1
+
+
+def split_full_name(full_name: str | None) -> tuple[str, str]:
+    """Split a stored full name into simple first/last values."""
+
+    if not full_name or not full_name.strip():
+        return "", ""
+    parts = full_name.split()
+    if len(parts) == 1:
+        return parts[0], ""
+    return parts[0], " ".join(parts[1:])
 
 
 def get_task_or_404(task_id: int, db: Session) -> Task:
@@ -505,9 +590,170 @@ def confirm_task_mapping(
             detail=missing_required_detail(missing_required_fields),
         )
 
+    profile_updates: list[ProfileUpdateItem] = []
+    profile_skipped: list[ProfileSkipItem] = []
+    custom_values = task.profile.custom_values
+
+    updated_first, updated_last = None, None
+    name_field_ids: list[int] = []
+
+    for field in fields:
+        if field.mapped_value in (None, ""):
+            if field.mapped_profile_key:
+                profile_skipped.append(
+                    ProfileSkipItem(
+                        field_id=field.id,
+                        reason="empty_value",
+                        detail=field_display_name(field),
+                    )
+                )
+            continue
+        if not is_fillable_field(field):
+            profile_skipped.append(
+                ProfileSkipItem(
+                    field_id=field.id,
+                    reason="non_fillable_type",
+                    detail=field.field_type,
+                )
+            )
+            continue
+        if is_one_time_field(field):
+            profile_skipped.append(
+                ProfileSkipItem(
+                    field_id=field.id,
+                    reason="one_time_field",
+                    detail=field_display_name(field),
+                )
+            )
+            continue
+
+        profile_key = field.mapped_profile_key or ""
+        mapped_value = str(field.mapped_value)
+
+        if profile_key.startswith(CUSTOM_PROFILE_KEY_PREFIX):
+            custom_key = profile_key.removeprefix(CUSTOM_PROFILE_KEY_PREFIX)
+            previous = custom_values.get(custom_key)
+            if (previous or "") == mapped_value:
+                field.confidence = 1.0
+                save_user_mapping_override(db, field, profile_key)
+                profile_skipped.append(
+                    ProfileSkipItem(
+                        field_id=field.id,
+                        reason="unchanged",
+                        detail=profile_key,
+                    )
+                )
+                continue
+            custom_values[custom_key] = mapped_value
+            task.profile.custom_values = custom_values
+            field.confidence = 1.0
+            save_user_mapping_override(db, field, profile_key)
+            profile_updates.append(
+                ProfileUpdateItem(
+                    field_id=field.id,
+                    profile_key=profile_key,
+                    previous_value=previous,
+                    new_value=mapped_value,
+                    action="created" if previous in (None, "") else "updated",
+                )
+            )
+            continue
+
+        if profile_key in DERIVED_PROFILE_WRITEBACK_KEYS:
+            if updated_first is None and updated_last is None:
+                updated_first, updated_last = split_full_name(task.profile.full_name)
+
+            name_field_ids.append(field.id)
+            if profile_key == "first_name":
+                updated_first = mapped_value
+            elif profile_key == "last_name":
+                updated_last = mapped_value
+            field.confidence = 1.0
+            save_user_mapping_override(db, field, profile_key)
+            continue
+
+        if profile_key in BUILT_IN_PROFILE_WRITEBACK_KEYS:
+            previous = getattr(task.profile, profile_key)
+            if (previous or "") == mapped_value:
+                field.confidence = 1.0
+                save_user_mapping_override(db, field, profile_key)
+                profile_skipped.append(
+                    ProfileSkipItem(
+                        field_id=field.id,
+                        reason="unchanged",
+                        detail=profile_key,
+                    )
+                )
+                continue
+            setattr(task.profile, profile_key, mapped_value)
+            field.confidence = 1.0
+            save_user_mapping_override(db, field, profile_key)
+            profile_updates.append(
+                ProfileUpdateItem(
+                    field_id=field.id,
+                    profile_key=profile_key,
+                    previous_value=previous,
+                    new_value=mapped_value,
+                    action="created" if previous in (None, "") else "updated",
+                )
+            )
+            continue
+
+        generated_key = generate_deduped_custom_key(custom_values, field_display_name(field))
+        previous = custom_values.get(generated_key)
+        if (previous or "") == mapped_value:
+            field.mapped_profile_key = f"{CUSTOM_PROFILE_KEY_PREFIX}{generated_key}"
+            field.confidence = 1.0
+            save_user_mapping_override(db, field, field.mapped_profile_key)
+            profile_skipped.append(
+                ProfileSkipItem(
+                    field_id=field.id,
+                    reason="unchanged",
+                    detail=field.mapped_profile_key,
+                )
+            )
+            continue
+        custom_values[generated_key] = mapped_value
+        task.profile.custom_values = custom_values
+        field.mapped_profile_key = f"{CUSTOM_PROFILE_KEY_PREFIX}{generated_key}"
+        field.confidence = 1.0
+        save_user_mapping_override(db, field, field.mapped_profile_key)
+        profile_updates.append(
+            ProfileUpdateItem(
+                field_id=field.id,
+                profile_key=field.mapped_profile_key,
+                previous_value=previous,
+                new_value=mapped_value,
+                action="created" if previous in (None, "") else "updated",
+            )
+        )
+
+    if name_field_ids and updated_first is not None and updated_last is not None:
+        previous_full_name = task.profile.full_name
+        full_name_parts = [part for part in [updated_first, updated_last] if part]
+        new_full_name = " ".join(full_name_parts).strip() or None
+        if new_full_name != previous_full_name:
+            task.profile.full_name = new_full_name
+            profile_updates.append(
+                ProfileUpdateItem(
+                    field_id=min(name_field_ids),
+                    profile_key="full_name",
+                    previous_value=previous_full_name,
+                    new_value=new_full_name or "",
+                    action="created"
+                    if previous_full_name in (None, "")
+                    else "updated",
+                )
+            )
+
     task.status = "READY_TO_FILL"
     db.commit()
-    return MappingConfirmationResponse(task_id=task.id, status=task.status)
+    return MappingConfirmationResponse(
+        task_id=task.id,
+        status=task.status,
+        profile_updates=profile_updates,
+        profile_skipped=profile_skipped,
+    )
 
 
 @router.post("/{task_id}/fill", response_model=TaskResponse)

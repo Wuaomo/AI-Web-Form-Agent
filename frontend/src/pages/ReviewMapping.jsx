@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 import { api } from "../api";
 import LlmMappingControls from "../components/LlmMappingControls";
@@ -21,7 +22,6 @@ import {
   needsMappingReview,
   needsRequiredInput,
   profileKeys,
-  suggestProfileCustomKey,
   valueControlLabel,
 } from "../reviewMappingPresentation";
 
@@ -50,7 +50,8 @@ function ReviewMapping() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [customChoiceFields, setCustomChoiceFields] = useState({});
-  const [customProfileKeys, setCustomProfileKeys] = useState({});
+  const pendingValueUpdateTimers = useRef({});
+  const pendingValueUpdates = useRef({});
 
   const loadFields = useCallback(async () => {
     setLoading(true);
@@ -73,6 +74,16 @@ function ReviewMapping() {
   useEffect(() => {
     loadFields();
   }, [loadFields]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(pendingValueUpdateTimers.current).forEach((timerId) =>
+        clearTimeout(timerId),
+      );
+      pendingValueUpdateTimers.current = {};
+      pendingValueUpdates.current = {};
+    };
+  }, []);
 
   async function generateMappings() {
     setBusy(true);
@@ -120,12 +131,38 @@ function ReviewMapping() {
     );
   }
 
-  function getProfileCustomKey(field) {
-    return customProfileKeys[field.id] || suggestProfileCustomKey(field);
+  function scheduleFieldValueUpdate(fieldId, mappedValue) {
+    pendingValueUpdates.current[fieldId] = mappedValue;
+    const existingTimer = pendingValueUpdateTimers.current[fieldId];
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+    pendingValueUpdateTimers.current[fieldId] = setTimeout(() => {
+      delete pendingValueUpdateTimers.current[fieldId];
+      const pendingValue = pendingValueUpdates.current[fieldId];
+      delete pendingValueUpdates.current[fieldId];
+      updateField(fieldId, { mapped_value: pendingValue || null });
+    }, 250);
   }
 
-  function updateProfileCustomKey(fieldId, key) {
-    setCustomProfileKeys((current) => ({ ...current, [fieldId]: key }));
+  async function flushPendingValueUpdates() {
+    const entries = Object.entries(pendingValueUpdates.current);
+    Object.values(pendingValueUpdateTimers.current).forEach((timerId) =>
+      clearTimeout(timerId),
+    );
+    pendingValueUpdateTimers.current = {};
+    pendingValueUpdates.current = {};
+
+    if (entries.length === 0) {
+      return true;
+    }
+
+    const results = await Promise.all(
+      entries.map(([fieldId, mappedValue]) =>
+        updateField(Number(fieldId), { mapped_value: mappedValue || null }),
+      ),
+    );
+    return results.every(Boolean);
   }
 
   function fieldUsesCustomChoice(field) {
@@ -145,18 +182,6 @@ function ReviewMapping() {
 
   function updateCustomChoiceMode(fieldId, enabled) {
     setCustomChoiceFields((current) => ({ ...current, [fieldId]: enabled }));
-  }
-
-  async function saveFieldToProfile(field) {
-    const mappedValue = field.mapped_value || null;
-    const updated = await updateField(field.id, {
-      mapped_value: mappedValue,
-      save_to_profile: true,
-      profile_custom_key: getProfileCustomKey(field),
-    });
-    if (updated) {
-      setNotice("Saved to profile.");
-    }
   }
 
   function renderValueControl(field, { showLabel = true } = {}) {
@@ -213,7 +238,10 @@ function ReviewMapping() {
             <input
               aria-label={`Custom ${label.toLowerCase()} for ${fieldDisplayName(field)}`}
               value={field.mapped_value || ""}
-              onChange={(event) => stageFieldValue(field.id, event.target.value)}
+              onChange={(event) => {
+                stageFieldValue(field.id, event.target.value);
+                scheduleFieldValueUpdate(field.id, event.target.value);
+              }}
               onBlur={(event) =>
                 updateField(field.id, {
                   mapped_value: event.target.value || null,
@@ -230,7 +258,10 @@ function ReviewMapping() {
         <input
           aria-label={`${label} for ${fieldDisplayName(field)}`}
           value={field.mapped_value || ""}
-          onChange={(event) => stageFieldValue(field.id, event.target.value)}
+          onChange={(event) => {
+            stageFieldValue(field.id, event.target.value);
+            scheduleFieldValueUpdate(field.id, event.target.value);
+          }}
           onBlur={(event) =>
             updateField(field.id, {
               mapped_value: event.target.value || null,
@@ -265,31 +296,6 @@ function ReviewMapping() {
     );
   }
 
-  function renderSaveToProfileControl(field) {
-    return (
-      <div className="save-profile-control">
-        <label>
-          Profile key
-          <input
-            aria-label={`Profile key for ${fieldDisplayName(field)}`}
-            value={getProfileCustomKey(field)}
-            onChange={(event) =>
-              updateProfileCustomKey(field.id, event.target.value)
-            }
-          />
-        </label>
-        <button
-          className="button button-secondary"
-          type="button"
-          onClick={() => saveFieldToProfile(field)}
-          disabled={busy || !field.mapped_value}
-        >
-          Save to profile
-        </button>
-      </div>
-    );
-  }
-
   async function confirmMapping() {
     if (missingRequiredFields.length > 0) {
       setError("Please enter values for all required fields before confirming.");
@@ -299,9 +305,16 @@ function ReviewMapping() {
     setBusy(true);
     setError("");
     try {
-      await api.confirmMapping(taskId);
+      const flushed = await flushPendingValueUpdates();
+      if (!flushed) {
+        return;
+      }
+      const result = await api.confirmMapping(taskId);
       navigate(`/tasks/${taskId}`, {
-        state: { notice: "Mapping confirmed. Ready to fill the form." },
+        state: {
+          notice: "Mapping confirmed. Ready to fill the form.",
+          profileUpdates: result?.profile_updates || [],
+        },
       });
     } catch (requestError) {
       setError(requestError.message);
@@ -408,7 +421,6 @@ function ReviewMapping() {
                         {formatMappingSummary(field)} ·{" "}
                         {formatConfidence(field.confidence)}
                       </p>
-                      {renderSaveToProfileControl(field)}
                       {fieldHint(field) && <p className="field-meta">{fieldHint(field)}</p>}
                       {field.current_value && (
                         <p className="field-meta">Current: {field.current_value}</p>

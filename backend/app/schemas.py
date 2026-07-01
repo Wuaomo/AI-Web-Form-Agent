@@ -183,11 +183,31 @@ class FormFieldMappingUpdate(BaseModel):
         return self
 
 
+class ProfileUpdateItem(BaseModel):
+    """One profile write-back performed during mapping confirmation."""
+
+    field_id: int
+    profile_key: str
+    previous_value: str | None
+    new_value: str
+    action: Literal["created", "updated"]
+
+
+class ProfileSkipItem(BaseModel):
+    """One field that was considered but intentionally not persisted."""
+
+    field_id: int
+    reason: Literal["empty_value", "non_fillable_type", "one_time_field", "unchanged"]
+    detail: str | None = None
+
+
 class MappingConfirmationResponse(BaseModel):
     """Task status returned after the user confirms the mapping."""
 
     task_id: int
     status: str
+    profile_updates: list[ProfileUpdateItem] = Field(default_factory=list)
+    profile_skipped: list[ProfileSkipItem] = Field(default_factory=list)
 
 
 class SubmissionConfirmationResponse(BaseModel):

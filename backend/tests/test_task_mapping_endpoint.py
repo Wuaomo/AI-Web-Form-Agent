@@ -205,9 +205,115 @@ def test_confirm_mapping_allows_required_values_after_manual_entry(
 
     assert response.status_code == 200
     assert response.json()["status"] == "READY_TO_FILL"
+    assert isinstance(response.json().get("profile_updates"), list)
+    assert response.json()["profile_updates"]
 
     session.refresh(task)
     assert task.status == "READY_TO_FILL"
+
+
+def test_confirm_mapping_writes_back_to_built_in_profile_key(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_profile_key = "email"
+    field.mapped_value = "manual@example.com"
+    session.commit()
+
+    response = client.post(f"/tasks/{task.id}/confirm-mapping")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "READY_TO_FILL"
+    assert payload["profile_updates"] == [
+        {
+            "field_id": field.id,
+            "profile_key": "email",
+            "previous_value": "ada@example.com",
+            "new_value": "manual@example.com",
+            "action": "updated",
+        }
+    ]
+
+    session.refresh(task.profile)
+    assert task.profile.email == "manual@example.com"
+
+
+def test_confirm_mapping_does_not_report_update_when_value_is_unchanged(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_profile_key = "email"
+    field.mapped_value = "ada@example.com"
+    session.commit()
+
+    response = client.post(f"/tasks/{task.id}/confirm-mapping")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "READY_TO_FILL"
+    assert payload["profile_updates"] == []
+
+
+def test_confirm_mapping_skips_one_time_fields(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.label = "Agree to terms"
+    field.field_type = "checkbox"
+    field.required = False
+    field.mapped_value = "true"
+    session.commit()
+
+    response = client.post(f"/tasks/{task.id}/confirm-mapping")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "READY_TO_FILL"
+    assert payload["profile_updates"] == []
+    assert payload["profile_skipped"] == [
+        {"field_id": field.id, "reason": "one_time_field", "detail": "Agree to terms"}
+    ]
+
+    session.refresh(task.profile)
+    assert task.profile.custom_values == {}
+
+
+def test_confirm_mapping_persists_portfolio_url_as_custom_value(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.label = "Show us your code portfolio"
+    field.name = "developer_portfolio"
+    field.selector = "#code-portfolio"
+    field.field_type = "url"
+    field.required = False
+    field.mapped_profile_key = None
+    field.mapped_value = "https://github.com/example"
+    session.commit()
+
+    response = client.post(f"/tasks/{task.id}/confirm-mapping")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "READY_TO_FILL"
+    assert payload["profile_updates"] == [
+        {
+            "field_id": field.id,
+            "profile_key": "custom:code_portfolio",
+            "previous_value": None,
+            "new_value": "https://github.com/example",
+            "action": "created",
+        }
+    ]
+    assert payload["profile_skipped"] == []
+
+    session.refresh(task.profile)
+    assert task.profile.custom_values == {"code_portfolio": "https://github.com/example"}
 
 
 def test_manual_mapping_correction_skips_llm_call_for_same_form(
