@@ -1,45 +1,34 @@
 """Benchmark runner API endpoints."""
 
-import json
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
-from app.models import BenchmarkCaseResult, BenchmarkRun
+from app.models import BenchmarkRun
 from app.schemas import BenchmarkRunRequest, BenchmarkRunResponse
-from app.services.benchmark_runner import BenchmarkRunSummary, run_benchmarks
+from app.services.benchmark_runner import run_benchmarks
+from app.services.llm_provider_config import (
+    get_provider_setup_hint,
+    is_provider_configured,
+    resolve_llm_provider,
+)
 
 router = APIRouter(prefix="/benchmarks", tags=["benchmarks"])
 
 
-def _persist_benchmark_summary(
-    db: Session,
-    summary: BenchmarkRunSummary,
-) -> BenchmarkRun:
-    """Persist a benchmark summary and its case results."""
-
-    run = BenchmarkRun(
-        mode=summary.mode,
-        provider=summary.provider,
-        total_cases=summary.total_cases,
-        average_score=summary.average_score,
-        summary_metrics_json=json.dumps(summary.summary_metrics),
+def _load_latest_benchmark_run(db: Session) -> BenchmarkRun:
+    run = db.scalar(
+        select(BenchmarkRun)
+        .options(selectinload(BenchmarkRun.case_results))
+        .order_by(BenchmarkRun.id.desc())
+        .limit(1)
     )
-    db.add(run)
-    db.flush()
-    for result in summary.case_results:
-        db.add(
-            BenchmarkCaseResult(
-                run_id=run.id,
-                case_id=result["case_id"],
-                title=result["title"],
-                metrics_json=json.dumps(result["metrics"]),
-                failures_json=json.dumps(result["failures"]),
-            )
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Benchmark run could not be loaded",
         )
-    db.commit()
     return run
 
 
@@ -55,14 +44,32 @@ def run_benchmark_suite(
     """Run the local benchmark suite and persist metrics."""
 
     options = request or BenchmarkRunRequest()
-    summary = run_benchmarks(mode=options.mode, provider=options.provider)
-    run = _persist_benchmark_summary(db, summary)
-    statement = (
-        select(BenchmarkRun)
-        .options(selectinload(BenchmarkRun.case_results))
-        .where(BenchmarkRun.id == run.id)
-    )
-    return db.scalar(statement)
+    if options.mode == "rules":
+        run_benchmarks(mode="rules", provider=None, db=db)
+        return _load_latest_benchmark_run(db)
+
+    if not options.provider:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provider is required for LLM benchmarks",
+        )
+
+    try:
+        selected_provider = resolve_llm_provider(options.provider)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    if not is_provider_configured(selected_provider):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=get_provider_setup_hint(selected_provider),
+        )
+
+    run_benchmarks(mode="llm", provider=selected_provider, db=db)
+    return _load_latest_benchmark_run(db)
 
 
 @router.get("/runs", response_model=list[BenchmarkRunResponse])

@@ -5,12 +5,18 @@ import Message from "../components/Message";
 import {
   caseFailureCount,
   metricEntries,
+  selectDefaultProviderId,
+  shouldDisableBenchmarkRun,
   summarizeBenchmarkRun,
 } from "../benchmarkPresentation";
 
 function Benchmarks() {
   const [runs, setRuns] = useState([]);
   const [selectedRun, setSelectedRun] = useState(null);
+  const [mode, setMode] = useState("rules");
+  const [providers, setProviders] = useState([]);
+  const [selectedProviderId, setSelectedProviderId] = useState("");
+  const [providersError, setProvidersError] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -29,11 +35,38 @@ function Benchmarks() {
     loadRuns();
   }, []);
 
+  async function loadProviders() {
+    setProvidersError("");
+    try {
+      const items = await api.listLlmProviders();
+      const providersList = Array.isArray(items) ? items : [];
+      setProviders(providersList);
+      setSelectedProviderId((current) => {
+        if (current && providersList.some((provider) => provider?.id === current)) {
+          return current;
+        }
+        return selectDefaultProviderId(providersList);
+      });
+    } catch (requestError) {
+      setProviders([]);
+      setSelectedProviderId("");
+      setProvidersError(requestError.message);
+    }
+  }
+
+  useEffect(() => {
+    loadProviders();
+  }, []);
+
   async function runBenchmarks() {
     setBusy(true);
     setError("");
     try {
-      const run = await api.runBenchmarks({ mode: "rules" });
+      const options =
+        mode === "llm"
+          ? { mode: "llm", provider: selectedProviderId }
+          : { mode: "rules" };
+      const run = await api.runBenchmarks(options);
       setRuns((current) => [run, ...current]);
       setSelectedRun(run);
     } catch (requestError) {
@@ -44,6 +77,11 @@ function Benchmarks() {
   }
 
   const summary = summarizeBenchmarkRun(selectedRun || {});
+  const selectedProvider =
+    providers.find((provider) => provider?.id === selectedProviderId) || null;
+  const disableRunButton = busy || shouldDisableBenchmarkRun(mode, selectedProvider);
+  const setupHint =
+    mode === "llm" && selectedProvider?.configured !== true ? selectedProvider?.setup_hint : "";
 
   return (
     <section>
@@ -53,12 +91,53 @@ function Benchmarks() {
           <h2>Benchmarks</h2>
           <p>Run local benchmark forms and inspect extraction and mapping accuracy.</p>
         </div>
-        <button className="button" type="button" onClick={runBenchmarks} disabled={busy}>
-          {busy ? "Running..." : "Run benchmarks"}
-        </button>
+        <div
+          style={{
+            display: "flex",
+            gap: "0.75rem",
+            flexWrap: "wrap",
+            alignItems: "flex-end",
+            justifyContent: "flex-end",
+          }}
+        >
+          <label style={{ width: 160 }}>
+            Mode
+            <select value={mode} onChange={(event) => setMode(event.target.value)}>
+              <option value="rules">rules</option>
+              <option value="llm">llm</option>
+            </select>
+          </label>
+          {mode === "llm" && (
+            <label style={{ width: 260 }}>
+              Provider
+              <select
+                value={selectedProviderId}
+                onChange={(event) => setSelectedProviderId(event.target.value)}
+                disabled={providers.length === 0}
+              >
+                {providers.length === 0 ? (
+                  <option value="">No providers available</option>
+                ) : (
+                  providers.map((provider) => (
+                    <option key={provider.id} value={provider.id}>
+                      {provider.configured === true
+                        ? provider.display_name
+                        : `${provider.display_name} - not configured`}
+                    </option>
+                  ))
+                )}
+              </select>
+            </label>
+          )}
+          <button className="button" type="button" onClick={runBenchmarks} disabled={disableRunButton}>
+            {busy ? "Running..." : "Run benchmarks"}
+          </button>
+        </div>
       </div>
 
       <Message type="error">{error}</Message>
+      <Message type="warning">{providersError}</Message>
+      <Message type="warning">{setupHint}</Message>
 
       {!selectedRun ? (
         <div className="card empty-state">
@@ -99,6 +178,22 @@ function Benchmarks() {
 
             <div className="benchmark-detail">
               <div className="card">
+                <h3>Run configuration</h3>
+                <dl className="metric-list">
+                  <div>
+                    <dt>Mode</dt>
+                    <dd>{selectedRun.mode || "rules"}</dd>
+                  </div>
+                  {(selectedRun.mode || "rules") === "llm" && (
+                    <div>
+                      <dt>Provider</dt>
+                      <dd>{selectedRun.provider || selectedRun.provider_id || "—"}</dd>
+                    </div>
+                  )}
+                </dl>
+              </div>
+
+              <div className="card">
                 <h3>Summary metrics</h3>
                 <dl className="metric-list">
                   {metricEntries(selectedRun.summary_metrics).map((metric) => (
@@ -113,7 +208,7 @@ function Benchmarks() {
               <div className="card">
                 <h3>Case results</h3>
                 <div className="benchmark-case-list">
-                  {selectedRun.case_results.map((caseResult) => (
+                  {(selectedRun.case_results || []).map((caseResult) => (
                     <details key={caseResult.id} open={caseFailureCount(caseResult) > 0}>
                       <summary>
                         <span>{caseResult.title}</span>

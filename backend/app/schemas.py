@@ -244,7 +244,7 @@ class BenchmarkRunRequest(BaseModel):
     """Options for running the local benchmark suite."""
 
     mode: Literal["rules", "llm"] = "rules"
-    provider: LLMProvider | None = None
+    provider: str | None = None
 
 
 class BenchmarkCaseResultResponse(BaseModel):

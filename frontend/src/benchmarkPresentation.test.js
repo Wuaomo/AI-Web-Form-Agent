@@ -5,6 +5,8 @@ import {
   caseFailureCount,
   formatMetricPercent,
   metricEntries,
+  selectDefaultProviderId,
+  shouldDisableBenchmarkRun,
   summarizeBenchmarkRun,
 } from "./benchmarkPresentation.js";
 
@@ -38,5 +40,42 @@ test("summarizeBenchmarkRun exposes score cards and failure counts", () => {
     { key: "mapping_accuracy", label: "Mapping accuracy", value: "50%" },
   ]);
   assert.equal(caseFailureCount(run.case_results[1]), 2);
+});
+
+test("selectDefaultProviderId prefers selected providers, then configured providers, then first entry", () => {
+  assert.equal(selectDefaultProviderId([]), "");
+  assert.equal(selectDefaultProviderId(null), "");
+
+  assert.equal(
+    selectDefaultProviderId([
+      { id: "openai", configured: true },
+      { id: "deepseek", configured: true, selected: true },
+    ]),
+    "deepseek",
+  );
+
+  assert.equal(
+    selectDefaultProviderId([
+      { id: "openai", configured: false },
+      { id: "gemini", configured: true },
+    ]),
+    "gemini",
+  );
+
+  assert.equal(
+    selectDefaultProviderId([
+      { id: "openai", configured: false },
+      { id: "gemini", configured: false },
+    ]),
+    "openai",
+  );
+});
+
+test("shouldDisableBenchmarkRun enforces provider configuration for llm mode", () => {
+  assert.equal(shouldDisableBenchmarkRun("rules", null), false);
+  assert.equal(shouldDisableBenchmarkRun("rules", { configured: false }), false);
+  assert.equal(shouldDisableBenchmarkRun("llm", null), true);
+  assert.equal(shouldDisableBenchmarkRun("llm", { configured: false }), true);
+  assert.equal(shouldDisableBenchmarkRun("llm", { configured: true }), false);
 });
 

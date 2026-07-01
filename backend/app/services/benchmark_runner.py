@@ -7,11 +7,12 @@ from statistics import mean
 from typing import Any
 
 from playwright.sync_api import sync_playwright
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from app.database import BACKEND_DIR
-from app.models import FormField, Profile, Task
-from app.services.field_mapper import _match_profile_key
+from app.models import FormField, LlmApiUsageLog, Profile, Task
+from app.services.field_mapper import _match_profile_key, map_fields_with_llm
 from app.services.form_extractor import _EXTRACT_FIELDS_SCRIPT, _LOGIN_DETECTION_SCRIPT
 
 BENCHMARK_DIR = BACKEND_DIR / "benchmarks"
@@ -187,9 +188,7 @@ def score_case(
     return {"metrics": metrics, "failures": failures}
 
 
-def _profile_for_rules() -> Profile:
-    """Build a profile with values for every built-in benchmark key."""
-
+def _benchmark_profile() -> Profile:
     return Profile(
         profile_name="Benchmark profile",
         full_name="Ada Lovelace",
@@ -203,10 +202,10 @@ def _profile_for_rules() -> Profile:
     )
 
 
-def _actual_fields_from_extraction(raw_fields: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Map extracted fields with local rules for deterministic benchmarks."""
-
-    profile = _profile_for_rules()
+def _actual_fields_from_rules(
+    raw_fields: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    profile = _benchmark_profile()
     actual_fields: list[dict[str, Any]] = []
     for raw_field in raw_fields:
         field = FormField(
@@ -232,9 +231,60 @@ def _actual_fields_from_extraction(raw_fields: list[dict[str, Any]]) -> list[dic
     return actual_fields
 
 
-def _run_case(case: BenchmarkCase) -> dict[str, Any]:
-    """Execute one local HTML benchmark fixture."""
+def _actual_fields_from_llm(
+    raw_fields: list[dict[str, Any]],
+    provider: str,
+    db: Session,
+) -> list[dict[str, Any]]:
+    profile = _benchmark_profile()
+    db.add(profile)
+    db.flush()
 
+    task = Task(
+        url="file://benchmark",
+        description="__benchmark_run__",
+        profile_id=profile.id,
+        status="CREATED",
+    )
+    db.add(task)
+    db.flush()
+
+    for raw_field in raw_fields:
+        field = FormField(
+            task_id=task.id,
+            label=raw_field.get("label"),
+            selector=raw_field["selector"],
+            field_type=raw_field.get("field_type"),
+            placeholder=raw_field.get("placeholder"),
+            name=raw_field.get("name"),
+            html_id=raw_field.get("html_id"),
+            form_title=raw_field.get("form_title"),
+            section_title=raw_field.get("section_title"),
+            required=bool(raw_field.get("required")),
+        )
+        db.add(field)
+    db.flush()
+
+    try:
+        mapped_fields = map_fields_with_llm(task.id, db=db, provider=provider)
+        actual_fields = [
+            {
+                "selector": field.selector,
+                "profile_key": field.mapped_profile_key,
+                "required": bool(field.required),
+            }
+            for field in mapped_fields
+        ]
+        return actual_fields
+    finally:
+        db.execute(delete(FormField).where(FormField.task_id == task.id))
+        db.execute(delete(LlmApiUsageLog).where(LlmApiUsageLog.task_id == task.id))
+        db.execute(delete(Task).where(Task.id == task.id))
+        db.execute(delete(Profile).where(Profile.id == profile.id))
+        db.commit()
+
+
+def _extract_case_page_state(case: BenchmarkCase) -> tuple[list[dict[str, Any]], bool]:
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1440, "height": 2200})
@@ -245,10 +295,35 @@ def _run_case(case: BenchmarkCase) -> dict[str, Any]:
         login_required = bool(page.evaluate(_LOGIN_DETECTION_SCRIPT))
         browser.close()
 
+    return raw_fields, login_required
+
+
+def _run_case(
+    case: BenchmarkCase,
+    *,
+    mode: str = "rules",
+    provider: str | None = None,
+    db: Session | None = None,
+) -> dict[str, Any]:
+    """Execute one local HTML benchmark fixture."""
+
+    raw_fields, login_required = _extract_case_page_state(case)
+
+    llm_fallback_count = 0
+    if mode == "llm":
+        if db is None:
+            raise ValueError("LLM benchmarks require a database session")
+        if not provider:
+            raise ValueError("LLM benchmarks require a provider")
+        fields = _actual_fields_from_llm(raw_fields, provider, db)
+        # TODO: Detect fallback-to-rules inside map_fields_with_llm and record llm_fallback_count.
+    else:
+        fields = _actual_fields_from_rules(raw_fields)
+
     return {
         "login_required": login_required,
-        "fields": _actual_fields_from_extraction(raw_fields),
-        "llm_fallback_count": 0,
+        "fields": fields,
+        "llm_fallback_count": llm_fallback_count,
         "fill_success": True,
     }
 
@@ -275,7 +350,7 @@ def run_benchmarks(
 
     case_results: list[dict[str, Any]] = []
     for case in load_benchmark_cases():
-        actual = _run_case(case)
+        actual = _run_case(case, mode=mode, provider=provider, db=db)
         scored = score_case(case.expected, actual)
         case_results.append(
             {

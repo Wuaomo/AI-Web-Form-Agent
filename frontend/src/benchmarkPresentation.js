@@ -39,3 +39,32 @@ export function summarizeBenchmarkRun(run = {}) {
   };
 }
 
+export function selectDefaultProviderId(providers = []) {
+  const items = Array.isArray(providers) ? providers : [];
+  if (items.length === 0) {
+    return "";
+  }
+
+  const selected = items.find((provider) => provider && provider.selected === true);
+  if (selected?.id) {
+    return selected.id;
+  }
+
+  const configured = items.find((provider) => provider && provider.configured === true);
+  if (configured?.id) {
+    return configured.id;
+  }
+
+  return items[0]?.id || "";
+}
+
+export function shouldDisableBenchmarkRun(mode, provider) {
+  if (mode !== "llm") {
+    return false;
+  }
+  if (!provider) {
+    return true;
+  }
+  return provider.configured !== true;
+}
+
