@@ -1,4 +1,5 @@
 const actionFieldTypes = new Set(["button", "file", "submit", "reset", "image"]);
+export const customProfileKeyPrefix = "custom:";
 
 export const profileKeys = [
   "first_name",
@@ -101,10 +102,19 @@ export function formatMappingSummary(field) {
   }
 
   const source = field.mapped_profile_key
-    ? `profile.${field.mapped_profile_key}`
+    ? `profile.${field.mapped_profile_key.replace(customProfileKeyPrefix, "custom.")}`
     : "Manual value";
   const value = field.mapped_value ? `"${field.mapped_value}"` : "empty";
   return `${source} -> ${value}`;
+}
+
+export function suggestProfileCustomKey(field) {
+  const key = fieldDisplayName(field)
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return key || "custom_value";
 }
 
 export function valueControlLabel(field) {

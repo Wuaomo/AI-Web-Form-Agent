@@ -1,6 +1,7 @@
 """Task-related API endpoints."""
 
 import json
+import re
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -28,6 +29,7 @@ from app.services.browser_executor import (
     submit_form_and_capture_screenshot,
 )
 from app.services.field_mapper import (
+    CUSTOM_PROFILE_KEY_PREFIX,
     get_profile_value,
     map_fields_by_rules,
     map_fields_with_llm,
@@ -87,6 +89,13 @@ def missing_required_detail(fields: list[FormField]) -> str:
 
     missing_names = ", ".join(field_display_name(field) for field in fields)
     return f"Required fields need values: {missing_names}"
+
+
+def normalize_profile_custom_key(raw_key: str | None) -> str:
+    """Return a compact custom profile key safe to reuse in mappings."""
+
+    normalized = re.sub(r"[^a-zA-Z0-9_]+", "_", raw_key or "").strip("_").lower()
+    return re.sub(r"_+", "_", normalized)
 
 
 def get_task_or_404(task_id: int, db: Session) -> Task:
@@ -444,6 +453,27 @@ def update_task_field_mapping(
     if "mapped_value" in changes:
         field.mapped_value = changes["mapped_value"]
         field.confidence = 1.0 if field.mapped_value is not None else None
+
+    if changes.get("save_to_profile"):
+        custom_key = normalize_profile_custom_key(changes.get("profile_custom_key"))
+        if not custom_key:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Provide profile_custom_key when saving to profile",
+            )
+        if field.mapped_value in (None, ""):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Provide mapped_value when saving to profile",
+            )
+
+        custom_values = task.profile.custom_values
+        custom_values[custom_key] = field.mapped_value
+        task.profile.custom_values = custom_values
+        profile_key = f"{CUSTOM_PROFILE_KEY_PREFIX}{custom_key}"
+        field.mapped_profile_key = profile_key
+        field.confidence = 1.0
+        save_user_mapping_override(db, field, profile_key)
 
     db.commit()
     db.refresh(field)

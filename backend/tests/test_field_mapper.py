@@ -93,7 +93,7 @@ class LLMFieldMapperTests(unittest.TestCase):
         self.assertEqual(mapped[0].mapped_value, "ada@example.com")
         self.assertEqual(mapped[0].confidence, 0.93)
 
-    def test_calls_provider_for_same_form_to_surface_provider_cache_usage(self) -> None:
+    def test_reuses_cached_mapping_for_same_form_without_provider_call(self) -> None:
         first_field = self._add_field(
             label="Where should we send updates?",
             selector="#contact-destination",
@@ -154,7 +154,7 @@ class LLMFieldMapperTests(unittest.TestCase):
                 provider="deepseek",
             )
 
-        self.assertEqual(request_mapping.call_count, 2)
+        self.assertEqual(request_mapping.call_count, 1)
         self.assertEqual(first_mapping[0].mapped_value, "ada@example.com")
         self.assertEqual(second_mapping[0].id, second_field.id)
         self.assertEqual(second_mapping[0].mapped_profile_key, "email")

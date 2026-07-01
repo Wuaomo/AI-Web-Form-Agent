@@ -210,7 +210,7 @@ def test_confirm_mapping_allows_required_values_after_manual_entry(
     assert task.status == "READY_TO_FILL"
 
 
-def test_manual_mapping_correction_does_not_skip_llm_call(
+def test_manual_mapping_correction_skips_llm_call_for_same_form(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     client, session = test_environment
@@ -262,10 +262,61 @@ def test_manual_mapping_correction_does_not_skip_llm_call(
     ) as request_mapping:
         mapped = map_fields_with_llm(second_task.id, session, provider="deepseek")
 
-    request_mapping.assert_called_once()
+    request_mapping.assert_not_called()
     assert mapped[0].mapped_profile_key == "email"
     assert mapped[0].mapped_value == "grace@example.com"
-    assert mapped[0].confidence == 0.93
+    assert mapped[0].confidence == 1.0
+
+
+def test_manual_value_can_be_saved_to_profile_custom_value_and_reused(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.label = "Preferred work location"
+    field.selector = "#location"
+    field.field_type = "text"
+    session.commit()
+
+    response = client.put(
+        f"/tasks/{task.id}/fields/{field.id}",
+        json={
+            "mapped_value": "Shanghai",
+            "save_to_profile": True,
+            "profile_custom_key": "preferred_location",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["mapped_profile_key"] == "custom:preferred_location"
+    assert response.json()["mapped_value"] == "Shanghai"
+
+    session.refresh(task.profile)
+    assert task.profile.custom_values == {"preferred_location": "Shanghai"}
+
+    second_task = Task(
+        url="https://example.com/form",
+        profile=task.profile,
+        status="MAPPING_READY",
+    )
+    second_field = FormField(
+        task=second_task,
+        label="Preferred work location",
+        selector="#location",
+        field_type="text",
+        required=True,
+    )
+    session.add(second_task)
+    session.add(second_field)
+    session.commit()
+
+    with patch("app.services.field_mapper._request_llm_mapping") as request_mapping:
+        mapped = map_fields_with_llm(second_task.id, session, provider="deepseek")
+
+    request_mapping.assert_not_called()
+    assert mapped[0].mapped_profile_key == "custom:preferred_location"
+    assert mapped[0].mapped_value == "Shanghai"
+    assert mapped[0].confidence == 1.0
 
 
 def test_fill_rejects_missing_required_values_before_browser_work(

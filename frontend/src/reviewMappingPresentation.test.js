@@ -9,6 +9,7 @@ import {
   hasFieldChoiceOptions,
   isReviewableField,
   needsMappingReview,
+  suggestProfileCustomKey,
 } from "./reviewMappingPresentation.js";
 
 test("review queue includes information controls and excludes action controls", () => {
@@ -75,6 +76,23 @@ test("formatMappingSummary describes agent source and value in user-facing text"
     formatMappingSummary({ mapped_profile_key: null, mapped_value: "" }),
     "Not chosen yet",
   );
+  assert.equal(
+    formatMappingSummary({
+      mapped_profile_key: "custom:preferred_location",
+      mapped_value: "Shanghai",
+    }),
+    'profile.custom.preferred_location -> "Shanghai"',
+  );
+});
+
+test("suggestProfileCustomKey derives compact keys from field labels", () => {
+  assert.equal(
+    suggestProfileCustomKey({
+      field_label: "Preferred work location",
+    }),
+    "preferred_work_location",
+  );
+  assert.equal(suggestProfileCustomKey({ selector: "#field" }), "field");
 });
 
 test("formatConfidence shows percentages and an unknown state", () => {

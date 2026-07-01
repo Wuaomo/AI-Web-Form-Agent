@@ -31,6 +31,7 @@ class Profile(Base):
     linkedin: Mapped[Optional[str]] = mapped_column(String(500))
     github: Mapped[Optional[str]] = mapped_column(String(500))
     self_intro: Mapped[Optional[str]] = mapped_column(Text)
+    custom_values_json: Mapped[Optional[str]] = mapped_column("custom_values", Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -39,6 +40,30 @@ class Profile(Base):
     )
 
     tasks: Mapped[list["Task"]] = relationship(back_populates="profile")
+
+    @property
+    def custom_values(self) -> dict[str, str]:
+        """User-saved values that do not fit the built-in profile fields."""
+
+        if not self.custom_values_json:
+            return {}
+        try:
+            parsed = json.loads(self.custom_values_json)
+        except json.JSONDecodeError:
+            return {}
+        if not isinstance(parsed, dict):
+            return {}
+        return {
+            str(key): str(value)
+            for key, value in parsed.items()
+            if value not in (None, "")
+        }
+
+    @custom_values.setter
+    def custom_values(self, value: dict[str, str] | None) -> None:
+        """Persist custom profile values as JSON."""
+
+        self.custom_values_json = json.dumps(value or {}, ensure_ascii=False)
 
 
 class Task(Base):

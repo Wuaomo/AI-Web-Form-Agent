@@ -21,8 +21,11 @@ import {
   needsMappingReview,
   needsRequiredInput,
   profileKeys,
+  suggestProfileCustomKey,
   valueControlLabel,
 } from "../reviewMappingPresentation";
+
+const CUSTOM_CHOICE_VALUE = "__custom__";
 
 function checkboxControlValue(value) {
   const normalizedValue = (value || "").toLowerCase();
@@ -46,6 +49,8 @@ function ReviewMapping() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [customChoiceFields, setCustomChoiceFields] = useState({});
+  const [customProfileKeys, setCustomProfileKeys] = useState({});
 
   const loadFields = useCallback(async () => {
     setLoading(true);
@@ -100,8 +105,10 @@ function ReviewMapping() {
       setFields((current) =>
         current.map((field) => (field.id === updated.id ? updated : field)),
       );
+      return updated;
     } catch (requestError) {
       setError(requestError.message);
+      return null;
     }
   }
 
@@ -111,6 +118,45 @@ function ReviewMapping() {
         item.id === fieldId ? { ...item, mapped_value: mappedValue } : item,
       ),
     );
+  }
+
+  function getProfileCustomKey(field) {
+    return customProfileKeys[field.id] || suggestProfileCustomKey(field);
+  }
+
+  function updateProfileCustomKey(fieldId, key) {
+    setCustomProfileKeys((current) => ({ ...current, [fieldId]: key }));
+  }
+
+  function fieldUsesCustomChoice(field) {
+    if (!hasFieldChoiceOptions(field)) {
+      return false;
+    }
+    if (customChoiceFields[field.id]) {
+      return true;
+    }
+    if (!field.mapped_value) {
+      return false;
+    }
+    return !getFieldChoiceOptions(field).some(
+      (option) => option.value === field.mapped_value,
+    );
+  }
+
+  function updateCustomChoiceMode(fieldId, enabled) {
+    setCustomChoiceFields((current) => ({ ...current, [fieldId]: enabled }));
+  }
+
+  async function saveFieldToProfile(field) {
+    const mappedValue = field.mapped_value || null;
+    const updated = await updateField(field.id, {
+      mapped_value: mappedValue,
+      save_to_profile: true,
+      profile_custom_key: getProfileCustomKey(field),
+    });
+    if (updated) {
+      setNotice("Saved to profile.");
+    }
   }
 
   function renderValueControl(field, { showLabel = true } = {}) {
@@ -137,11 +183,19 @@ function ReviewMapping() {
     }
 
     if (hasFieldChoiceOptions(field)) {
+      const usesCustomChoice = fieldUsesCustomChoice(field);
       const control = (
+        <div className="field-value-stack">
           <select
             aria-label={`${label} for ${fieldDisplayName(field)}`}
-            value={field.mapped_value || ""}
+            value={usesCustomChoice ? CUSTOM_CHOICE_VALUE : field.mapped_value || ""}
             onChange={(event) => {
+              if (event.target.value === CUSTOM_CHOICE_VALUE) {
+                updateCustomChoiceMode(field.id, true);
+                stageFieldValue(field.id, "");
+                return;
+              }
+              updateCustomChoiceMode(field.id, false);
               const mappedValue = event.target.value || null;
               stageFieldValue(field.id, mappedValue);
               updateField(field.id, { mapped_value: mappedValue });
@@ -153,7 +207,21 @@ function ReviewMapping() {
                 {option.label}
               </option>
             ))}
+            <option value={CUSTOM_CHOICE_VALUE}>Custom...</option>
           </select>
+          {usesCustomChoice && (
+            <input
+              aria-label={`Custom ${label.toLowerCase()} for ${fieldDisplayName(field)}`}
+              value={field.mapped_value || ""}
+              onChange={(event) => stageFieldValue(field.id, event.target.value)}
+              onBlur={(event) =>
+                updateField(field.id, {
+                  mapped_value: event.target.value || null,
+                })
+              }
+            />
+          )}
+        </div>
       );
       return showLabel ? <label>{label}{control}</label> : control;
     }
@@ -194,6 +262,31 @@ function ReviewMapping() {
           ))}
         </select>
       </label>
+    );
+  }
+
+  function renderSaveToProfileControl(field) {
+    return (
+      <div className="save-profile-control">
+        <label>
+          Profile key
+          <input
+            aria-label={`Profile key for ${fieldDisplayName(field)}`}
+            value={getProfileCustomKey(field)}
+            onChange={(event) =>
+              updateProfileCustomKey(field.id, event.target.value)
+            }
+          />
+        </label>
+        <button
+          className="button button-secondary"
+          type="button"
+          onClick={() => saveFieldToProfile(field)}
+          disabled={busy || !field.mapped_value}
+        >
+          Save to profile
+        </button>
+      </div>
     );
   }
 
@@ -315,6 +408,7 @@ function ReviewMapping() {
                         {formatMappingSummary(field)} ·{" "}
                         {formatConfidence(field.confidence)}
                       </p>
+                      {renderSaveToProfileControl(field)}
                       {fieldHint(field) && <p className="field-meta">{fieldHint(field)}</p>}
                       {field.current_value && (
                         <p className="field-meta">Current: {field.current_value}</p>

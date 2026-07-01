@@ -5,18 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-ProfileKey = Literal[
-    "first_name",
-    "last_name",
-    "full_name",
-    "email",
-    "university",
-    "major",
-    "phone",
-    "linkedin",
-    "github",
-    "self_intro",
-]
+ProfileKey = str
 
 
 class HealthResponse(BaseModel):
@@ -53,6 +42,7 @@ class ProfileBase(BaseModel):
     linkedin: str | None = None
     github: str | None = None
     self_intro: str | None = None
+    custom_values: dict[str, str] = Field(default_factory=dict)
 
 
 class ProfileCreate(ProfileBase):
@@ -71,6 +61,7 @@ class ProfileUpdate(BaseModel):
     linkedin: str | None = None
     github: str | None = None
     self_intro: str | None = None
+    custom_values: dict[str, str] | None = None
 
 
 class ProfileResponse(ProfileBase):
@@ -180,6 +171,8 @@ class FormFieldMappingUpdate(BaseModel):
 
     mapped_profile_key: ProfileKey | None = None
     mapped_value: str | None = None
+    save_to_profile: bool = False
+    profile_custom_key: str | None = None
 
     @model_validator(mode="after")
     def require_an_update(self) -> "FormFieldMappingUpdate":

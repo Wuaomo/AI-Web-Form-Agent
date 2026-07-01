@@ -16,6 +16,13 @@ from app.models import FormField, Profile, Task
 from app.schemas import LLMProvider, ProfileKey
 from app.services.llm_provider_config import resolve_llm_provider
 from app.services.llm_usage_service import record_llm_api_usage
+from app.services.mapping_cache import (
+    build_mapping_cache_context,
+    model_for_provider,
+    read_cached_mapping_response,
+    read_user_override_response,
+    write_mapping_cache_response,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +46,8 @@ NON_FILLABLE_FIELD_TYPES = {
     "reset",
     "image",
 }
+
+CUSTOM_PROFILE_KEY_PREFIX = "custom:"
 
 FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "full_name": (
@@ -228,10 +237,15 @@ def _split_full_name(full_name: str | None) -> tuple[str | None, str | None]:
 def get_profile_value(profile: Profile, profile_key: ProfileKey) -> str | None:
     """Return stored or derived profile values used by field mapping."""
 
+    if profile_key.startswith(CUSTOM_PROFILE_KEY_PREFIX):
+        custom_key = profile_key.removeprefix(CUSTOM_PROFILE_KEY_PREFIX)
+        return profile.custom_values.get(custom_key)
     if profile_key == "first_name":
         return _split_full_name(profile.full_name)[0]
     if profile_key == "last_name":
         return _split_full_name(profile.full_name)[1]
+    if profile_key not in PROFILE_KEYS:
+        return None
     return getattr(profile, profile_key)
 
 
@@ -283,11 +297,19 @@ def _map_fields(task_id: int, db: Session) -> list[FormField]:
 def _profile_payload(task: Task) -> dict[str, str]:
     """Return only supported, non-empty profile values for the LLM."""
 
-    return {
+    profile = {
         key: value
         for key in PROFILE_KEYS
         if (value := get_profile_value(task.profile, key)) not in (None, "")
     }
+    profile.update(
+        {
+            f"{CUSTOM_PROFILE_KEY_PREFIX}{key}": value
+            for key, value in task.profile.custom_values.items()
+            if value not in (None, "")
+        }
+    )
+    return profile
 
 
 def _stable_ref(field: FormField, index: int) -> str:
@@ -679,6 +701,63 @@ def _apply_llm_mappings(
     return fields
 
 
+def _mapping_response_by_field_id(raw_response: str) -> dict[int, dict[str, object]]:
+    """Parse a mapping JSON response into mutable mapping dictionaries."""
+
+    parsed = json.loads(raw_response)
+    mappings = parsed.get("mappings")
+    if not isinstance(mappings, list):
+        raise ValueError("Mapping response has no mappings list")
+
+    mappings_by_field_id: dict[int, dict[str, object]] = {}
+    for mapping in mappings:
+        if not isinstance(mapping, dict):
+            raise ValueError("Mapping entry is not an object")
+        field_id = mapping.get("field_id")
+        if not isinstance(field_id, int):
+            raise ValueError("Mapping entry has no integer field_id")
+        mappings_by_field_id[field_id] = dict(mapping)
+    return mappings_by_field_id
+
+
+def _merge_mapping_responses(
+    base_response: str | None,
+    override_response: str | None,
+) -> str | None:
+    """Return a mapping response with user overrides replacing base mappings."""
+
+    if base_response is None and override_response is None:
+        return None
+
+    merged: dict[int, dict[str, object]] = {}
+    if base_response is not None:
+        merged.update(_mapping_response_by_field_id(base_response))
+    if override_response is not None:
+        merged.update(_mapping_response_by_field_id(override_response))
+
+    return json.dumps({"mappings": list(merged.values())}, ensure_ascii=False)
+
+
+def _fillable_field_ids(fields: list[FormField]) -> set[int]:
+    """Return field IDs that an automated mapping may fill."""
+
+    return {
+        field.id
+        for field in fields
+        if field.id is not None and _is_fillable_field(field)
+    }
+
+
+def _response_covers_fillable_fields(
+    raw_response: str,
+    fields: list[FormField],
+) -> bool:
+    """Return whether a cached response can stand in for an LLM call."""
+
+    mapped_field_ids = set(_mapping_response_by_field_id(raw_response))
+    return _fillable_field_ids(fields).issubset(mapped_field_ids)
+
+
 def _map_fields_with_llm(
     task_id: int,
     db: Session,
@@ -702,8 +781,54 @@ def _map_fields_with_llm(
     try:
         try:
             selected_provider = resolve_llm_provider(provider)
+            cache_context = build_mapping_cache_context(
+                provider=selected_provider,
+                model=model_for_provider(selected_provider),
+                fields=fields,
+                profile=profile,
+            )
         except ValueError:
             selected_provider = provider
+            cache_context = None
+
+        override_response = read_user_override_response(db, fields, profile)
+        if override_response is not None and _response_covers_fillable_fields(
+            override_response,
+            fields,
+        ):
+            result = _validate_llm_response(override_response, fields, profile)
+            if cache_context is not None:
+                write_mapping_cache_response(
+                    db,
+                    cache_context,
+                    fields,
+                    override_response,
+                )
+            return _apply_llm_mappings(fields, profile, result, db)
+
+        cached_response = (
+            read_cached_mapping_response(db, cache_context, fields)
+            if cache_context is not None
+            else None
+        )
+        merged_cached_response = _merge_mapping_responses(
+            cached_response,
+            override_response,
+        )
+        if merged_cached_response is not None:
+            result = _validate_llm_response(
+                merged_cached_response,
+                fields,
+                profile,
+            )
+            if cache_context is not None:
+                write_mapping_cache_response(
+                    db,
+                    cache_context,
+                    fields,
+                    merged_cached_response,
+                )
+            return _apply_llm_mappings(fields, profile, result, db)
 
         prompt = _build_llm_prompt(fields, profile)
         raw_response = _request_llm_mapping(
@@ -712,7 +837,12 @@ def _map_fields_with_llm(
             task_id=task_id,
             db=db,
         )
-        result = _validate_llm_response(raw_response, fields, profile)
+        merged_response = _merge_mapping_responses(raw_response, override_response)
+        if merged_response is None:
+            merged_response = raw_response
+        result = _validate_llm_response(merged_response, fields, profile)
+        if cache_context is not None:
+            write_mapping_cache_response(db, cache_context, fields, merged_response)
         mapped_fields = _apply_llm_mappings(fields, profile, result, db)
         logger.warning(
             "LLM mapping succeeded for task %s with %s mappings",

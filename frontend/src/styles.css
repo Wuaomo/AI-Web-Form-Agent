@@ -568,6 +568,27 @@ th {
   overflow-wrap: anywhere;
 }
 
+.field-value-stack {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.save-profile-control {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.34fr) minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: end;
+  margin-top: 0.55rem;
+}
+
+.save-profile-control label {
+  display: contents;
+}
+
+.save-profile-control input {
+  min-width: 0;
+}
+
 .review-field-details {
   margin-top: 0.45rem;
   padding-left: calc(34% + 0.6rem);
