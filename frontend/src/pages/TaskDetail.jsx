@@ -40,17 +40,24 @@ function TaskDetail() {
   const [profileUpdates, setProfileUpdates] = useState(
     location.state?.profileUpdates || [],
   );
+  const [profileSkipped, setProfileSkipped] = useState(
+    location.state?.profileSkipped || [],
+  );
 
   useEffect(() => {
     if (
       location.state?.notice ||
-      location.state?.profileUpdates
+      location.state?.profileUpdates ||
+      location.state?.profileSkipped
     ) {
       if (location.state?.notice) {
         setNotice(location.state.notice);
       }
       if (location.state?.profileUpdates) {
         setProfileUpdates(location.state.profileUpdates);
+      }
+      if (location.state?.profileSkipped) {
+        setProfileSkipped(location.state.profileSkipped);
       }
       navigate(location.pathname, { replace: true, state: null });
     }
@@ -224,6 +231,25 @@ function TaskDetail() {
               <li key={`${item.field_id}-${item.profile_key}`}>
                 <strong>{item.profile_key}</strong>:{" "}
                 {item.previous_value ?? "(empty)"} → {item.new_value}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {profileSkipped.length > 0 && (
+        <div className="card">
+          <h3>Skipped fields</h3>
+          <p>{profileSkipped.length} fields were skipped</p>
+          <ul>
+            {profileSkipped.map((item) => (
+              <li key={`${item.field_id}-${item.reason}`}>
+                <strong>{item.detail}</strong>:{" "}
+                {item.reason === "empty_value" && "Value is empty"}
+                {item.reason === "non_fillable_type" && "Not fillable"}
+                {item.reason === "one_time_field" && "One-time or sensitive field"}
+                {item.reason === "unchanged" && "Same value already exists"}
+                {item.reason === "do_not_save" && "Do not save (user preference)"}
+                {item.reason === "force_save_blocked" && "Blocked (sensitive field)"}
               </li>
             ))}
           </ul>

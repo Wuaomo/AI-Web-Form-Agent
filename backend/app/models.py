@@ -114,6 +114,7 @@ class FormField(Base):
     mapped_profile_key: Mapped[Optional[str]] = mapped_column(String(100))
     mapped_value: Mapped[Optional[str]] = mapped_column(Text)
     confidence: Mapped[Optional[float]] = mapped_column(Float)
+    profile_memory_policy: Mapped[str] = mapped_column(String(20), default="auto", nullable=False)
 
     task: Mapped["Task"] = relationship(back_populates="form_fields")
 

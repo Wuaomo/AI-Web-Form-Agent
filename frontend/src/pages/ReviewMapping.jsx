@@ -11,6 +11,7 @@ import {
 import Message from "../components/Message";
 import {
   buildReviewGroups,
+  computeAttentionSummary,
   fieldDisplayName,
   fieldFormTitle,
   fieldHint,
@@ -19,6 +20,7 @@ import {
   formatMappingSummary,
   getFieldChoiceOptions,
   hasFieldChoiceOptions,
+  isReviewableField,
   needsMappingReview,
   needsRequiredInput,
   profileKeys,
@@ -297,7 +299,7 @@ function ReviewMapping() {
   }
 
   async function confirmMapping() {
-    if (missingRequiredFields.length > 0) {
+    if (requiredMissing.length > 0) {
       setError("Please enter values for all required fields before confirming.");
       return;
     }
@@ -314,6 +316,7 @@ function ReviewMapping() {
         state: {
           notice: "Mapping confirmed. Ready to fill the form.",
           profileUpdates: result?.profile_updates || [],
+          profileSkipped: result?.profile_skipped || [],
         },
       });
     } catch (requestError) {
@@ -327,7 +330,7 @@ function ReviewMapping() {
     (provider) => provider.id === selectedLlmProvider,
   );
   const llmUnavailable = mappingMode === "llm" && !selectedProvider?.configured;
-  const missingRequiredFields = fields.filter(needsRequiredInput);
+  const { requiredMissing, lowConfidence, unmapped } = computeAttentionSummary(fields);
   const reviewGroups = buildReviewGroups(fields);
 
   return (
@@ -353,12 +356,49 @@ function ReviewMapping() {
         disabled={busy}
       />
 
-      {missingRequiredFields.length > 0 && (
-        <div className="message message-warning">
-          Required info still needed:{" "}
-          {missingRequiredFields.map(fieldDisplayName).join(", ")}.
+      {requiredMissing.length > 0 || lowConfidence.length > 0 || unmapped.length > 0 ? (
+        <div className="attention-summary">
+          <h3>Items requiring attention</h3>
+          <div className="attention-summary-list">
+            {requiredMissing.length > 0 && (
+              <details className="attention-item attention-item-warning">
+                <summary>
+                  Required missing: {requiredMissing.length}
+                </summary>
+                <ul>
+                  {requiredMissing.map((field) => (
+                    <li key={field.id}>{fieldDisplayName(field)}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+            {lowConfidence.length > 0 && (
+              <details className="attention-item attention-item-info">
+                <summary>
+                  Low confidence: {lowConfidence.length}
+                </summary>
+                <ul>
+                  {lowConfidence.map((field) => (
+                    <li key={field.id}>{fieldDisplayName(field)}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+            {unmapped.length > 0 && (
+              <details className="attention-item attention-item-muted">
+                <summary>
+                  Unmapped: {unmapped.length}
+                </summary>
+                <ul>
+                  {unmapped.map((field) => (
+                    <li key={field.id}>{fieldDisplayName(field)}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </div>
         </div>
-      )}
+      ) : null}
 
       <div className="button-row">
         <button
@@ -373,7 +413,7 @@ function ReviewMapping() {
           className="button button-secondary"
           type="button"
           onClick={confirmMapping}
-          disabled={busy || fields.length === 0 || missingRequiredFields.length > 0}
+          disabled={busy || fields.length === 0 || requiredMissing.length > 0}
         >
           Confirm mapping
         </button>
@@ -451,6 +491,23 @@ function ReviewMapping() {
                             )}
                           </dl>
                         </details>
+                      )}
+                      {isReviewableField(field) && (
+                        <label className="profile-memory-policy">
+                          Memory:
+                          <select
+                            value={field.profile_memory_policy || "auto"}
+                            onChange={(event) =>
+                              updateField(field.id, {
+                                profile_memory_policy: event.target.value,
+                              })
+                            }
+                          >
+                            <option value="auto">Auto</option>
+                            <option value="do_not_save">Do not save</option>
+                            <option value="force_save">Force save</option>
+                          </select>
+                        </label>
                       )}
                     </div>
 

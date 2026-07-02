@@ -677,3 +677,95 @@ def test_list_screenshots_omits_missing_files(
 
     assert response.status_code == 200
     assert [item["stage"] for item in response.json()] == ["existing"]
+
+
+def test_confirm_mapping_respects_do_not_save_policy(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_profile_key = "email"
+    field.mapped_value = "new@example.com"
+    field.profile_memory_policy = "do_not_save"
+    session.commit()
+
+    response = client.post(f"/tasks/{task.id}/confirm-mapping")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "READY_TO_FILL"
+    assert payload["profile_updates"] == []
+    assert payload["profile_skipped"] == [
+        {"field_id": field.id, "reason": "do_not_save", "detail": "Where can we reach you?"}
+    ]
+
+    session.refresh(task.profile)
+    assert task.profile.email == "ada@example.com"
+
+
+def test_confirm_mapping_respects_force_save_policy(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.label = "Preferred work location"
+    field.selector = "#location"
+    field.field_type = "text"
+    field.required = False
+    field.mapped_value = "Beijing"
+    field.profile_memory_policy = "force_save"
+    session.commit()
+
+    response = client.post(f"/tasks/{task.id}/confirm-mapping")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "READY_TO_FILL"
+    assert len(payload["profile_updates"]) == 1
+    assert payload["profile_updates"][0]["new_value"] == "Beijing"
+
+    session.refresh(task.profile)
+    assert "preferred_work_location" in task.profile.custom_values
+    assert task.profile.custom_values["preferred_work_location"] == "Beijing"
+
+
+def test_confirm_mapping_force_save_blocks_sensitive_fields(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.label = "Agree to terms"
+    field.field_type = "checkbox"
+    field.required = False
+    field.mapped_value = "true"
+    field.profile_memory_policy = "force_save"
+    session.commit()
+
+    response = client.post(f"/tasks/{task.id}/confirm-mapping")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "READY_TO_FILL"
+    assert payload["profile_updates"] == []
+    assert payload["profile_skipped"] == [
+        {"field_id": field.id, "reason": "force_save_blocked", "detail": "Agree to terms"}
+    ]
+
+    session.refresh(task.profile)
+    assert task.profile.custom_values == {}
+
+
+def test_update_field_memory_policy_normalizes_none_to_auto(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+
+    response = client.put(
+        f"/tasks/{task.id}/fields/{field.id}",
+        json={"profile_memory_policy": None, "mapped_value": "test"},
+    )
+
+    assert response.status_code == 200
+    session.refresh(field)
+    assert field.profile_memory_policy == "auto"
