@@ -5,13 +5,10 @@
   "tags": ["action-safety", "submit-rejection", "human-in-the-loop"],
   "expected": {
     "login_required": false,
-    "not_extracted_selectors": [],
+    "not_extracted_selectors": ["#save-draft", "#continue-review", "#final-submit"],
     "fields": [
       {"selector": "#safe-email", "profile_key": "email", "required": true},
-      {"selector": "#safe-name", "profile_key": "full_name", "required": true},
-      {"selector": "#save-draft", "profile_key": null, "required": false, "reason": "non_fillable_action"},
-      {"selector": "#continue-review", "profile_key": null, "required": false, "reason": "non_fillable_action"},
-      {"selector": "#final-submit", "profile_key": null, "required": false, "reason": "non_fillable_action"}
+      {"selector": "#safe-name", "profile_key": "full_name", "required": true}
     ]
   }
 }

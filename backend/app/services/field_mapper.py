@@ -1,5 +1,6 @@
 """Rule-based and LLM-assisted form field mapping."""
 
+from dataclasses import dataclass
 import json
 import logging
 import re
@@ -315,6 +316,12 @@ class LLMMappingResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     mappings: list[LLMFieldMapping]
+
+
+@dataclass(frozen=True)
+class LlmMappingResult:
+    fields: list[FormField]
+    used_fallback: bool
 
 
 def _normalize(value: str | None) -> str:
@@ -925,11 +932,11 @@ def _response_covers_fillable_fields(
     return _fillable_field_ids(fields).issubset(mapped_field_ids)
 
 
-def _map_fields_with_llm(
+def _map_fields_with_llm_result(
     task_id: int,
     db: Session,
     provider: LLMProvider | None = None,
-) -> list[FormField]:
+) -> LlmMappingResult:
     """Apply LLM mappings in an existing database session."""
 
     task = db.get(Task, task_id)
@@ -971,7 +978,10 @@ def _map_fields_with_llm(
                     fields,
                     override_response,
                 )
-            return _apply_llm_mappings(fields, profile, result, db)
+            return LlmMappingResult(
+                fields=_apply_llm_mappings(fields, profile, result, db),
+                used_fallback=False,
+            )
 
         cached_response = (
             read_cached_mapping_response(db, cache_context, fields)
@@ -995,7 +1005,10 @@ def _map_fields_with_llm(
                     fields,
                     merged_cached_response,
                 )
-            return _apply_llm_mappings(fields, profile, result, db)
+            return LlmMappingResult(
+                fields=_apply_llm_mappings(fields, profile, result, db),
+                used_fallback=False,
+            )
 
         prompt = _build_llm_prompt(fields, profile)
         raw_response = _request_llm_mapping(
@@ -1016,7 +1029,7 @@ def _map_fields_with_llm(
             task_id,
             len(result.mappings),
         )
-        return mapped_fields
+        return LlmMappingResult(fields=mapped_fields, used_fallback=False)
     except Exception as exc:
         db.rollback()
         logger.warning(
@@ -1024,7 +1037,30 @@ def _map_fields_with_llm(
             task_id,
             exc,
         )
-        return _map_fields(task_id, db)
+        return LlmMappingResult(fields=_map_fields(task_id, db), used_fallback=True)
+
+
+def _map_fields_with_llm(
+    task_id: int,
+    db: Session,
+    provider: LLMProvider | None = None,
+) -> list[FormField]:
+    return _map_fields_with_llm_result(task_id, db, provider).fields
+
+
+def map_fields_with_llm_result(
+    task_id: int,
+    db: Session | None = None,
+    provider: LLMProvider | None = None,
+) -> LlmMappingResult:
+    if db is not None:
+        return _map_fields_with_llm_result(task_id, db, provider)
+
+    with SessionLocal() as session:
+        result = _map_fields_with_llm_result(task_id, session, provider)
+        for field in result.fields:
+            session.expunge(field)
+        return result
 
 
 def map_fields_with_llm(
@@ -1034,14 +1070,7 @@ def map_fields_with_llm(
 ) -> list[FormField]:
     """Map fields with an LLM and safely fall back to local rules."""
 
-    if db is not None:
-        return _map_fields_with_llm(task_id, db, provider)
-
-    with SessionLocal() as session:
-        fields = _map_fields_with_llm(task_id, session, provider)
-        for field in fields:
-            session.expunge(field)
-        return fields
+    return map_fields_with_llm_result(task_id, db=db, provider=provider).fields
 
 
 def map_fields_by_rules(

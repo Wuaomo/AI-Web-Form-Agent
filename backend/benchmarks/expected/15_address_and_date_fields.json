@@ -1,0 +1,22 @@
+{
+  "case_id": "15_address_and_date_fields",
+  "title": "Address and graduation date fields with unsupported profile keys",
+  "html_file": "../forms/15_address_and_date_fields.html",
+  "tags": ["address", "date", "select", "unsupported-keys"],
+  "expected": {
+    "login_required": false,
+    "not_extracted_selectors": ["#save-alumni"],
+    "fields": [
+      {"selector": "#alumni-full-name", "profile_key": "full_name", "required": true},
+      {"selector": "#alumni-email", "profile_key": "email", "required": true},
+      {"selector": "#address-line-1", "profile_key": null, "required": true, "reason": "unsupported_profile_key"},
+      {"selector": "#address-line-2", "profile_key": null, "required": false, "reason": "unsupported_profile_key"},
+      {"selector": "#address-city", "profile_key": null, "required": true, "reason": "unsupported_profile_key"},
+      {"selector": "#address-state", "profile_key": null, "required": true, "reason": "unsupported_profile_key"},
+      {"selector": "#address-postal", "profile_key": null, "required": true, "reason": "unsupported_profile_key"},
+      {"selector": "#address-country", "profile_key": null, "required": true, "reason": "unsupported_profile_key"},
+      {"selector": "#grad-month", "profile_key": null, "required": false, "reason": "unsupported_profile_key"},
+      {"selector": "#grad-year", "profile_key": null, "required": false, "reason": "unsupported_profile_key"}
+    ]
+  }
+}

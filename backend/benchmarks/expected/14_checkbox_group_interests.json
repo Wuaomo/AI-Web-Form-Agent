@@ -1,0 +1,19 @@
+{
+  "case_id": "14_checkbox_group_interests",
+  "title": "Checkbox groups for interests and a required terms agreement",
+  "html_file": "../forms/14_checkbox_group_interests.html",
+  "tags": ["checkbox", "multi-select", "terms"],
+  "expected": {
+    "login_required": false,
+    "not_extracted_selectors": ["#join-community"],
+    "fields": [
+      {"selector": "#signup-full-name", "profile_key": "full_name", "required": true},
+      {"selector": "#signup-email", "profile_key": "email", "required": true},
+      {"selector": "#interest-ml", "profile_key": null, "required": false, "reason": "multi_select_preference"},
+      {"selector": "#interest-web", "profile_key": null, "required": false, "reason": "multi_select_preference"},
+      {"selector": "#interest-data", "profile_key": null, "required": false, "reason": "multi_select_preference"},
+      {"selector": "#interest-security", "profile_key": null, "required": false, "reason": "multi_select_preference"},
+      {"selector": "#agree-terms", "profile_key": null, "required": true, "reason": "one_time_field_terms"}
+    ]
+  }
+}

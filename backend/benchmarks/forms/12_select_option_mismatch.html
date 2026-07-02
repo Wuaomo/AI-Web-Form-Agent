@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Select Option Label Mismatch</title>
+  </head>
+  <body>
+    <main>
+      <h1>Workshop Interest Form</h1>
+      <p>Some dropdown labels do not match stored profile values.</p>
+
+      <form aria-label="Workshop interest form">
+        <div>
+          <label for="contact-name">Full name</label>
+          <input id="contact-name" name="full_name" type="text" required />
+        </div>
+
+        <div>
+          <label for="contact-email">Email</label>
+          <input id="contact-email" name="email" type="email" required />
+        </div>
+
+        <div>
+          <label for="study-area">Area of study</label>
+          <select id="study-area" name="study_area" required>
+            <option value="" selected>Please choose</option>
+            <option value="cs">CS / Computing</option>
+            <option value="ee">EE / Electrical</option>
+            <option value="math">Mathematics (Pure/Applied)</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="school-name">Institution</label>
+          <input id="school-name" name="institution" type="text" />
+        </div>
+
+        <div>
+          <button id="submit-workshop" type="submit">Submit</button>
+        </div>
+      </form>
+    </main>
+  </body>
+</html>

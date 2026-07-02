@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Radio Group Preferences</title>
+  </head>
+  <body>
+    <main>
+      <h1>Notification Preferences</h1>
+      <p>Some radio groups look like profile fields but are actually preferences.</p>
+
+      <form aria-label="Notification preferences form">
+        <div>
+          <label for="pref-email">Email</label>
+          <input id="pref-email" name="email" type="email" required />
+        </div>
+
+        <fieldset>
+          <legend>Preferred contact method</legend>
+          <div>
+            <input id="contact-method-email" name="contact_method" type="radio" value="email" />
+            <label for="contact-method-email">Email</label>
+          </div>
+          <div>
+            <input id="contact-method-phone" name="contact_method" type="radio" value="phone" />
+            <label for="contact-method-phone">Phone call</label>
+          </div>
+          <div>
+            <input id="contact-method-sms" name="contact_method" type="radio" value="sms" />
+            <label for="contact-method-sms">Text message (SMS)</label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Do you want to receive weekly updates?</legend>
+          <div>
+            <input id="weekly-updates-yes" name="weekly_updates" type="radio" value="yes" />
+            <label for="weekly-updates-yes">Yes</label>
+          </div>
+          <div>
+            <input id="weekly-updates-no" name="weekly_updates" type="radio" value="no" />
+            <label for="weekly-updates-no">No</label>
+          </div>
+        </fieldset>
+
+        <div>
+          <button id="save-preferences" type="submit">Save preferences</button>
+        </div>
+      </form>
+    </main>
+  </body>
+</html>

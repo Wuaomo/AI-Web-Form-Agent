@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Address and Date Fields</title>
+  </head>
+  <body>
+    <main>
+      <h1>Alumni Update</h1>
+      <p>Update your contact details and graduation information.</p>
+
+      <form aria-label="Alumni update form">
+        <section aria-label="Contact">
+          <h2>Contact</h2>
+          <div>
+            <label for="alumni-full-name">Full name</label>
+            <input id="alumni-full-name" name="full_name" type="text" required />
+          </div>
+          <div>
+            <label for="alumni-email">Email</label>
+            <input id="alumni-email" name="email" type="email" required />
+          </div>
+        </section>
+
+        <section aria-label="Address">
+          <h2>Mailing address</h2>
+          <div>
+            <label for="address-line-1">Address line 1</label>
+            <input id="address-line-1" name="address_line_1" type="text" required />
+          </div>
+          <div>
+            <label for="address-line-2">Address line 2</label>
+            <input id="address-line-2" name="address_line_2" type="text" />
+          </div>
+          <div>
+            <label for="address-city">City</label>
+            <input id="address-city" name="city" type="text" required />
+          </div>
+          <div>
+            <label for="address-state">State / Province</label>
+            <input id="address-state" name="state" type="text" required />
+          </div>
+          <div>
+            <label for="address-postal">Postal code</label>
+            <input id="address-postal" name="postal_code" type="text" required />
+          </div>
+          <div>
+            <label for="address-country">Country</label>
+            <select id="address-country" name="country" required>
+              <option value="" selected>Select a country</option>
+              <option value="US">United States</option>
+              <option value="CA">Canada</option>
+              <option value="GB">United Kingdom</option>
+              <option value="OTHER">Other</option>
+            </select>
+          </div>
+        </section>
+
+        <section aria-label="Graduation">
+          <h2>Graduation</h2>
+          <div>
+            <label for="grad-month">Graduation month</label>
+            <select id="grad-month" name="grad_month">
+              <option value="" selected>Select month</option>
+              <option value="01">January</option>
+              <option value="05">May</option>
+              <option value="08">August</option>
+              <option value="12">December</option>
+            </select>
+          </div>
+          <div>
+            <label for="grad-year">Graduation year</label>
+            <input id="grad-year" name="grad_year" type="number" min="1900" max="2100" />
+          </div>
+        </section>
+
+        <div>
+          <button id="save-alumni" type="submit">Save</button>
+        </div>
+      </form>
+    </main>
+  </body>
+</html>

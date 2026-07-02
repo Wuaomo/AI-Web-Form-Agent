@@ -14,6 +14,7 @@ from app.services.field_mapper import (
     _build_llm_prompt,
     _request_deepseek_mapping,
     map_fields_with_llm,
+    map_fields_with_llm_result,
 )
 
 
@@ -327,6 +328,44 @@ class LLMFieldMapperTests(unittest.TestCase):
 
         self.assertEqual(mapped[0].mapped_profile_key, "email")
         self.assertEqual(mapped[0].mapped_value, "ada@example.com")
+
+    def test_llm_mapping_result_reports_used_fallback_false_on_success(self) -> None:
+        field = self._add_field(
+            label="Where should we send updates?",
+            selector="#contact-destination",
+        )
+        llm_json = json.dumps(
+            {
+                "mappings": [
+                    {
+                        "field_id": field.id,
+                        "mapped_profile_key": "email",
+                        "confidence": 0.93,
+                    }
+                ]
+            }
+        )
+
+        with patch(
+            "app.services.field_mapper._request_llm_mapping",
+            return_value=llm_json,
+        ):
+            result = map_fields_with_llm_result(self.task_id, self.db)
+
+        self.assertEqual(result.used_fallback, False)
+        self.assertEqual(result.fields[0].mapped_profile_key, "email")
+
+    def test_llm_mapping_result_reports_used_fallback_true_on_exception(self) -> None:
+        self._add_field(label="Contact Email", selector="#contact-email")
+
+        with patch(
+            "app.services.field_mapper._request_llm_mapping",
+            side_effect=RuntimeError("LLM request failed"),
+        ):
+            result = map_fields_with_llm_result(self.task_id, self.db)
+
+        self.assertEqual(result.used_fallback, True)
+        self.assertEqual(result.fields[0].mapped_profile_key, "email")
 
     def test_action_or_submit_mapping_is_rejected(self) -> None:
         email_field = self._add_field(
