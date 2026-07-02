@@ -81,11 +81,21 @@ export function isRequiredMissing(field) {
 }
 
 export function isLowConfidence(field) {
-  return field.confidence !== null && field.confidence < 0.75;
+  return (
+    isReviewableField(field) &&
+    field.confidence !== null &&
+    field.confidence !== undefined &&
+    field.confidence < 0.75
+  );
 }
 
 export function isUnmapped(field) {
-  return isReviewableField(field) && field.required === false && !field.mapped_profile_key && !field.mapped_value;
+  return (
+    isReviewableField(field) &&
+    field.required === false &&
+    !field.mapped_profile_key &&
+    !field.mapped_value
+  );
 }
 
 export function computeAttentionSummary(fields) {

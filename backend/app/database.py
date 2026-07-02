@@ -44,10 +44,10 @@ def init_db() -> None:
     _add_missing_profile_columns()
 
 
-def _add_missing_form_field_columns() -> None:
+def _add_missing_form_field_columns(target_engine=engine) -> None:
     """Add new nullable columns when opening an older MVP SQLite database."""
 
-    inspector = inspect(engine)
+    inspector = inspect(target_engine)
     if "form_fields" not in inspector.get_table_names():
         return
 
@@ -62,9 +62,10 @@ def _add_missing_form_field_columns() -> None:
         "html_id": "VARCHAR(500)",
         "current_value": "TEXT",
         "options": "TEXT",
+        "profile_memory_policy": "VARCHAR(20) NOT NULL DEFAULT 'auto'",
     }
 
-    with engine.begin() as connection:
+    with target_engine.begin() as connection:
         for column_name, column_type in missing_columns.items():
             if column_name not in existing_columns:
                 connection.execute(

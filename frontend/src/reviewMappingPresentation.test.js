@@ -205,6 +205,55 @@ test("isLowConfidence identifies fields with confidence below 0.75", () => {
   assert.equal(isLowConfidence({ confidence: undefined }), false);
 });
 
+test("isLowConfidence ignores non-reviewable fields", () => {
+  assert.equal(
+    isLowConfidence({
+      field_type: "submit",
+      confidence: 0.2,
+    }),
+    false,
+  );
+
+  assert.equal(
+    isLowConfidence({
+      field_type: "file",
+      confidence: 0.2,
+    }),
+    false,
+  );
+
+  assert.equal(
+    isLowConfidence({
+      field_type: "text",
+      confidence: 0.2,
+    }),
+    true,
+  );
+});
+
+test("computeAttentionSummary does not include non-reviewable low confidence fields", () => {
+  const summary = computeAttentionSummary([
+    {
+      id: 1,
+      field_type: "submit",
+      required: false,
+      mapped_value: "",
+      mapped_profile_key: "",
+      confidence: 0.1,
+    },
+    {
+      id: 2,
+      field_type: "text",
+      required: false,
+      mapped_value: "",
+      mapped_profile_key: "email",
+      confidence: 0.6,
+    },
+  ]);
+
+  assert.deepEqual(summary.lowConfidence.map((field) => field.id), [2]);
+});
+
 test("isUnmapped identifies optional fillable fields with no mapping", () => {
   assert.equal(
     isUnmapped({

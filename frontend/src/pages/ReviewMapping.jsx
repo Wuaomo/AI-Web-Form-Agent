@@ -52,8 +52,12 @@ function ReviewMapping() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [customChoiceFields, setCustomChoiceFields] = useState({});
+  const [fieldUpdateCount, setFieldUpdateCount] = useState(0);
   const pendingValueUpdateTimers = useRef({});
   const pendingValueUpdates = useRef({});
+  const pendingPolicyUpdateTimers = useRef({});
+  const pendingPolicyUpdates = useRef({});
+  const inFlightFieldUpdates = useRef(new Set());
 
   const loadFields = useCallback(async () => {
     setLoading(true);
@@ -84,6 +88,11 @@ function ReviewMapping() {
       );
       pendingValueUpdateTimers.current = {};
       pendingValueUpdates.current = {};
+      Object.values(pendingPolicyUpdateTimers.current).forEach((timerId) =>
+        clearTimeout(timerId),
+      );
+      pendingPolicyUpdateTimers.current = {};
+      pendingPolicyUpdates.current = {};
     };
   }, []);
 
@@ -113,8 +122,13 @@ function ReviewMapping() {
 
   async function updateField(fieldId, changes) {
     setError("");
+    setFieldUpdateCount((count) => count + 1);
+
+    const request = api.updateTaskField(taskId, fieldId, changes);
+    inFlightFieldUpdates.current.add(request);
+
     try {
-      const updated = await api.updateTaskField(taskId, fieldId, changes);
+      const updated = await request;
       setFields((current) =>
         current.map((field) => (field.id === updated.id ? updated : field)),
       );
@@ -122,6 +136,9 @@ function ReviewMapping() {
     } catch (requestError) {
       setError(requestError.message);
       return null;
+    } finally {
+      inFlightFieldUpdates.current.delete(request);
+      setFieldUpdateCount((count) => Math.max(count - 1, 0));
     }
   }
 
@@ -147,6 +164,20 @@ function ReviewMapping() {
     }, 250);
   }
 
+  function schedulePolicyUpdate(fieldId, policy) {
+    pendingPolicyUpdates.current[fieldId] = policy;
+    const existingTimer = pendingPolicyUpdateTimers.current[fieldId];
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+    pendingPolicyUpdateTimers.current[fieldId] = setTimeout(() => {
+      delete pendingPolicyUpdateTimers.current[fieldId];
+      const pendingPolicy = pendingPolicyUpdates.current[fieldId];
+      delete pendingPolicyUpdates.current[fieldId];
+      updateField(fieldId, { profile_memory_policy: pendingPolicy });
+    }, 250);
+  }
+
   async function flushPendingValueUpdates() {
     const entries = Object.entries(pendingValueUpdates.current);
     Object.values(pendingValueUpdateTimers.current).forEach((timerId) =>
@@ -165,6 +196,36 @@ function ReviewMapping() {
       ),
     );
     return results.every(Boolean);
+  }
+
+  async function flushPendingPolicyUpdates() {
+    const entries = Object.entries(pendingPolicyUpdates.current);
+    Object.values(pendingPolicyUpdateTimers.current).forEach((timerId) =>
+      clearTimeout(timerId),
+    );
+    pendingPolicyUpdateTimers.current = {};
+    pendingPolicyUpdates.current = {};
+
+    if (entries.length === 0) {
+      return true;
+    }
+
+    const results = await Promise.all(
+      entries.map(([fieldId, policy]) =>
+        updateField(Number(fieldId), { profile_memory_policy: policy }),
+      ),
+    );
+    return results.every(Boolean);
+  }
+
+  async function flushInFlightFieldUpdates() {
+    const updates = Array.from(inFlightFieldUpdates.current);
+    if (updates.length === 0) {
+      return true;
+    }
+
+    const results = await Promise.allSettled(updates);
+    return results.every((result) => result.status === "fulfilled");
   }
 
   function fieldUsesCustomChoice(field) {
@@ -307,8 +368,17 @@ function ReviewMapping() {
     setBusy(true);
     setError("");
     try {
-      const flushed = await flushPendingValueUpdates();
-      if (!flushed) {
+      const flushedValues = await flushPendingValueUpdates();
+      if (!flushedValues) {
+        return;
+      }
+      const flushedPolicies = await flushPendingPolicyUpdates();
+      if (!flushedPolicies) {
+        return;
+      }
+      const flushedFieldUpdates = await flushInFlightFieldUpdates();
+      if (!flushedFieldUpdates) {
+        setError("Please wait for field updates to finish before confirming.");
         return;
       }
       const result = await api.confirmMapping(taskId);
@@ -413,7 +483,7 @@ function ReviewMapping() {
           className="button button-secondary"
           type="button"
           onClick={confirmMapping}
-          disabled={busy || fields.length === 0 || requiredMissing.length > 0}
+          disabled={busy || fieldUpdateCount > 0 || fields.length === 0 || requiredMissing.length > 0}
         >
           Confirm mapping
         </button>
@@ -498,9 +568,7 @@ function ReviewMapping() {
                           <select
                             value={field.profile_memory_policy || "auto"}
                             onChange={(event) =>
-                              updateField(field.id, {
-                                profile_memory_policy: event.target.value,
-                              })
+                              schedulePolicyUpdate(field.id, event.target.value)
                             }
                           >
                             <option value="auto">Auto</option>
