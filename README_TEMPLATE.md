@@ -42,11 +42,3 @@ A human-in-the-loop browser automation agent that fills web forms from natural l
 - Does not guarantee support for all websites.
 - Does not auto-submit forms without approval.
 
-## Resume Description
-
-AI Web Form Agent | Python, FastAPI, Playwright, React, OpenAI API
-
-- Built a human-in-the-loop browser automation agent that converts form-filling tasks into executable Playwright actions.
-- Implemented dynamic form discovery by extracting input, textarea, select, checkbox, and radio elements with labels, placeholders, and selectors.
-- Designed a field mapping module to match user profile data with web form fields, reducing hard-coded selectors.
-- Added execution logs, screenshot tracing, and approval checkpoints to prevent unsafe final submission.
