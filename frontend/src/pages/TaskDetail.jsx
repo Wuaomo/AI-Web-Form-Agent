@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { api, API_BASE_URL } from "../api";
 import { getWorkflowTimeline } from "../agentTimeline";
+import { generateDebugReport } from "../debugReport";
 import LlmMappingControls from "../components/LlmMappingControls";
 import { formatChinaTime } from "../dateTime";
 import {
@@ -45,6 +46,7 @@ function TaskDetail() {
     location.state?.profileSkipped || [],
   );
   const [llmUsage, setLlmUsage] = useState(null);
+  const [taskLogs, setTaskLogs] = useState([]);
 
   useEffect(() => {
     if (
@@ -86,6 +88,10 @@ function TaskDetail() {
   useEffect(() => {
     api.getTaskLlmUsage(taskId)
       .then(setLlmUsage)
+      .catch(() => {});
+
+    api.listTaskLogs(taskId)
+      .then(setTaskLogs)
       .catch(() => {});
   }, [taskId]);
 
@@ -159,6 +165,39 @@ function TaskDetail() {
       await refreshTaskHistory();
     } finally {
       setBusyAction("");
+    }
+  }
+
+  async function copyDebugReport() {
+    const report = generateDebugReport(task, profiles, screenshots, llmUsage, taskLogs);
+    try {
+      await navigator.clipboard.writeText(report);
+      setNotice("Debug report copied to clipboard.");
+    } catch {
+      const textArea = document.createElement("textarea");
+      textArea.value = report;
+      textArea.style.position = "fixed";
+      textArea.style.left = "-9999px";
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand("copy");
+        setNotice("Debug report copied to clipboard.");
+      } catch {
+        setError("Failed to copy debug report. Please select and copy the report below.");
+        textArea.style.position = "static";
+        textArea.style.left = "auto";
+        textArea.style.width = "100%";
+        textArea.style.height = "200px";
+        textArea.readOnly = true;
+        const container = document.createElement("div");
+        container.className = "card";
+        container.appendChild(textArea);
+        document.querySelector("section").appendChild(container);
+      }
+      if (textArea.style.position === "fixed") {
+        document.body.removeChild(textArea);
+      }
     }
   }
 
@@ -318,6 +357,17 @@ function TaskDetail() {
               )}
             </div>
           )}
+
+          <div className="card">
+            <button
+              type="button"
+              className="button button-secondary"
+              onClick={copyDebugReport}
+              disabled={loading}
+            >
+              Copy Debug Report
+            </button>
+          </div>
 
           <div className="page-heading">
             <div>
