@@ -1,5 +1,159 @@
 const nonFillableFieldTypes = new Set(["button", "submit", "reset", "image", "file"]);
 
+const WORKFLOW_NODES = [
+  { id: "created", label: "Created" },
+  { id: "analyze", label: "Analyze" },
+  { id: "map", label: "Map fields" },
+  { id: "review", label: "Review mapping" },
+  { id: "confirm", label: "Confirm mapping" },
+  { id: "fill", label: "Fill form" },
+  { id: "approve", label: "Waiting approval" },
+  { id: "submit", label: "Submit" },
+  { id: "completed", label: "Completed" },
+];
+
+function getWorkflowTimeline(task) {
+  const status = task?.status || "CREATED";
+
+  const nodes = WORKFLOW_NODES.map((node) => ({
+    ...node,
+    state: "pending",
+    helpText: null,
+  }));
+
+  function setState(nodeId, state, helpText = null) {
+    const node = nodes.find((n) => n.id === nodeId);
+    if (node) {
+      node.state = state;
+      if (helpText) {
+        node.helpText = helpText;
+      }
+    }
+  }
+
+  function setAllTo(state) {
+    nodes.forEach((node) => {
+      node.state = state;
+    });
+  }
+
+  function setUpTo(nodeId, state) {
+    const idx = nodes.findIndex((n) => n.id === nodeId);
+    for (let i = 0; i <= idx; i++) {
+      if (nodes[i].state === "pending") {
+        nodes[i].state = state;
+      }
+    }
+  }
+
+  switch (status) {
+    case "CREATED":
+      setState("created", "success");
+      setState("analyze", "pending");
+      break;
+
+    case "ANALYZING":
+      setState("created", "success");
+      setState("analyze", "active");
+      break;
+
+    case "LOGIN_REQUIRED":
+      setState("created", "success");
+      setState("analyze", "blocked", "Log in in the browser window, then close it to continue.");
+      break;
+
+    case "LOGIN_IN_PROGRESS":
+      setState("created", "success");
+      setState("analyze", "blocked", "Finish login in the browser window, then close it.");
+      break;
+
+    case "MAPPING_READY":
+      setState("created", "success");
+      setState("analyze", "success");
+      setState("map", "success");
+      setState("review", "active");
+      break;
+
+    case "READY_TO_FILL":
+      setState("created", "success");
+      setState("analyze", "success");
+      setState("map", "success");
+      setState("review", "success");
+      setState("confirm", "success");
+      setState("fill", "pending");
+      break;
+
+    case "FILLING":
+      setState("created", "success");
+      setState("analyze", "success");
+      setState("map", "success");
+      setState("review", "success");
+      setState("confirm", "success");
+      setState("fill", "active");
+      break;
+
+    case "WAITING_APPROVAL":
+      setState("created", "success");
+      setState("analyze", "success");
+      setState("map", "success");
+      setState("review", "success");
+      setState("confirm", "success");
+      setState("fill", "success");
+      setState("approve", "active", "Review the filled form screenshot before final submission.");
+      break;
+
+    case "COMPLETED":
+      setAllTo("success");
+      break;
+
+    case "FAILED":
+      setAllTo("pending");
+      setState("created", "success");
+
+      if (task?.failed_step === "analyze" || status === "LOGIN_REQUIRED" || status === "ANALYZING") {
+        setState("analyze", "failed");
+      } else if (
+        task?.failed_step === "map" ||
+        task?.failed_step === "review" ||
+        status === "MAPPING_READY"
+      ) {
+        setState("analyze", "success");
+        setState("map", "success");
+        setState("review", "failed");
+      } else if (status === "READY_TO_FILL" || status === "FILLING") {
+        setState("analyze", "success");
+        setState("map", "success");
+        setState("review", "success");
+        setState("confirm", "success");
+        setState("fill", "failed");
+      } else if (status === "WAITING_APPROVAL") {
+        setState("analyze", "success");
+        setState("map", "success");
+        setState("review", "success");
+        setState("confirm", "success");
+        setState("fill", "success");
+        setState("approve", "failed");
+      } else {
+        const lastSuccessfulStep =
+          task?.form_fields?.length > 0 ? "review" : task?.analyzed ? "analyze" : "created";
+        setAllTo("pending");
+        setState("created", "success");
+        setUpTo(lastSuccessfulStep, "success");
+        const nextStepIndex = nodes.findIndex((n) => n.id === lastSuccessfulStep) + 1;
+        if (nextStepIndex < nodes.length && nextStepIndex < 8) {
+          setState(nodes[nextStepIndex].id, "failed");
+        }
+      }
+      break;
+
+    default:
+      setState("created", "success");
+      break;
+  }
+
+  return nodes;
+}
+
 function pluralize(count, singular, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`;
 }
@@ -184,4 +338,4 @@ export function buildAgentTimeline(logs, fields = []) {
   ]);
 }
 
-export { fieldDisplayName, isFillableField };
+export { fieldDisplayName, getWorkflowTimeline, isFillableField };

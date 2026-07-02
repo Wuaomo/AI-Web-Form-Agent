@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { api, API_BASE_URL } from "../api";
+import { getWorkflowTimeline } from "../agentTimeline";
 import LlmMappingControls from "../components/LlmMappingControls";
 import { formatChinaTime } from "../dateTime";
 import {
@@ -43,6 +44,7 @@ function TaskDetail() {
   const [profileSkipped, setProfileSkipped] = useState(
     location.state?.profileSkipped || [],
   );
+  const [llmUsage, setLlmUsage] = useState(null);
 
   useEffect(() => {
     if (
@@ -79,6 +81,12 @@ function TaskDetail() {
       })
       .catch((requestError) => setError(requestError.message))
       .finally(() => setLoading(false));
+  }, [taskId]);
+
+  useEffect(() => {
+    api.getTaskLlmUsage(taskId)
+      .then(setLlmUsage)
+      .catch(() => {});
   }, [taskId]);
 
   async function refreshTaskHistory(nextTask = null) {
@@ -257,6 +265,60 @@ function TaskDetail() {
       )}
       {task && (
         <>
+          <div className="card workflow-timeline">
+            <h3>Workflow</h3>
+            <div className="timeline">
+              {getWorkflowTimeline(task).map((node, index) => (
+                <div key={node.id} className="timeline-item">
+                  <div className={`timeline-node ${node.state}`}>
+                    <span className="timeline-label">{node.label}</span>
+                    {node.state === "active" && (
+                      <span className="timeline-indicator" />
+                    )}
+                  </div>
+                  {index < getWorkflowTimeline(task).length - 1 && (
+                    <div className={`timeline-connector ${node.state === "success" ? "completed" : ""}`} />
+                  )}
+                  {node.helpText && (
+                    <p className="timeline-help">{node.helpText}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {llmUsage && llmUsage.summary && (
+            <div className="card">
+              <h3>LLM Usage</h3>
+              {llmUsage.summary.request_count > 0 ? (
+                <dl className="detail-list">
+                  <div>
+                    <dt>Requests</dt>
+                    <dd>{llmUsage.summary.request_count}</dd>
+                  </div>
+                  <div>
+                    <dt>Total tokens</dt>
+                    <dd>{llmUsage.summary.total_tokens}</dd>
+                  </div>
+                  <div>
+                    <dt>Cache hit rate</dt>
+                    <dd>{Math.round(llmUsage.summary.cache_hit_rate * 100)}%</dd>
+                  </div>
+                  <div>
+                    <dt>Cache hit tokens</dt>
+                    <dd>{llmUsage.summary.cache_hit_tokens}</dd>
+                  </div>
+                  <div>
+                    <dt>Cache miss tokens</dt>
+                    <dd>{llmUsage.summary.cache_miss_tokens}</dd>
+                  </div>
+                </dl>
+              ) : (
+                <p>No LLM usage yet.</p>
+              )}
+            </div>
+          )}
+
           <div className="page-heading">
             <div>
               <p className="eyebrow">Task #{task.id}</p>

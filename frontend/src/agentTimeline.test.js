@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildAgentTimeline } from "./agentTimeline.js";
+import { buildAgentTimeline, getWorkflowTimeline } from "./agentTimeline.js";
 
 test("builds user-facing timeline entries from logs and fields", () => {
   const logs = [
@@ -85,4 +85,47 @@ test("builds user-facing timeline entries from logs and fields", () => {
   assert.equal(entries[0].details[0].label, "Action");
   assert.equal(entries[0].details[0].value, "extract_fields");
   assert.equal(entries[2].details.some((detail) => detail.value === "#graduation"), true);
+});
+
+test("getWorkflowTimeline for CREATED status", () => {
+  const nodes = getWorkflowTimeline({ status: "CREATED" });
+  assert.equal(nodes.find((n) => n.id === "created").state, "success");
+  assert.equal(nodes.find((n) => n.id === "analyze").state, "pending");
+});
+
+test("getWorkflowTimeline for LOGIN_REQUIRED status", () => {
+  const nodes = getWorkflowTimeline({ status: "LOGIN_REQUIRED" });
+  assert.equal(nodes.find((n) => n.id === "created").state, "success");
+  assert.equal(nodes.find((n) => n.id === "analyze").state, "blocked");
+  assert.ok(nodes.find((n) => n.id === "analyze").helpText);
+});
+
+test("getWorkflowTimeline for READY_TO_FILL status", () => {
+  const nodes = getWorkflowTimeline({ status: "READY_TO_FILL" });
+  assert.equal(nodes.find((n) => n.id === "created").state, "success");
+  assert.equal(nodes.find((n) => n.id === "analyze").state, "success");
+  assert.equal(nodes.find((n) => n.id === "map").state, "success");
+  assert.equal(nodes.find((n) => n.id === "review").state, "success");
+  assert.equal(nodes.find((n) => n.id === "confirm").state, "success");
+  assert.equal(nodes.find((n) => n.id === "fill").state, "pending");
+});
+
+test("getWorkflowTimeline for WAITING_APPROVAL status", () => {
+  const nodes = getWorkflowTimeline({ status: "WAITING_APPROVAL" });
+  assert.equal(nodes.find((n) => n.id === "fill").state, "success");
+  assert.equal(nodes.find((n) => n.id === "approve").state, "active");
+  assert.ok(nodes.find((n) => n.id === "approve").helpText);
+});
+
+test("getWorkflowTimeline for COMPLETED status", () => {
+  const nodes = getWorkflowTimeline({ status: "COMPLETED" });
+  nodes.forEach((node) => {
+    assert.equal(node.state, "success", `${node.id} should be success`);
+  });
+});
+
+test("getWorkflowTimeline for FAILED status", () => {
+  const nodes = getWorkflowTimeline({ status: "FAILED", form_fields: [] });
+  assert.equal(nodes.find((n) => n.id === "created").state, "success");
+  assert.ok(["failed", "pending"].includes(nodes.find((n) => n.id === "analyze").state));
 });

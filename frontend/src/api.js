@@ -158,4 +158,5 @@ export const api = {
   fillTask: (taskId) => request(`/tasks/${taskId}/fill`, { method: "POST" }),
   confirmSubmit: (taskId) =>
     request(`/tasks/${taskId}/confirm-submit`, { method: "POST" }),
+  getTaskLlmUsage: (taskId) => request(`/tasks/${taskId}/llm-usage`),
 };
