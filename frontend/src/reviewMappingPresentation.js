@@ -192,3 +192,15 @@ export function hasFieldChoiceOptions(field) {
     getFieldChoiceOptions(field).length > 0
   );
 }
+
+export function shouldShowMappingSource() {
+  return false;
+}
+
+export function shouldShowAdvancedFieldDetails() {
+  return false;
+}
+
+export function shouldShowProfileMemoryControl() {
+  return false;
+}

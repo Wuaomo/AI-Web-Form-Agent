@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { api, API_BASE_URL } from "../api";
-import { getWorkflowTimeline } from "../agentTimeline";
+import { getWorkflowTimeline, shouldShowWorkflowTimeline } from "../agentTimeline";
 import { generateDebugReport } from "../debugReport";
 import LlmMappingControls from "../components/LlmMappingControls";
 import { formatChinaTime } from "../dateTime";
@@ -13,7 +13,7 @@ import {
 import Message from "../components/Message";
 import {
   getTaskRunState,
-  getTaskRunSummary,
+  getVisibleRunSummaryItems,
   isFillableField,
 } from "../taskRunState";
 
@@ -42,26 +42,19 @@ function TaskDetail() {
   const [profileUpdates, setProfileUpdates] = useState(
     location.state?.profileUpdates || [],
   );
-  const [profileSkipped, setProfileSkipped] = useState(
-    location.state?.profileSkipped || [],
-  );
   const [llmUsage, setLlmUsage] = useState(null);
   const [taskLogs, setTaskLogs] = useState([]);
 
   useEffect(() => {
     if (
       location.state?.notice ||
-      location.state?.profileUpdates ||
-      location.state?.profileSkipped
+      location.state?.profileUpdates
     ) {
       if (location.state?.notice) {
         setNotice(location.state.notice);
       }
       if (location.state?.profileUpdates) {
         setProfileUpdates(location.state.profileUpdates);
-      }
-      if (location.state?.profileSkipped) {
-        setProfileSkipped(location.state.profileSkipped);
       }
       navigate(location.pathname, { replace: true, state: null });
     }
@@ -221,8 +214,9 @@ function TaskDetail() {
   const llmUnavailable = mappingMode === "llm" && !selectedProvider?.configured;
   const missingRequiredFields = task?.form_fields.filter(needsRequiredInput) || [];
   const runState = getTaskRunState(task);
-  const runSummary = getTaskRunSummary(task);
-  const workflowNodes = task ? getWorkflowTimeline(task, taskLogs) : [];
+  const runSummaryItems = getVisibleRunSummaryItems(task);
+  const showWorkflowTimeline = shouldShowWorkflowTimeline();
+  const workflowNodes = showWorkflowTimeline && task ? getWorkflowTimeline(task, taskLogs) : [];
   const primaryDisabled =
     isBusy ||
     !runState.primaryAction ||
@@ -285,48 +279,31 @@ function TaskDetail() {
           </ul>
         </div>
       )}
-      {profileSkipped.length > 0 && (
-        <div className="card">
-          <h3>Skipped fields</h3>
-          <p>{profileSkipped.length} fields were skipped</p>
-          <ul>
-            {profileSkipped.map((item) => (
-              <li key={`${item.field_id}-${item.reason}`}>
-                <strong>{item.detail}</strong>:{" "}
-                {item.reason === "empty_value" && "Value is empty"}
-                {item.reason === "non_fillable_type" && "Not fillable"}
-                {item.reason === "one_time_field" && "One-time or sensitive field"}
-                {item.reason === "unchanged" && "Same value already exists"}
-                {item.reason === "do_not_save" && "Do not save (user preference)"}
-                {item.reason === "force_save_blocked" && "Blocked (sensitive field)"}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
       {task && (
         <>
-          <div className="card workflow-timeline">
-            <h3>Workflow</h3>
-            <div className="timeline">
-              {workflowNodes.map((node, index) => (
-                <div key={node.id} className="timeline-item">
-                  <div className={`timeline-node ${node.state}`}>
-                    <span className="timeline-label">{node.label}</span>
-                    {node.state === "active" && (
-                      <span className="timeline-indicator" />
+          {showWorkflowTimeline && (
+            <div className="card workflow-timeline">
+              <h3>Workflow</h3>
+              <div className="timeline">
+                {workflowNodes.map((node, index) => (
+                  <div key={node.id} className="timeline-item">
+                    <div className={`timeline-node ${node.state}`}>
+                      <span className="timeline-label">{node.label}</span>
+                      {node.state === "active" && (
+                        <span className="timeline-indicator" />
+                      )}
+                    </div>
+                    {index < workflowNodes.length - 1 && (
+                      <div className={`timeline-connector ${node.state === "success" ? "completed" : ""}`} />
+                    )}
+                    {node.helpText && (
+                      <p className="timeline-help">{node.helpText}</p>
                     )}
                   </div>
-                  {index < workflowNodes.length - 1 && (
-                    <div className={`timeline-connector ${node.state === "success" ? "completed" : ""}`} />
-                  )}
-                  {node.helpText && (
-                    <p className="timeline-help">{node.helpText}</p>
-                  )}
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="card">
               <h3>LLM Usage</h3>
@@ -409,22 +386,12 @@ function TaskDetail() {
             </div>
 
             <div className="run-summary-grid" aria-label="Task run summary">
-              <div>
-                <strong>{runSummary.totalFields}</strong>
-                <span>Fields found</span>
-              </div>
-              <div>
-                <strong>{runSummary.mappedFields}</strong>
-                <span>Mapped</span>
-              </div>
-              <div>
-                <strong>{runSummary.missingRequiredFields}</strong>
-                <span>Need input</span>
-              </div>
-              <div>
-                <strong>{runSummary.skippedFields}</strong>
-                <span>Skipped</span>
-              </div>
+              {runSummaryItems.map((item) => (
+                <div key={item.key}>
+                  <strong>{item.value}</strong>
+                  <span>{item.label}</span>
+                </div>
+              ))}
             </div>
 
             <dl className="detail-list">

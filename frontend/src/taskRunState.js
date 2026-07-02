@@ -28,6 +28,27 @@ export function getTaskRunSummary(task) {
   };
 }
 
+export function getVisibleRunSummaryItems(task) {
+  const summary = getTaskRunSummary(task);
+  return [
+    {
+      key: "totalFields",
+      label: "Fields found",
+      value: summary.totalFields,
+    },
+    {
+      key: "mappedFields",
+      label: "Mapped",
+      value: summary.mappedFields,
+    },
+    {
+      key: "missingRequiredFields",
+      label: "Need input",
+      value: summary.missingRequiredFields,
+    },
+  ];
+}
+
 const stateByStatus = {
   CREATED: {
     statusLabel: "Not prepared",

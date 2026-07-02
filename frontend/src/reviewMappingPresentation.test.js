@@ -13,6 +13,9 @@ import {
   isReviewableField,
   isUnmapped,
   needsMappingReview,
+  shouldShowAdvancedFieldDetails,
+  shouldShowMappingSource,
+  shouldShowProfileMemoryControl,
   suggestProfileCustomKey,
 } from "./reviewMappingPresentation.js";
 
@@ -384,4 +387,10 @@ test("computeAttentionSummary handles fields with null confidence for unmapped",
   const summary = computeAttentionSummary(fields);
   assert.equal(summary.unmapped.length, 1);
   assert.equal(summary.unmapped[0].id, 1);
+});
+
+test("advanced review controls stay hidden in the simplified user view", () => {
+  assert.equal(shouldShowMappingSource(), false);
+  assert.equal(shouldShowAdvancedFieldDetails(), false);
+  assert.equal(shouldShowProfileMemoryControl(), false);
 });
