@@ -62,7 +62,7 @@ export function generateDebugReport(task, profiles = [], screenshots = [], llmUs
     });
   } else {
     lines.push("");
-    lines.push("Recent logs: Not loaded (TODO: GET /tasks/{task_id}/logs)");
+    lines.push("Recent logs: None");
   }
 
   lines.push("");

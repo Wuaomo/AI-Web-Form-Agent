@@ -328,37 +328,39 @@ function TaskDetail() {
             </div>
           </div>
 
-          {llmUsage && llmUsage.summary && (
-            <div className="card">
+          <div className="card">
               <h3>LLM Usage</h3>
-              {llmUsage.summary.request_count > 0 ? (
-                <dl className="detail-list">
-                  <div>
-                    <dt>Requests</dt>
-                    <dd>{llmUsage.summary.request_count}</dd>
-                  </div>
-                  <div>
-                    <dt>Total tokens</dt>
-                    <dd>{llmUsage.summary.total_tokens}</dd>
-                  </div>
-                  <div>
-                    <dt>Cache hit rate</dt>
-                    <dd>{Math.round(llmUsage.summary.cache_hit_rate * 100)}%</dd>
-                  </div>
-                  <div>
-                    <dt>Cache hit tokens</dt>
-                    <dd>{llmUsage.summary.cache_hit_tokens}</dd>
-                  </div>
-                  <div>
-                    <dt>Cache miss tokens</dt>
-                    <dd>{llmUsage.summary.cache_miss_tokens}</dd>
-                  </div>
-                </dl>
+              {llmUsage?.summary ? (
+                llmUsage.summary.request_count > 0 ? (
+                  <dl className="detail-list">
+                    <div>
+                      <dt>Requests</dt>
+                      <dd>{llmUsage.summary.request_count}</dd>
+                    </div>
+                    <div>
+                      <dt>Total tokens</dt>
+                      <dd>{llmUsage.summary.total_tokens}</dd>
+                    </div>
+                    <div>
+                      <dt>Cache hit rate</dt>
+                      <dd>{Math.round(llmUsage.summary.cache_hit_rate * 100)}%</dd>
+                    </div>
+                    <div>
+                      <dt>Cache hit tokens</dt>
+                      <dd>{llmUsage.summary.cache_hit_tokens}</dd>
+                    </div>
+                    <div>
+                      <dt>Cache miss tokens</dt>
+                      <dd>{llmUsage.summary.cache_miss_tokens}</dd>
+                    </div>
+                  </dl>
+                ) : (
+                  <p>No LLM usage yet.</p>
+                )
               ) : (
-                <p>No LLM usage yet.</p>
+                <p>LLM usage is not available.</p>
               )}
             </div>
-          )}
 
           <div className="card">
             <button
