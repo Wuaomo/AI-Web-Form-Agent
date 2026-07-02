@@ -129,3 +129,126 @@ test("getWorkflowTimeline for FAILED status", () => {
   assert.equal(nodes.find((n) => n.id === "created").state, "success");
   assert.ok(["failed", "pending"].includes(nodes.find((n) => n.id === "analyze").state));
 });
+
+test("getWorkflowTimeline for MAPPING_READY does not claim mapping is complete by status alone", () => {
+  const nodes = getWorkflowTimeline({ status: "MAPPING_READY", form_fields: [] });
+
+  assert.equal(nodes.find((n) => n.id === "created").state, "success");
+  assert.equal(nodes.find((n) => n.id === "analyze").state, "success");
+  assert.equal(nodes.find((n) => n.id === "map").state, "active");
+  assert.equal(nodes.find((n) => n.id === "review").state, "pending");
+});
+
+test("getWorkflowTimeline for MAPPING_READY without mapped fields", () => {
+  const nodes = getWorkflowTimeline({
+    status: "MAPPING_READY",
+    form_fields: [
+      { field_type: "text", mapped_value: "" },
+    ],
+  });
+  assert.equal(nodes.find((n) => n.id === "created").state, "success");
+  assert.equal(nodes.find((n) => n.id === "analyze").state, "success");
+  assert.equal(nodes.find((n) => n.id === "map").state, "active");
+  assert.equal(nodes.find((n) => n.id === "review").state, "pending");
+});
+
+test("getWorkflowTimeline for FAILED with analyze_form failure", () => {
+  const nodes = getWorkflowTimeline(
+    { status: "FAILED", form_fields: [] },
+    [{ action: "analyze_form", status: "FAILED" }],
+  );
+  assert.equal(nodes.find((n) => n.id === "created").state, "success");
+  assert.equal(nodes.find((n) => n.id === "analyze").state, "failed");
+});
+
+test("getWorkflowTimeline marks fill failed from failed fill_form log", () => {
+  const nodes = getWorkflowTimeline(
+    { status: "FAILED", form_fields: [{ id: 1, mapped_value: "Alex" }] },
+    [{ id: 10, action: "fill_form", status: "FAILED", created_at: "2026-07-02T10:00:00Z" }],
+  );
+
+  assert.equal(nodes.find((n) => n.id === "confirm").state, "success");
+  assert.equal(nodes.find((n) => n.id === "fill").state, "failed");
+  assert.equal(nodes.find((n) => n.id === "approve").state, "pending");
+});
+
+test("getWorkflowTimeline marks submit failed from failed submit_form log", () => {
+  const nodes = getWorkflowTimeline(
+    { status: "FAILED", form_fields: [{ id: 1, mapped_value: "Alex" }] },
+    [{ id: 11, action: "submit_form", status: "FAILED", created_at: "2026-07-02T10:01:00Z" }],
+  );
+
+  assert.equal(nodes.find((n) => n.id === "fill").state, "success");
+  assert.equal(nodes.find((n) => n.id === "approve").state, "success");
+  assert.equal(nodes.find((n) => n.id === "submit").state, "failed");
+});
+
+test("getWorkflowTimeline marks analyze failed from failed analyze_form log", () => {
+  const nodes = getWorkflowTimeline(
+    { status: "FAILED", form_fields: [] },
+    [{ id: 12, action: "analyze_form", status: "FAILED", created_at: "2026-07-02T10:02:00Z" }],
+  );
+
+  assert.equal(nodes.find((n) => n.id === "created").state, "success");
+  assert.equal(nodes.find((n) => n.id === "analyze").state, "failed");
+  assert.equal(nodes.find((n) => n.id === "map").state, "pending");
+});
+
+test("getWorkflowTimeline for FAILED with extract_fields failure", () => {
+  const nodes = getWorkflowTimeline(
+    { status: "FAILED", form_fields: [] },
+    [{ action: "extract_fields", status: "FAILED" }],
+  );
+  assert.equal(nodes.find((n) => n.id === "created").state, "success");
+  assert.equal(nodes.find((n) => n.id === "analyze").state, "failed");
+});
+
+test("getWorkflowTimeline for FAILED with fill_form failure", () => {
+  const nodes = getWorkflowTimeline(
+    { status: "FAILED", form_fields: [{ field_type: "text", mapped_value: "test" }] },
+    [
+      { action: "analyze_form", status: "SUCCESS" },
+      { action: "fill_form", status: "FAILED" },
+    ],
+  );
+  assert.equal(nodes.find((n) => n.id === "created").state, "success");
+  assert.equal(nodes.find((n) => n.id === "analyze").state, "success");
+  assert.equal(nodes.find((n) => n.id === "map").state, "success");
+  assert.equal(nodes.find((n) => n.id === "review").state, "success");
+  assert.equal(nodes.find((n) => n.id === "confirm").state, "success");
+  assert.equal(nodes.find((n) => n.id === "fill").state, "failed");
+});
+
+test("getWorkflowTimeline for FAILED with submit_form failure", () => {
+  const nodes = getWorkflowTimeline(
+    { status: "FAILED", form_fields: [{ field_type: "text", mapped_value: "test" }] },
+    [
+      { action: "analyze_form", status: "SUCCESS" },
+      { action: "fill_form", status: "SUCCESS" },
+      { action: "submit_form", status: "FAILED" },
+    ],
+  );
+  assert.equal(nodes.find((n) => n.id === "created").state, "success");
+  assert.equal(nodes.find((n) => n.id === "analyze").state, "success");
+  assert.equal(nodes.find((n) => n.id === "map").state, "success");
+  assert.equal(nodes.find((n) => n.id === "review").state, "success");
+  assert.equal(nodes.find((n) => n.id === "confirm").state, "success");
+  assert.equal(nodes.find((n) => n.id === "fill").state, "success");
+  assert.equal(nodes.find((n) => n.id === "approve").state, "success");
+  assert.equal(nodes.find((n) => n.id === "submit").state, "failed");
+});
+
+test("getWorkflowTimeline for FAILED with unknown failure action", () => {
+  const nodes = getWorkflowTimeline(
+    { status: "FAILED", form_fields: [], analyzed: true },
+    [{ action: "unknown_action", status: "FAILED" }],
+  );
+  assert.equal(nodes.find((n) => n.id === "created").state, "success");
+  assert.equal(nodes.find((n) => n.id === "analyze").state, "failed");
+});
+
+test("getWorkflowTimeline for FAILED without logs", () => {
+  const nodes = getWorkflowTimeline({ status: "FAILED", form_fields: [], analyzed: true });
+  assert.equal(nodes.find((n) => n.id === "created").state, "success");
+  assert.equal(nodes.find((n) => n.id === "analyze").state, "failed");
+});

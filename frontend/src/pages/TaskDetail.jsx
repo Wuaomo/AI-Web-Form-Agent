@@ -73,35 +73,33 @@ function TaskDetail() {
       api.listTaskScreenshots(taskId),
       api.listProfiles(),
       api.listLlmProviders(),
+      api.listTaskLogs(taskId),
+      api.getTaskLlmUsage(taskId).catch(() => null),
     ])
-      .then(([taskResult, screenshotItems, profileItems, providerItems]) => {
+      .then(([taskResult, screenshotItems, profileItems, providerItems, logItems, usageResult]) => {
         setTask(taskResult);
         setScreenshots(screenshotItems);
         setProfiles(profileItems);
         setLlmProviders(providerItems);
+        setTaskLogs(logItems);
+        setLlmUsage(usageResult);
         setSelectedLlmProvider(getSavedLlmProvider(providerItems));
       })
       .catch((requestError) => setError(requestError.message))
       .finally(() => setLoading(false));
   }, [taskId]);
 
-  useEffect(() => {
-    api.getTaskLlmUsage(taskId)
-      .then(setLlmUsage)
-      .catch(() => {});
-
-    api.listTaskLogs(taskId)
-      .then(setTaskLogs)
-      .catch(() => {});
-  }, [taskId]);
-
-  async function refreshTaskHistory(nextTask = null) {
-    const [taskResult, screenshotItems] = await Promise.all([
+  async function refreshTaskData(nextTask = null) {
+    const [taskResult, screenshotItems, logItems, usageResult] = await Promise.all([
       nextTask ? Promise.resolve(nextTask) : api.getTask(taskId),
       api.listTaskScreenshots(taskId),
+      api.listTaskLogs(taskId),
+      api.getTaskLlmUsage(taskId).catch(() => null),
     ]);
     setTask(taskResult);
     setScreenshots(screenshotItems);
+    setTaskLogs(logItems);
+    setLlmUsage(usageResult);
   }
 
   async function runAction(actionName, request, successMessage) {
@@ -110,10 +108,11 @@ function TaskDetail() {
     setNotice("");
     try {
       const result = await request();
-      await refreshTaskHistory(result?.id ? result : null);
+      await refreshTaskData(result?.id ? result : null);
       setNotice(successMessage);
     } catch (requestError) {
       setError(requestError.message);
+      await refreshTaskData();
     } finally {
       setBusyAction("");
     }
@@ -132,16 +131,17 @@ function TaskDetail() {
     setNotice("");
     try {
       const analyzedTask = await api.analyzeTask(taskId);
-      await refreshTaskHistory(analyzedTask);
+      await refreshTaskData(analyzedTask);
       if (analyzedTask.status === "LOGIN_REQUIRED") {
         setNotice("Login is required before the form can be prepared.");
         return;
       }
       await api.mapTaskFields(taskId, getMappingOptions());
-      await refreshTaskHistory();
+      await refreshTaskData();
       navigate(`/tasks/${taskId}/review-mapping`);
     } catch (requestError) {
       setError(requestError.message);
+      await refreshTaskData();
     } finally {
       setBusyAction("");
     }
@@ -153,16 +153,17 @@ function TaskDetail() {
     setNotice("");
     try {
       const analyzedTask = await api.loginAndAnalyzeTask(taskId);
-      await refreshTaskHistory(analyzedTask);
+      await refreshTaskData(analyzedTask);
       if (mappingMode === "rules" || (!llmUnavailable && selectedLlmProvider)) {
         await api.mapTaskFields(taskId, getMappingOptions());
+        await refreshTaskData();
         navigate(`/tasks/${taskId}/review-mapping`);
         return;
       }
       setNotice("Login complete. Choose a model provider, then map fields.");
     } catch (requestError) {
       setError(requestError.message);
-      await refreshTaskHistory();
+      await refreshTaskData();
     } finally {
       setBusyAction("");
     }
@@ -221,6 +222,7 @@ function TaskDetail() {
   const missingRequiredFields = task?.form_fields.filter(needsRequiredInput) || [];
   const runState = getTaskRunState(task);
   const runSummary = getTaskRunSummary(task);
+  const workflowNodes = task ? getWorkflowTimeline(task, taskLogs) : [];
   const primaryDisabled =
     isBusy ||
     !runState.primaryAction ||
@@ -307,7 +309,7 @@ function TaskDetail() {
           <div className="card workflow-timeline">
             <h3>Workflow</h3>
             <div className="timeline">
-              {getWorkflowTimeline(task).map((node, index) => (
+              {workflowNodes.map((node, index) => (
                 <div key={node.id} className="timeline-item">
                   <div className={`timeline-node ${node.state}`}>
                     <span className="timeline-label">{node.label}</span>
@@ -315,7 +317,7 @@ function TaskDetail() {
                       <span className="timeline-indicator" />
                     )}
                   </div>
-                  {index < getWorkflowTimeline(task).length - 1 && (
+                  {index < workflowNodes.length - 1 && (
                     <div className={`timeline-connector ${node.state === "success" ? "completed" : ""}`} />
                   )}
                   {node.helpText && (

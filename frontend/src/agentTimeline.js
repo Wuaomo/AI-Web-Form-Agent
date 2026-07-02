@@ -12,7 +12,16 @@ const WORKFLOW_NODES = [
   { id: "completed", label: "Completed" },
 ];
 
-function getWorkflowTimeline(task) {
+function latestFailedAction(logs) {
+  return [...logs]
+    .filter((log) => log.status === "FAILED")
+    .sort((a, b) => {
+      const timeDiff = new Date(b.created_at || 0) - new Date(a.created_at || 0);
+      return timeDiff || (Number(b.id) || 0) - (Number(a.id) || 0);
+    })[0]?.action;
+}
+
+function getWorkflowTimeline(task, logs = []) {
   const status = task?.status || "CREATED";
 
   const nodes = WORKFLOW_NODES.map((node) => ({
@@ -70,8 +79,8 @@ function getWorkflowTimeline(task) {
     case "MAPPING_READY":
       setState("created", "success");
       setState("analyze", "success");
-      setState("map", "success");
-      setState("review", "active");
+      setState("map", "active", "Map extracted fields before reviewing values.");
+      setState("review", "pending");
       break;
 
     case "READY_TO_FILL":
@@ -106,45 +115,39 @@ function getWorkflowTimeline(task) {
       setAllTo("success");
       break;
 
-    case "FAILED":
+    case "FAILED": {
       setAllTo("pending");
       setState("created", "success");
 
-      if (task?.failed_step === "analyze" || status === "LOGIN_REQUIRED" || status === "ANALYZING") {
+      const failedAction = latestFailedAction(logs);
+      if (failedAction === "analyze_form" || failedAction === "manual_login" || failedAction === "resume_after_login") {
         setState("analyze", "failed");
-      } else if (
-        task?.failed_step === "map" ||
-        task?.failed_step === "review" ||
-        status === "MAPPING_READY"
-      ) {
+      } else if (failedAction === "map_fields" || failedAction === "llm_map_fields") {
         setState("analyze", "success");
-        setState("map", "success");
-        setState("review", "failed");
-      } else if (status === "READY_TO_FILL" || status === "FILLING") {
+        setState("map", "failed");
+      } else if (failedAction === "fill_form") {
         setState("analyze", "success");
         setState("map", "success");
         setState("review", "success");
         setState("confirm", "success");
         setState("fill", "failed");
-      } else if (status === "WAITING_APPROVAL") {
+      } else if (failedAction === "submit_form" || failedAction === "confirm_submit") {
         setState("analyze", "success");
         setState("map", "success");
         setState("review", "success");
         setState("confirm", "success");
         setState("fill", "success");
-        setState("approve", "failed");
+        setState("approve", "success");
+        setState("submit", "failed");
       } else {
-        const lastSuccessfulStep =
-          task?.form_fields?.length > 0 ? "review" : task?.analyzed ? "analyze" : "created";
-        setAllTo("pending");
-        setState("created", "success");
-        setUpTo(lastSuccessfulStep, "success");
-        const nextStepIndex = nodes.findIndex((n) => n.id === lastSuccessfulStep) + 1;
-        if (nextStepIndex < nodes.length && nextStepIndex < 8) {
-          setState(nodes[nextStepIndex].id, "failed");
+        const hasFields = (task?.form_fields || []).length > 0;
+        setState("analyze", hasFields ? "success" : "failed");
+        if (hasFields) {
+          setState("map", "failed");
         }
       }
       break;
+    }
 
     default:
       setState("created", "success");
