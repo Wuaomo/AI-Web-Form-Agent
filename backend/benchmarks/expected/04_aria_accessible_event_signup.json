@@ -5,14 +5,13 @@
   "tags": ["aria-label", "accessibility", "label-missing"],
   "expected": {
     "login_required": false,
-    "not_extracted_selectors": [],
+    "not_extracted_selectors": ["#register-event"],
     "fields": [
       {"selector": "#attendee", "profile_key": "full_name", "required": true},
       {"selector": "#reply-to", "profile_key": "email", "required": true},
       {"selector": "#institution", "profile_key": "university", "required": true},
       {"selector": "#telephone", "profile_key": "phone", "required": false},
-      {"selector": "#about-you", "profile_key": "self_intro", "required": false},
-      {"selector": "#register-event", "profile_key": null, "required": false, "reason": "non_fillable_action"}
+      {"selector": "#about-you", "profile_key": "self_intro", "required": false}
     ]
   }
 }

@@ -41,6 +41,12 @@ def test_benchmark_expected_files_are_complete() -> None:
         assert "fields" in expected, (
             f'{expected_file.name} expected missing required key: "fields"'
         )
+        assert "not_extracted_selectors" in expected, (
+            f'{expected_file.name} expected missing required key: "not_extracted_selectors"'
+        )
+        assert isinstance(expected["not_extracted_selectors"], list), (
+            f'{expected_file.name} expected.not_extracted_selectors must be an array'
+        )
 
         html_file = (expected_file.parent / data["html_file"]).resolve()
         html = html_file.read_text(encoding="utf-8")
@@ -64,9 +70,26 @@ def test_benchmark_expected_files_are_complete() -> None:
             assert isinstance(selector, str) and selector.startswith("#"), (
                 f"{expected_file.name} field selector must start with '#': {selector!r}"
             )
-            assert f'id="{selector[1:]}"' in html, (
-                f"{expected_file.name} selector not found in HTML as an id: {selector}"
+            element_id = selector[1:]
+            assert (
+                f'<input id="{element_id}"' in html
+                or f'<textarea id="{element_id}"' in html
+                or f'<select id="{element_id}"' in html
+            ), (
+                f"{expected_file.name} selector must refer to input/textarea/select id: {selector}"
             )
             assert profile_key is None or profile_key in SUPPORTED_PROFILE_KEYS
             assert isinstance(field["required"], bool)
+
+        for selector in expected["not_extracted_selectors"]:
+            assert isinstance(selector, str) and selector.startswith("#"), (
+                f"{expected_file.name} not_extracted_selectors values must start with '#': {selector!r}"
+            )
+            element_id = selector[1:]
+            assert (
+                f'<button id="{element_id}"' in html
+                or f'<input id="{element_id}"' in html
+            ), (
+                f"{expected_file.name} not_extracted selector id not found in HTML: {selector}"
+            )
 

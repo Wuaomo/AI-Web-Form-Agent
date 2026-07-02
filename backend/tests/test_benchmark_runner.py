@@ -11,6 +11,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base
 from app.models import FormField, LlmApiUsageLog, Profile, Task
+from app.services.field_mapper import LlmMappingResult
 from app.services.benchmark_runner import (
     BenchmarkCase,
     SUMMARY_METRIC_KEYS,
@@ -33,10 +34,10 @@ def test_load_benchmark_cases_reads_all_expected_files() -> None:
 def test_score_case_calculates_extraction_mapping_and_login_metrics() -> None:
     expected = {
         "login_required": False,
+        "not_extracted_selectors": ["#submit"],
         "fields": [
             {"selector": "#name", "profile_key": "full_name", "required": True},
             {"selector": "#email", "profile_key": "email", "required": True},
-            {"selector": "#submit", "profile_key": None, "required": False},
         ],
     }
     actual = {
@@ -52,7 +53,7 @@ def test_score_case_calculates_extraction_mapping_and_login_metrics() -> None:
 
     result = score_case(expected, actual)
 
-    assert result["metrics"]["field_extraction_recall"] == 2 / 3
+    assert result["metrics"]["field_extraction_recall"] == 1.0
     assert result["metrics"]["field_extraction_precision"] == 2 / 3
     assert result["metrics"]["mapping_accuracy"] == 1 / 2
     assert result["metrics"]["required_field_coverage"] == 1.0
@@ -68,23 +69,16 @@ def test_score_case_calculates_extraction_mapping_and_login_metrics() -> None:
             "reason": "wrong_profile_key",
             "detail": 'Expected "email" but mapped to "phone".',
         },
-        {
-            "selector": "#submit",
-            "expected_profile_key": None,
-            "actual_profile_key": None,
-            "reason": "field_not_extracted",
-            "detail": 'Expected selector "#submit" to be extracted.',
-        },
     ]
 
 
 def test_score_case_emits_stable_failure_reasons_with_details() -> None:
     expected = {
         "login_required": False,
+        "not_extracted_selectors": ["#submit"],
         "fields": [
             {"selector": "#email", "profile_key": "email", "required": True},
             {"selector": "#phone", "profile_key": "phone", "required": True},
-            {"selector": "#submit", "profile_key": None, "required": False},
         ],
     }
     actual = {
@@ -103,7 +97,7 @@ def test_score_case_emits_stable_failure_reasons_with_details() -> None:
     assert {failure["reason"] for failure in failures} == {
         "field_not_extracted",
         "wrong_profile_key",
-        "action_field_should_skip",
+        "unexpected_extra_mapping",
     }
 
     failures_by_selector = {failure["selector"]: failure for failure in failures}
@@ -111,7 +105,7 @@ def test_score_case_emits_stable_failure_reasons_with_details() -> None:
     assert isinstance(failures_by_selector["#phone"]["detail"], str)
     assert failures_by_selector["#email"]["reason"] == "wrong_profile_key"
     assert isinstance(failures_by_selector["#email"]["detail"], str)
-    assert failures_by_selector["#submit"]["reason"] == "action_field_should_skip"
+    assert failures_by_selector["#submit"]["reason"] == "unexpected_extra_mapping"
     assert isinstance(failures_by_selector["#submit"]["detail"], str)
 
 
@@ -304,7 +298,7 @@ def test_run_case_llm_mode_calls_map_fields_with_llm(db_session: Session) -> Non
         {"selector": "#email", "label": "Email", "field_type": "email", "required": True},
     ]
 
-    def fake_map_fields_with_llm(task_id: int, db: Session, provider: str):
+    def fake_map_fields_with_llm_result(task_id: int, db: Session, provider: str):
         fields = list(
             db.scalars(
                 select(FormField).where(FormField.task_id == task_id).order_by(FormField.id)
@@ -312,11 +306,11 @@ def test_run_case_llm_mode_calls_map_fields_with_llm(db_session: Session) -> Non
         )
         for field in fields:
             field.mapped_profile_key = "email"
-        return fields
+        return LlmMappingResult(fields=fields, used_fallback=False)
 
     with (
         patch("app.services.benchmark_runner._extract_case_page_state", return_value=(raw_fields, False)),
-        patch("app.services.benchmark_runner.map_fields_with_llm", side_effect=fake_map_fields_with_llm) as mocked_map,
+        patch("app.services.benchmark_runner.map_fields_with_llm_result", side_effect=fake_map_fields_with_llm_result) as mocked_map,
     ):
         _run_case(case, mode="llm", provider="deepseek", db=db_session)
 
@@ -335,7 +329,7 @@ def test_run_case_llm_mode_converts_mapped_fields_to_actual_shape(db_session: Se
         {"selector": "#submit", "label": "Submit", "field_type": "submit", "required": False},
     ]
 
-    def fake_map_fields_with_llm(task_id: int, db: Session, provider: str):
+    def fake_map_fields_with_llm_result(task_id: int, db: Session, provider: str):
         fields = list(
             db.scalars(
                 select(FormField).where(FormField.task_id == task_id).order_by(FormField.id)
@@ -343,11 +337,11 @@ def test_run_case_llm_mode_converts_mapped_fields_to_actual_shape(db_session: Se
         )
         for field in fields:
             field.mapped_profile_key = "full_name" if field.selector == "#name" else None
-        return fields
+        return LlmMappingResult(fields=fields, used_fallback=False)
 
     with (
         patch("app.services.benchmark_runner._extract_case_page_state", return_value=(raw_fields, False)),
-        patch("app.services.benchmark_runner.map_fields_with_llm", side_effect=fake_map_fields_with_llm),
+        patch("app.services.benchmark_runner.map_fields_with_llm_result", side_effect=fake_map_fields_with_llm_result),
     ):
         actual = _run_case(case, mode="llm", provider="openai", db=db_session)
 
@@ -368,7 +362,7 @@ def test_run_case_llm_mode_cleans_up_temporary_rows(db_session: Session) -> None
         {"selector": "#email", "label": "Email", "field_type": "email", "required": True},
     ]
 
-    def fake_map_fields_with_llm(task_id: int, db: Session, provider: str):
+    def fake_map_fields_with_llm_result(task_id: int, db: Session, provider: str):
         fields = list(
             db.scalars(
                 select(FormField).where(FormField.task_id == task_id).order_by(FormField.id)
@@ -376,11 +370,11 @@ def test_run_case_llm_mode_cleans_up_temporary_rows(db_session: Session) -> None
         )
         for field in fields:
             field.mapped_profile_key = "email"
-        return fields
+        return LlmMappingResult(fields=fields, used_fallback=False)
 
     with (
         patch("app.services.benchmark_runner._extract_case_page_state", return_value=(raw_fields, False)),
-        patch("app.services.benchmark_runner.map_fields_with_llm", side_effect=fake_map_fields_with_llm),
+        patch("app.services.benchmark_runner.map_fields_with_llm_result", side_effect=fake_map_fields_with_llm_result),
     ):
         _run_case(case, mode="llm", provider="openai", db=db_session)
 
@@ -388,4 +382,64 @@ def test_run_case_llm_mode_cleans_up_temporary_rows(db_session: Session) -> None
     assert db_session.query(Task).count() == 0
     assert db_session.query(Profile).count() == 0
     assert db_session.query(LlmApiUsageLog).count() == 0
+
+
+def test_run_case_llm_mode_sets_llm_fallback_count_when_used(db_session: Session) -> None:
+    case = BenchmarkCase(
+        case_id="case_1",
+        title="Case one",
+        html_path=Path("case_1.html"),
+        expected={"login_required": False, "fields": []},
+    )
+    raw_fields = [
+        {"selector": "#email", "label": "Email", "field_type": "email", "required": True},
+    ]
+
+    def fake_map_fields_with_llm_result(task_id: int, db: Session, provider: str):
+        fields = list(
+            db.scalars(
+                select(FormField).where(FormField.task_id == task_id).order_by(FormField.id)
+            )
+        )
+        for field in fields:
+            field.mapped_profile_key = "email"
+        return LlmMappingResult(fields=fields, used_fallback=True)
+
+    with (
+        patch("app.services.benchmark_runner._extract_case_page_state", return_value=(raw_fields, False)),
+        patch("app.services.benchmark_runner.map_fields_with_llm_result", side_effect=fake_map_fields_with_llm_result),
+    ):
+        actual = _run_case(case, mode="llm", provider="openai", db=db_session)
+
+    assert actual["llm_fallback_count"] == 1
+
+
+def test_run_case_llm_mode_sets_llm_fallback_count_zero_when_not_used(db_session: Session) -> None:
+    case = BenchmarkCase(
+        case_id="case_1",
+        title="Case one",
+        html_path=Path("case_1.html"),
+        expected={"login_required": False, "fields": []},
+    )
+    raw_fields = [
+        {"selector": "#email", "label": "Email", "field_type": "email", "required": True},
+    ]
+
+    def fake_map_fields_with_llm_result(task_id: int, db: Session, provider: str):
+        fields = list(
+            db.scalars(
+                select(FormField).where(FormField.task_id == task_id).order_by(FormField.id)
+            )
+        )
+        for field in fields:
+            field.mapped_profile_key = "email"
+        return LlmMappingResult(fields=fields, used_fallback=False)
+
+    with (
+        patch("app.services.benchmark_runner._extract_case_page_state", return_value=(raw_fields, False)),
+        patch("app.services.benchmark_runner.map_fields_with_llm_result", side_effect=fake_map_fields_with_llm_result),
+    ):
+        actual = _run_case(case, mode="llm", provider="openai", db=db_session)
+
+    assert actual["llm_fallback_count"] == 0
 

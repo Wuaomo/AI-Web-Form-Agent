@@ -5,7 +5,7 @@
   "tags": ["checkbox", "multi-select", "terms"],
   "expected": {
     "login_required": false,
-    "not_extracted_selectors": [],
+    "not_extracted_selectors": ["#join-community"],
     "fields": [
       {"selector": "#signup-full-name", "profile_key": "full_name", "required": true},
       {"selector": "#signup-email", "profile_key": "email", "required": true},
@@ -13,8 +13,7 @@
       {"selector": "#interest-web", "profile_key": null, "required": false, "reason": "multi_select_preference"},
       {"selector": "#interest-data", "profile_key": null, "required": false, "reason": "multi_select_preference"},
       {"selector": "#interest-security", "profile_key": null, "required": false, "reason": "multi_select_preference"},
-      {"selector": "#agree-terms", "profile_key": null, "required": true, "reason": "one_time_field_terms"},
-      {"selector": "#join-community", "profile_key": null, "required": false, "reason": "non_fillable_action"}
+      {"selector": "#agree-terms", "profile_key": null, "required": true, "reason": "one_time_field_terms"}
     ]
   }
 }

@@ -5,13 +5,12 @@
   "tags": ["select", "option-label-mismatch"],
   "expected": {
     "login_required": false,
-    "not_extracted_selectors": [],
+    "not_extracted_selectors": ["#submit-workshop"],
     "fields": [
       {"selector": "#contact-name", "profile_key": "full_name", "required": true},
       {"selector": "#contact-email", "profile_key": "email", "required": true},
       {"selector": "#study-area", "profile_key": "major", "required": true},
-      {"selector": "#school-name", "profile_key": "university", "required": false},
-      {"selector": "#submit-workshop", "profile_key": null, "required": false, "reason": "non_fillable_action"}
+      {"selector": "#school-name", "profile_key": "university", "required": false}
     ]
   }
 }

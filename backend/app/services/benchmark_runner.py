@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.database import BACKEND_DIR
 from app.models import FormField, LlmApiUsageLog, Profile, Task
-from app.services.field_mapper import _match_profile_key, map_fields_with_llm
+from app.services.field_mapper import _match_profile_key, map_fields_with_llm_result
 from app.services.form_extractor import _EXTRACT_FIELDS_SCRIPT, _LOGIN_DETECTION_SCRIPT
 
 BENCHMARK_DIR = BACKEND_DIR / "benchmarks"
@@ -93,11 +93,16 @@ def score_case(
 
     expected_fields = expected.get("fields", [])
     actual_fields = actual.get("fields", [])
+    ignored_selectors = {
+        selector
+        for selector in expected.get("not_extracted_selectors", [])
+        if isinstance(selector, str)
+    }
     expected_by_selector = _fields_by_selector(expected_fields)
     actual_by_selector = _fields_by_selector(actual_fields)
 
-    expected_selectors = set(expected_by_selector)
-    actual_selectors = set(actual_by_selector)
+    expected_selectors = set(expected_by_selector) - ignored_selectors
+    actual_selectors = set(actual_by_selector) - ignored_selectors
     extracted_expected_selectors = expected_selectors & actual_selectors
 
     mappable_expected = [
@@ -167,6 +172,26 @@ def score_case(
                 }
             )
 
+    for selector in sorted(ignored_selectors):
+        actual_field = actual_by_selector.get(selector)
+        if actual_field is None:
+            continue
+        actual_profile_key = actual_field.get("profile_key")
+        if actual_profile_key is None:
+            continue
+        failures.append(
+            {
+                "selector": selector,
+                "expected_profile_key": None,
+                "actual_profile_key": actual_profile_key,
+                "reason": "unexpected_extra_mapping",
+                "detail": (
+                    f'Expected selector "{selector}" to be ignored, but mapped to '
+                    f'"{actual_profile_key}".'
+                ),
+            }
+        )
+
     required_expected = [
         field for field in expected_fields if field.get("required") is True
     ]
@@ -175,13 +200,15 @@ def score_case(
         for field in required_expected
         if field["selector"] in actual_by_selector
     ]
-    non_fillable_expected = [
-        field for field in expected_fields if field.get("profile_key") is None
-    ]
+    non_fillable_expected_selectors = {
+        field["selector"]
+        for field in expected_fields
+        if field.get("profile_key") is None and isinstance(field.get("selector"), str)
+    } | ignored_selectors
     non_fillable_rejected = [
-        field
-        for field in non_fillable_expected
-        if actual_by_selector.get(field["selector"], {}).get("profile_key") is None
+        selector
+        for selector in non_fillable_expected_selectors
+        if actual_by_selector.get(selector, {}).get("profile_key") is None
     ]
 
     metrics = {
@@ -200,7 +227,7 @@ def score_case(
         ),
         "non_fillable_rejection_rate": _ratio(
             len(non_fillable_rejected),
-            len(non_fillable_expected),
+            len(non_fillable_expected_selectors),
         ),
         "login_detection_accuracy": (
             1.0
@@ -261,7 +288,7 @@ def _actual_fields_from_llm(
     raw_fields: list[dict[str, Any]],
     provider: str,
     db: Session,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], int]:
     profile = _benchmark_profile()
     db.add(profile)
     db.flush()
@@ -292,16 +319,17 @@ def _actual_fields_from_llm(
     db.flush()
 
     try:
-        mapped_fields = map_fields_with_llm(task.id, db=db, provider=provider)
+        result = map_fields_with_llm_result(task.id, db=db, provider=provider)
+        fallback_count = 1 if result.used_fallback else 0
         actual_fields = [
             {
                 "selector": field.selector,
                 "profile_key": field.mapped_profile_key,
                 "required": bool(field.required),
             }
-            for field in mapped_fields
+            for field in result.fields
         ]
-        return actual_fields
+        return actual_fields, fallback_count
     finally:
         db.execute(delete(FormField).where(FormField.task_id == task.id))
         db.execute(delete(LlmApiUsageLog).where(LlmApiUsageLog.task_id == task.id))
@@ -341,8 +369,7 @@ def _run_case(
             raise ValueError("LLM benchmarks require a database session")
         if not provider:
             raise ValueError("LLM benchmarks require a provider")
-        fields = _actual_fields_from_llm(raw_fields, provider, db)
-        # TODO: Detect fallback-to-rules inside map_fields_with_llm and record llm_fallback_count.
+        fields, llm_fallback_count = _actual_fields_from_llm(raw_fields, provider, db)
     else:
         fields = _actual_fields_from_rules(raw_fields)
 

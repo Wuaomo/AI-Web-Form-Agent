@@ -5,7 +5,7 @@
   "tags": ["radio", "shared-name", "preferences"],
   "expected": {
     "login_required": false,
-    "not_extracted_selectors": [],
+    "not_extracted_selectors": ["#save-preferences"],
     "fields": [
       {"selector": "#pref-email", "profile_key": "email", "required": true},
       {
@@ -27,8 +27,7 @@
         "reason": "preference_not_profile_value"
       },
       {"selector": "#weekly-updates-yes", "profile_key": null, "required": false, "reason": "preference_not_profile_value"},
-      {"selector": "#weekly-updates-no", "profile_key": null, "required": false, "reason": "preference_not_profile_value"},
-      {"selector": "#save-preferences", "profile_key": null, "required": false, "reason": "non_fillable_action"}
+      {"selector": "#weekly-updates-no", "profile_key": null, "required": false, "reason": "preference_not_profile_value"}
     ]
   }
 }

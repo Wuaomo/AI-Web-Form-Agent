@@ -78,6 +78,8 @@ test("summaryMetricEntries returns all summary metrics in stable order with Engl
 test("formatMetricValue formats percentages, counts, and missing values correctly", () => {
   assert.equal(formatMetricValue("mapping_accuracy", 0.943), "94%");
   assert.equal(formatMetricValue("llm_fallback_count", 3), "3");
+  assert.equal(formatMetricValue("llm_fallback_count", 0.5), "0.50");
+  assert.equal(formatMetricValue("llm_fallback_count", 1.25), "1.25");
   assert.equal(formatMetricValue("llm_fallback_count", null), "N/A");
 });
 

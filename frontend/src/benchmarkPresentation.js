@@ -32,7 +32,10 @@ export function formatMetricValue(key, value) {
     if (value === null || value === undefined || Number.isNaN(Number(value))) {
       return "N/A";
     }
-    return String(Math.round(Number(value)));
+    const numericValue = Number(value);
+    return Number.isInteger(numericValue)
+      ? String(numericValue)
+      : numericValue.toFixed(2);
   }
   return formatMetricPercent(value);
 }
