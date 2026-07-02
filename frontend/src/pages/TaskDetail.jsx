@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { api, API_BASE_URL } from "../api";
+import { getWorkflowTimeline } from "../agentTimeline";
+import { generateDebugReport } from "../debugReport";
 import LlmMappingControls from "../components/LlmMappingControls";
 import { formatChinaTime } from "../dateTime";
 import {
@@ -43,6 +45,8 @@ function TaskDetail() {
   const [profileSkipped, setProfileSkipped] = useState(
     location.state?.profileSkipped || [],
   );
+  const [llmUsage, setLlmUsage] = useState(null);
+  const [taskLogs, setTaskLogs] = useState([]);
 
   useEffect(() => {
     if (
@@ -69,25 +73,33 @@ function TaskDetail() {
       api.listTaskScreenshots(taskId),
       api.listProfiles(),
       api.listLlmProviders(),
+      api.listTaskLogs(taskId),
+      api.getTaskLlmUsage(taskId).catch(() => null),
     ])
-      .then(([taskResult, screenshotItems, profileItems, providerItems]) => {
+      .then(([taskResult, screenshotItems, profileItems, providerItems, logItems, usageResult]) => {
         setTask(taskResult);
         setScreenshots(screenshotItems);
         setProfiles(profileItems);
         setLlmProviders(providerItems);
+        setTaskLogs(logItems);
+        setLlmUsage(usageResult);
         setSelectedLlmProvider(getSavedLlmProvider(providerItems));
       })
       .catch((requestError) => setError(requestError.message))
       .finally(() => setLoading(false));
   }, [taskId]);
 
-  async function refreshTaskHistory(nextTask = null) {
-    const [taskResult, screenshotItems] = await Promise.all([
+  async function refreshTaskData(nextTask = null) {
+    const [taskResult, screenshotItems, logItems, usageResult] = await Promise.all([
       nextTask ? Promise.resolve(nextTask) : api.getTask(taskId),
       api.listTaskScreenshots(taskId),
+      api.listTaskLogs(taskId),
+      api.getTaskLlmUsage(taskId).catch(() => null),
     ]);
     setTask(taskResult);
     setScreenshots(screenshotItems);
+    setTaskLogs(logItems);
+    setLlmUsage(usageResult);
   }
 
   async function runAction(actionName, request, successMessage) {
@@ -96,10 +108,11 @@ function TaskDetail() {
     setNotice("");
     try {
       const result = await request();
-      await refreshTaskHistory(result?.id ? result : null);
+      await refreshTaskData(result?.id ? result : null);
       setNotice(successMessage);
     } catch (requestError) {
       setError(requestError.message);
+      await refreshTaskData();
     } finally {
       setBusyAction("");
     }
@@ -118,16 +131,17 @@ function TaskDetail() {
     setNotice("");
     try {
       const analyzedTask = await api.analyzeTask(taskId);
-      await refreshTaskHistory(analyzedTask);
+      await refreshTaskData(analyzedTask);
       if (analyzedTask.status === "LOGIN_REQUIRED") {
         setNotice("Login is required before the form can be prepared.");
         return;
       }
       await api.mapTaskFields(taskId, getMappingOptions());
-      await refreshTaskHistory();
+      await refreshTaskData();
       navigate(`/tasks/${taskId}/review-mapping`);
     } catch (requestError) {
       setError(requestError.message);
+      await refreshTaskData();
     } finally {
       setBusyAction("");
     }
@@ -139,18 +153,52 @@ function TaskDetail() {
     setNotice("");
     try {
       const analyzedTask = await api.loginAndAnalyzeTask(taskId);
-      await refreshTaskHistory(analyzedTask);
+      await refreshTaskData(analyzedTask);
       if (mappingMode === "rules" || (!llmUnavailable && selectedLlmProvider)) {
         await api.mapTaskFields(taskId, getMappingOptions());
+        await refreshTaskData();
         navigate(`/tasks/${taskId}/review-mapping`);
         return;
       }
       setNotice("Login complete. Choose a model provider, then map fields.");
     } catch (requestError) {
       setError(requestError.message);
-      await refreshTaskHistory();
+      await refreshTaskData();
     } finally {
       setBusyAction("");
+    }
+  }
+
+  async function copyDebugReport() {
+    const report = generateDebugReport(task, profiles, screenshots, llmUsage, taskLogs);
+    try {
+      await navigator.clipboard.writeText(report);
+      setNotice("Debug report copied to clipboard.");
+    } catch {
+      const textArea = document.createElement("textarea");
+      textArea.value = report;
+      textArea.style.position = "fixed";
+      textArea.style.left = "-9999px";
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand("copy");
+        setNotice("Debug report copied to clipboard.");
+      } catch {
+        setError("Failed to copy debug report. Please select and copy the report below.");
+        textArea.style.position = "static";
+        textArea.style.left = "auto";
+        textArea.style.width = "100%";
+        textArea.style.height = "200px";
+        textArea.readOnly = true;
+        const container = document.createElement("div");
+        container.className = "card";
+        container.appendChild(textArea);
+        document.querySelector("section").appendChild(container);
+      }
+      if (textArea.style.position === "fixed") {
+        document.body.removeChild(textArea);
+      }
     }
   }
 
@@ -174,6 +222,7 @@ function TaskDetail() {
   const missingRequiredFields = task?.form_fields.filter(needsRequiredInput) || [];
   const runState = getTaskRunState(task);
   const runSummary = getTaskRunSummary(task);
+  const workflowNodes = task ? getWorkflowTimeline(task, taskLogs) : [];
   const primaryDisabled =
     isBusy ||
     !runState.primaryAction ||
@@ -257,6 +306,73 @@ function TaskDetail() {
       )}
       {task && (
         <>
+          <div className="card workflow-timeline">
+            <h3>Workflow</h3>
+            <div className="timeline">
+              {workflowNodes.map((node, index) => (
+                <div key={node.id} className="timeline-item">
+                  <div className={`timeline-node ${node.state}`}>
+                    <span className="timeline-label">{node.label}</span>
+                    {node.state === "active" && (
+                      <span className="timeline-indicator" />
+                    )}
+                  </div>
+                  {index < workflowNodes.length - 1 && (
+                    <div className={`timeline-connector ${node.state === "success" ? "completed" : ""}`} />
+                  )}
+                  {node.helpText && (
+                    <p className="timeline-help">{node.helpText}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="card">
+              <h3>LLM Usage</h3>
+              {llmUsage?.summary ? (
+                llmUsage.summary.request_count > 0 ? (
+                  <dl className="detail-list">
+                    <div>
+                      <dt>Requests</dt>
+                      <dd>{llmUsage.summary.request_count}</dd>
+                    </div>
+                    <div>
+                      <dt>Total tokens</dt>
+                      <dd>{llmUsage.summary.total_tokens}</dd>
+                    </div>
+                    <div>
+                      <dt>Cache hit rate</dt>
+                      <dd>{Math.round(llmUsage.summary.cache_hit_rate * 100)}%</dd>
+                    </div>
+                    <div>
+                      <dt>Cache hit tokens</dt>
+                      <dd>{llmUsage.summary.cache_hit_tokens}</dd>
+                    </div>
+                    <div>
+                      <dt>Cache miss tokens</dt>
+                      <dd>{llmUsage.summary.cache_miss_tokens}</dd>
+                    </div>
+                  </dl>
+                ) : (
+                  <p>No LLM usage yet.</p>
+                )
+              ) : (
+                <p>LLM usage is not available.</p>
+              )}
+            </div>
+
+          <div className="card">
+            <button
+              type="button"
+              className="button button-secondary"
+              onClick={copyDebugReport}
+              disabled={loading}
+            >
+              Copy Debug Report
+            </button>
+          </div>
+
           <div className="page-heading">
             <div>
               <p className="eyebrow">Task #{task.id}</p>
