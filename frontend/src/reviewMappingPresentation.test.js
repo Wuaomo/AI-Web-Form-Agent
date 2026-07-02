@@ -3,11 +3,15 @@ import assert from "node:assert/strict";
 
 import {
   buildReviewGroups,
+  computeAttentionSummary,
   formatConfidence,
   formatMappingSummary,
   getFieldChoiceOptions,
   hasFieldChoiceOptions,
+  isLowConfidence,
+  isRequiredMissing,
   isReviewableField,
+  isUnmapped,
   needsMappingReview,
   suggestProfileCustomKey,
 } from "./reviewMappingPresentation.js";
@@ -155,4 +159,229 @@ test("needsMappingReview only highlights fields that need attention", () => {
     }),
     false,
   );
+});
+
+test("isRequiredMissing identifies required fields with empty mapped_value", () => {
+  assert.equal(
+    isRequiredMissing({
+      field_type: "text",
+      required: true,
+      mapped_value: "",
+    }),
+    true,
+  );
+  assert.equal(
+    isRequiredMissing({
+      field_type: "text",
+      required: true,
+      mapped_value: "Alice",
+    }),
+    false,
+  );
+  assert.equal(
+    isRequiredMissing({
+      field_type: "text",
+      required: false,
+      mapped_value: "",
+    }),
+    false,
+  );
+  assert.equal(
+    isRequiredMissing({
+      field_type: "submit",
+      required: true,
+      mapped_value: "",
+    }),
+    false,
+  );
+});
+
+test("isLowConfidence identifies fields with confidence below 0.75", () => {
+  assert.equal(isLowConfidence({ confidence: 0.74 }), true);
+  assert.equal(isLowConfidence({ confidence: 0.75 }), false);
+  assert.equal(isLowConfidence({ confidence: 0.5 }), true);
+  assert.equal(isLowConfidence({ confidence: 1 }), false);
+  assert.equal(isLowConfidence({ confidence: null }), false);
+  assert.equal(isLowConfidence({ confidence: undefined }), false);
+});
+
+test("isLowConfidence ignores non-reviewable fields", () => {
+  assert.equal(
+    isLowConfidence({
+      field_type: "submit",
+      confidence: 0.2,
+    }),
+    false,
+  );
+
+  assert.equal(
+    isLowConfidence({
+      field_type: "file",
+      confidence: 0.2,
+    }),
+    false,
+  );
+
+  assert.equal(
+    isLowConfidence({
+      field_type: "text",
+      confidence: 0.2,
+    }),
+    true,
+  );
+});
+
+test("computeAttentionSummary does not include non-reviewable low confidence fields", () => {
+  const summary = computeAttentionSummary([
+    {
+      id: 1,
+      field_type: "submit",
+      required: false,
+      mapped_value: "",
+      mapped_profile_key: "",
+      confidence: 0.1,
+    },
+    {
+      id: 2,
+      field_type: "text",
+      required: false,
+      mapped_value: "",
+      mapped_profile_key: "email",
+      confidence: 0.6,
+    },
+  ]);
+
+  assert.deepEqual(summary.lowConfidence.map((field) => field.id), [2]);
+});
+
+test("isUnmapped identifies optional fillable fields with no mapping", () => {
+  assert.equal(
+    isUnmapped({
+      field_type: "text",
+      required: false,
+      mapped_profile_key: "",
+      mapped_value: "",
+    }),
+    true,
+  );
+  assert.equal(
+    isUnmapped({
+      field_type: "text",
+      required: false,
+      mapped_profile_key: "email",
+      mapped_value: "",
+    }),
+    false,
+  );
+  assert.equal(
+    isUnmapped({
+      field_type: "text",
+      required: false,
+      mapped_profile_key: "",
+      mapped_value: "manual value",
+    }),
+    false,
+  );
+  assert.equal(
+    isUnmapped({
+      field_type: "text",
+      required: true,
+      mapped_profile_key: "",
+      mapped_value: "",
+    }),
+    false,
+  );
+  assert.equal(
+    isUnmapped({
+      field_type: "submit",
+      required: false,
+      mapped_profile_key: "",
+      mapped_value: "",
+    }),
+    false,
+  );
+});
+
+test("computeAttentionSummary categorizes fields with deduplication", () => {
+  const fields = [
+    {
+      id: 1,
+      field_type: "text",
+      field_label: "Name",
+      required: true,
+      mapped_value: "",
+      confidence: 0.5,
+    },
+    {
+      id: 2,
+      field_type: "text",
+      field_label: "Email",
+      required: false,
+      mapped_value: "",
+      confidence: 0.7,
+      mapped_profile_key: "",
+    },
+    {
+      id: 3,
+      field_type: "text",
+      field_label: "Phone",
+      required: false,
+      mapped_value: "",
+      confidence: null,
+      mapped_profile_key: "",
+    },
+    {
+      id: 4,
+      field_type: "text",
+      field_label: "Address",
+      required: false,
+      mapped_value: "123 Street",
+      confidence: 0.8,
+      mapped_profile_key: "",
+    },
+    {
+      id: 5,
+      field_type: "submit",
+      field_label: "Submit",
+      required: false,
+      mapped_value: "",
+      mapped_profile_key: "",
+    },
+  ];
+
+  const summary = computeAttentionSummary(fields);
+
+  assert.equal(summary.requiredMissing.length, 1);
+  assert.equal(summary.requiredMissing[0].id, 1);
+
+  assert.equal(summary.lowConfidence.length, 1);
+  assert.equal(summary.lowConfidence[0].id, 2);
+
+  assert.equal(summary.unmapped.length, 1);
+  assert.equal(summary.unmapped[0].id, 3);
+});
+
+test("computeAttentionSummary handles empty fields list", () => {
+  const summary = computeAttentionSummary([]);
+  assert.equal(summary.requiredMissing.length, 0);
+  assert.equal(summary.lowConfidence.length, 0);
+  assert.equal(summary.unmapped.length, 0);
+});
+
+test("computeAttentionSummary handles fields with null confidence for unmapped", () => {
+  const fields = [
+    {
+      id: 1,
+      field_type: "text",
+      field_label: "Optional Field",
+      required: false,
+      mapped_value: "",
+      confidence: null,
+      mapped_profile_key: "",
+    },
+  ];
+
+  const summary = computeAttentionSummary(fields);
+  assert.equal(summary.unmapped.length, 1);
+  assert.equal(summary.unmapped[0].id, 1);
 });

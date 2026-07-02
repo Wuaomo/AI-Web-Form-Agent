@@ -164,6 +164,7 @@ class FormFieldResponse(BaseModel):
     mapped_profile_key: str | None
     mapped_value: str | None
     confidence: float | None
+    profile_memory_policy: str
 
 
 class FormFieldMappingUpdate(BaseModel):
@@ -173,6 +174,7 @@ class FormFieldMappingUpdate(BaseModel):
     mapped_value: str | None = None
     save_to_profile: bool = False
     profile_custom_key: str | None = None
+    profile_memory_policy: Literal["auto", "do_not_save", "force_save"] | None = None
 
     @model_validator(mode="after")
     def require_an_update(self) -> "FormFieldMappingUpdate":
@@ -197,7 +199,7 @@ class ProfileSkipItem(BaseModel):
     """One field that was considered but intentionally not persisted."""
 
     field_id: int
-    reason: Literal["empty_value", "non_fillable_type", "one_time_field", "unchanged"]
+    reason: Literal["empty_value", "non_fillable_type", "one_time_field", "unchanged", "do_not_save", "force_save_blocked"]
     detail: str | None = None
 
 

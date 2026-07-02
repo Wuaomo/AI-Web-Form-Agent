@@ -560,6 +560,13 @@ def update_task_field_mapping(
         field.confidence = 1.0
         save_user_mapping_override(db, field, profile_key)
 
+    if "profile_memory_policy" in changes:
+        policy = changes["profile_memory_policy"]
+        if policy is None:
+            field.profile_memory_policy = "auto"
+        else:
+            field.profile_memory_policy = policy
+
     db.commit()
     db.refresh(field)
     return field
@@ -617,14 +624,36 @@ def confirm_task_mapping(
                 )
             )
             continue
-        if is_one_time_field(field):
+
+        memory_policy = field.profile_memory_policy or "auto"
+
+        if memory_policy == "do_not_save":
             profile_skipped.append(
                 ProfileSkipItem(
                     field_id=field.id,
-                    reason="one_time_field",
+                    reason="do_not_save",
                     detail=field_display_name(field),
                 )
             )
+            continue
+
+        if is_one_time_field(field):
+            if memory_policy == "force_save":
+                profile_skipped.append(
+                    ProfileSkipItem(
+                        field_id=field.id,
+                        reason="force_save_blocked",
+                        detail=field_display_name(field),
+                    )
+                )
+            else:
+                profile_skipped.append(
+                    ProfileSkipItem(
+                        field_id=field.id,
+                        reason="one_time_field",
+                        detail=field_display_name(field),
+                    )
+                )
             continue
 
         profile_key = field.mapped_profile_key or ""

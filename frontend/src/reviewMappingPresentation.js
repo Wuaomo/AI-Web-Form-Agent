@@ -76,6 +76,54 @@ export function needsRequiredInput(field) {
   return field.required && isReviewableField(field) && !field.mapped_value;
 }
 
+export function isRequiredMissing(field) {
+  return field.required === true && isReviewableField(field) && !field.mapped_value;
+}
+
+export function isLowConfidence(field) {
+  return (
+    isReviewableField(field) &&
+    field.confidence !== null &&
+    field.confidence !== undefined &&
+    field.confidence < 0.75
+  );
+}
+
+export function isUnmapped(field) {
+  return (
+    isReviewableField(field) &&
+    field.required === false &&
+    !field.mapped_profile_key &&
+    !field.mapped_value
+  );
+}
+
+export function computeAttentionSummary(fields) {
+  const requiredMissing = [];
+  const lowConfidence = [];
+  const unmapped = [];
+
+  fields.forEach((field) => {
+    if (isRequiredMissing(field)) {
+      requiredMissing.push(field);
+      return;
+    }
+    if (isLowConfidence(field)) {
+      lowConfidence.push(field);
+      return;
+    }
+    if (isUnmapped(field)) {
+      unmapped.push(field);
+    }
+  });
+
+  return {
+    requiredMissing,
+    lowConfidence,
+    unmapped,
+  };
+}
+
 export function needsMappingReview(field) {
   if (!isReviewableField(field)) {
     return false;
