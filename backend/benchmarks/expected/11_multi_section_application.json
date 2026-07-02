@@ -1,0 +1,19 @@
+{
+  "case_id": "11_multi_section_application",
+  "title": "Multi-section application with personal, education, and links blocks",
+  "html_file": "../forms/11_multi_section_application.html",
+  "tags": ["multi-section", "links", "application"],
+  "expected": {
+    "login_required": false,
+    "not_extracted_selectors": [],
+    "fields": [
+      {"selector": "#applicant-full-name", "profile_key": "full_name", "required": true},
+      {"selector": "#applicant-email", "profile_key": "email", "required": true},
+      {"selector": "#applicant-university", "profile_key": "university", "required": true},
+      {"selector": "#applicant-major", "profile_key": "major", "required": true},
+      {"selector": "#github-url", "profile_key": "github", "required": false},
+      {"selector": "#linkedin-url", "profile_key": "linkedin", "required": false},
+      {"selector": "#submit-application", "profile_key": null, "required": false, "reason": "non_fillable_action"}
+    ]
+  }
+}

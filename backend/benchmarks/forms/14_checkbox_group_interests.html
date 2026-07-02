@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Checkbox Group Interests</title>
+  </head>
+  <body>
+    <main>
+      <h1>Community Signup</h1>
+      <p>Select interests and confirm terms.</p>
+
+      <form aria-label="Community signup form">
+        <div>
+          <label for="signup-full-name">Full name</label>
+          <input id="signup-full-name" name="full_name" type="text" required />
+        </div>
+        <div>
+          <label for="signup-email">Email</label>
+          <input id="signup-email" name="email" type="email" required />
+        </div>
+
+        <fieldset>
+          <legend>Interests (select all that apply)</legend>
+          <div>
+            <input id="interest-ml" name="interests" type="checkbox" value="ml" />
+            <label for="interest-ml">Machine learning</label>
+          </div>
+          <div>
+            <input id="interest-web" name="interests" type="checkbox" value="web" />
+            <label for="interest-web">Web development</label>
+          </div>
+          <div>
+            <input id="interest-data" name="interests" type="checkbox" value="data" />
+            <label for="interest-data">Data analysis</label>
+          </div>
+          <div>
+            <input id="interest-security" name="interests" type="checkbox" value="security" />
+            <label for="interest-security">Security</label>
+          </div>
+        </fieldset>
+
+        <div>
+          <input id="agree-terms" name="agree_terms" type="checkbox" required />
+          <label for="agree-terms">
+            I agree to the Terms of Service and Privacy Policy.
+          </label>
+        </div>
+
+        <div>
+          <button id="join-community" type="submit">Join</button>
+        </div>
+      </form>
+    </main>
+  </body>
+</html>

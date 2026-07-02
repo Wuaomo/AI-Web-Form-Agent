@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Multi-Section Application</title>
+  </head>
+  <body>
+    <main>
+      <h1>Program Application</h1>
+      <p>Please complete all required fields before submitting.</p>
+
+      <form aria-label="Program application form">
+        <section aria-label="Personal information">
+          <h2>Personal Information</h2>
+          <div>
+            <label for="applicant-full-name">Full name</label>
+            <input id="applicant-full-name" name="full_name" type="text" required />
+          </div>
+          <div>
+            <label for="applicant-email">Email</label>
+            <input id="applicant-email" name="email" type="email" required />
+          </div>
+        </section>
+
+        <section aria-label="Education background">
+          <h2>Education Background</h2>
+          <div>
+            <label for="applicant-university">University</label>
+            <input id="applicant-university" name="university" type="text" required />
+          </div>
+          <div>
+            <label for="applicant-major">Major</label>
+            <input id="applicant-major" name="major" type="text" required />
+          </div>
+        </section>
+
+        <section aria-label="Links">
+          <h2>Links</h2>
+          <div>
+            <label for="github-url">GitHub</label>
+            <input id="github-url" name="github" type="url" placeholder="https://github.com/username" />
+          </div>
+          <div>
+            <label for="linkedin-url">LinkedIn</label>
+            <input id="linkedin-url" name="linkedin" type="url" placeholder="https://linkedin.com/in/username" />
+          </div>
+        </section>
+
+        <div>
+          <button id="submit-application" type="submit">Submit application</button>
+        </div>
+      </form>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,34 @@
+{
+  "case_id": "13_radio_group_preferences",
+  "title": "Radio groups for preferences that should not map to profile keys",
+  "html_file": "../forms/13_radio_group_preferences.html",
+  "tags": ["radio", "shared-name", "preferences"],
+  "expected": {
+    "login_required": false,
+    "not_extracted_selectors": [],
+    "fields": [
+      {"selector": "#pref-email", "profile_key": "email", "required": true},
+      {
+        "selector": "#contact-method-email",
+        "profile_key": null,
+        "required": false,
+        "reason": "preference_not_profile_value"
+      },
+      {
+        "selector": "#contact-method-phone",
+        "profile_key": null,
+        "required": false,
+        "reason": "preference_not_profile_value"
+      },
+      {
+        "selector": "#contact-method-sms",
+        "profile_key": null,
+        "required": false,
+        "reason": "preference_not_profile_value"
+      },
+      {"selector": "#weekly-updates-yes", "profile_key": null, "required": false, "reason": "preference_not_profile_value"},
+      {"selector": "#weekly-updates-no", "profile_key": null, "required": false, "reason": "preference_not_profile_value"},
+      {"selector": "#save-preferences", "profile_key": null, "required": false, "reason": "non_fillable_action"}
+    ]
+  }
+}

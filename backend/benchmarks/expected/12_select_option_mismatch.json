@@ -1,0 +1,17 @@
+{
+  "case_id": "12_select_option_mismatch",
+  "title": "Dropdown option labels differ from stored profile values",
+  "html_file": "../forms/12_select_option_mismatch.html",
+  "tags": ["select", "option-label-mismatch"],
+  "expected": {
+    "login_required": false,
+    "not_extracted_selectors": [],
+    "fields": [
+      {"selector": "#contact-name", "profile_key": "full_name", "required": true},
+      {"selector": "#contact-email", "profile_key": "email", "required": true},
+      {"selector": "#study-area", "profile_key": "major", "required": true},
+      {"selector": "#school-name", "profile_key": "university", "required": false},
+      {"selector": "#submit-workshop", "profile_key": null, "required": false, "reason": "non_fillable_action"}
+    ]
+  }
+}

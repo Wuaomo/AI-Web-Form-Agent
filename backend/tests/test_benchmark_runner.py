@@ -24,7 +24,7 @@ from app.services.benchmark_runner import (
 def test_load_benchmark_cases_reads_all_expected_files() -> None:
     cases = load_benchmark_cases()
 
-    assert len(cases) == 10
+    assert len(cases) == 15
     assert cases[0].case_id == "01_clear_student_registration"
     assert cases[0].html_path.name == "01_clear_student_registration.html"
     assert cases[0].expected["login_required"] is False
@@ -241,6 +241,57 @@ def test_run_benchmarks_averages_all_summary_metrics() -> None:
     assert summary.summary_metrics["fill_success_rate"] == pytest.approx(0.5)
     assert summary.summary_metrics["llm_fallback_count"] == pytest.approx(1.0)
 
+
+def test_run_benchmarks_rules_mode_has_stable_summary_and_case_result_shape() -> None:
+    cases = [
+        BenchmarkCase(
+            case_id="case_1",
+            title="Case one",
+            html_path=Path("case_1.html"),
+            expected={"login_required": False, "fields": []},
+        ),
+        BenchmarkCase(
+            case_id="case_2",
+            title="Case two",
+            html_path=Path("case_2.html"),
+            expected={"login_required": False, "fields": []},
+        ),
+    ]
+
+    fake_results = [
+        {
+            "login_required": False,
+            "fill_success": True,
+            "llm_fallback_count": 0,
+            "fields": [{"selector": "#name", "profile_key": "full_name", "required": True}],
+        },
+        {
+            "login_required": False,
+            "fill_success": True,
+            "llm_fallback_count": 0,
+            "fields": [{"selector": "#email", "profile_key": "email", "required": True}],
+        },
+    ]
+
+    with (
+        patch("app.services.benchmark_runner.load_benchmark_cases", return_value=cases),
+        patch("app.services.benchmark_runner._run_case", side_effect=fake_results),
+    ):
+        summary = run_benchmarks(mode="rules")
+
+    assert summary.total_cases == 2
+    assert isinstance(summary.average_score, float)
+    assert isinstance(summary.summary_metrics, dict)
+    assert set(summary.summary_metrics) == set(SUMMARY_METRIC_KEYS)
+    assert isinstance(summary.case_results, list)
+    assert len(summary.case_results) == 2
+
+    for result in summary.case_results:
+        assert "case_id" in result
+        assert "title" in result
+        assert "metrics" in result
+        assert "failures" in result
+        assert isinstance(result["failures"], list)
 
 def test_run_case_llm_mode_calls_map_fields_with_llm(db_session: Session) -> None:
     case = BenchmarkCase(
