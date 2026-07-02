@@ -1,12 +1,23 @@
+export const benchmarkMetricOrder = [
+  "field_extraction_recall",
+  "field_extraction_precision",
+  "mapping_accuracy",
+  "required_field_coverage",
+  "non_fillable_rejection_rate",
+  "login_detection_accuracy",
+  "fill_success_rate",
+  "llm_fallback_count",
+];
+
 const metricLabels = {
   field_extraction_recall: "Field extraction recall",
   field_extraction_precision: "Field extraction precision",
   mapping_accuracy: "Mapping accuracy",
   required_field_coverage: "Required field coverage",
-  non_fillable_rejection_rate: "Action rejection",
-  login_detection_accuracy: "Login detection",
-  fill_success_rate: "Fill success",
-  llm_fallback_count: "LLM fallbacks",
+  non_fillable_rejection_rate: "Non-fillable rejection rate",
+  login_detection_accuracy: "Login detection accuracy",
+  fill_success_rate: "Fill success rate",
+  llm_fallback_count: "LLM fallback count",
 };
 
 export function formatMetricPercent(value) {
@@ -16,11 +27,39 @@ export function formatMetricPercent(value) {
   return `${Math.round(Number(value) * 100)}%`;
 }
 
+export function formatMetricValue(key, value) {
+  if (key === "llm_fallback_count") {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) {
+      return "N/A";
+    }
+    return String(Math.round(Number(value)));
+  }
+  return formatMetricPercent(value);
+}
+
 export function metricEntries(metrics = {}) {
-  return Object.entries(metrics).map(([key, value]) => ({
+  const knownEntries = benchmarkMetricOrder.map((key) => ({
     key,
     label: metricLabels[key] || key.replaceAll("_", " "),
-    value: key === "llm_fallback_count" ? String(value) : formatMetricPercent(value),
+    value: formatMetricValue(key, metrics[key]),
+  }));
+
+  const extraEntries = Object.entries(metrics)
+    .filter(([key]) => !benchmarkMetricOrder.includes(key))
+    .map(([key, value]) => ({
+      key,
+      label: metricLabels[key] || key.replaceAll("_", " "),
+      value: formatMetricValue(key, value),
+    }));
+
+  return [...knownEntries, ...extraEntries];
+}
+
+export function summaryMetricEntries(metrics = {}) {
+  return benchmarkMetricOrder.map((key) => ({
+    key,
+    label: metricLabels[key] || key.replaceAll("_", " "),
+    value: formatMetricValue(key, metrics[key]),
   }));
 }
 

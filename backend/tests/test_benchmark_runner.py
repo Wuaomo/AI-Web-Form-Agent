@@ -13,6 +13,7 @@ from app.database import Base
 from app.models import FormField, LlmApiUsageLog, Profile, Task
 from app.services.benchmark_runner import (
     BenchmarkCase,
+    SUMMARY_METRIC_KEYS,
     load_benchmark_cases,
     run_benchmarks,
     score_case,
@@ -133,6 +134,73 @@ def test_run_benchmarks_rules_mode_produces_expected_metrics() -> None:
     assert summary.summary_metrics["mapping_accuracy"] == 1.0
     assert summary.summary_metrics["required_field_coverage"] == 1.0
     assert summary.summary_metrics["login_detection_accuracy"] == 1.0
+
+
+def test_run_benchmarks_averages_all_summary_metrics() -> None:
+    case_one = BenchmarkCase(
+        case_id="case_1",
+        title="Case one",
+        html_path=Path("case_1.html"),
+        expected={
+            "login_required": False,
+            "fields": [
+                {"selector": "#name", "profile_key": "full_name", "required": True},
+                {"selector": "#email", "profile_key": "email", "required": True},
+                {"selector": "#submit", "profile_key": None, "required": False},
+            ],
+        },
+    )
+    case_two = BenchmarkCase(
+        case_id="case_2",
+        title="Case two",
+        html_path=Path("case_2.html"),
+        expected={
+            "login_required": False,
+            "fields": [
+                {"selector": "#name", "profile_key": "full_name", "required": True},
+                {"selector": "#email", "profile_key": "email", "required": True},
+                {"selector": "#submit", "profile_key": None, "required": False},
+            ],
+        },
+    )
+
+    actual_results = [
+        {
+            "login_required": False,
+            "fill_success": True,
+            "llm_fallback_count": 0,
+            "fields": [
+                {"selector": "#name", "profile_key": "full_name", "required": True},
+                {"selector": "#email", "profile_key": "email", "required": True},
+                {"selector": "#submit", "profile_key": None, "required": False},
+            ],
+        },
+        {
+            "login_required": True,
+            "fill_success": False,
+            "llm_fallback_count": 2,
+            "fields": [
+                {"selector": "#name", "profile_key": "full_name", "required": True},
+                {"selector": "#email", "profile_key": "phone", "required": True},
+            ],
+        },
+    ]
+
+    with (
+        patch("app.services.benchmark_runner.load_benchmark_cases", return_value=[case_one, case_two]),
+        patch("app.services.benchmark_runner._run_case", side_effect=actual_results),
+    ):
+        summary = run_benchmarks(mode="rules")
+
+    assert set(summary.summary_metrics) == set(SUMMARY_METRIC_KEYS)
+    assert summary.summary_metrics["field_extraction_recall"] == pytest.approx(5 / 6)
+    assert summary.summary_metrics["field_extraction_precision"] == pytest.approx(1.0)
+    assert summary.summary_metrics["mapping_accuracy"] == pytest.approx(0.75)
+    assert summary.summary_metrics["required_field_coverage"] == pytest.approx(1.0)
+    assert summary.summary_metrics["non_fillable_rejection_rate"] == pytest.approx(1.0)
+    assert summary.summary_metrics["login_detection_accuracy"] == pytest.approx(0.5)
+    assert summary.summary_metrics["fill_success_rate"] == pytest.approx(0.5)
+    assert summary.summary_metrics["llm_fallback_count"] == pytest.approx(1.0)
 
 
 def test_run_case_llm_mode_calls_map_fields_with_llm(db_session: Session) -> None:

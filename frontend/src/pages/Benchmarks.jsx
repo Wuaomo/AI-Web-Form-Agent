@@ -7,6 +7,7 @@ import {
   metricEntries,
   selectDefaultProviderId,
   shouldDisableBenchmarkRun,
+  summaryMetricEntries,
   summarizeBenchmarkRun,
 } from "../benchmarkPresentation";
 
@@ -196,7 +197,7 @@ function Benchmarks() {
               <div className="card">
                 <h3>Summary metrics</h3>
                 <dl className="metric-list">
-                  {metricEntries(selectedRun.summary_metrics).map((metric) => (
+                  {summaryMetricEntries(selectedRun.summary_metrics).map((metric) => (
                     <div key={metric.key}>
                       <dt>{metric.label}</dt>
                       <dd>{metric.value}</dd>

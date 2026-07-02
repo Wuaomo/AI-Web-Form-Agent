@@ -17,6 +17,16 @@ from app.services.form_extractor import _EXTRACT_FIELDS_SCRIPT, _LOGIN_DETECTION
 
 BENCHMARK_DIR = BACKEND_DIR / "benchmarks"
 EXPECTED_DIR = BENCHMARK_DIR / "expected"
+SUMMARY_METRIC_KEYS = (
+    "field_extraction_recall",
+    "field_extraction_precision",
+    "mapping_accuracy",
+    "required_field_coverage",
+    "non_fillable_rejection_rate",
+    "login_detection_accuracy",
+    "fill_success_rate",
+    "llm_fallback_count",
+)
 
 
 @dataclass(frozen=True)
@@ -332,13 +342,14 @@ def _average_metrics(case_results: list[dict[str, Any]]) -> dict[str, float]:
     """Average numeric metrics across all case results."""
 
     if not case_results:
-        return {}
+        return {name: 0.0 for name in SUMMARY_METRIC_KEYS}
 
-    metric_names = case_results[0]["metrics"].keys()
-    return {
-        name: mean(float(result["metrics"][name]) for result in case_results)
-        for name in metric_names
-    }
+    averaged: dict[str, float] = {}
+    for name in SUMMARY_METRIC_KEYS:
+        averaged[name] = mean(
+            float(result.get("metrics", {}).get(name, 0.0)) for result in case_results
+        )
+    return averaged
 
 
 def run_benchmarks(
