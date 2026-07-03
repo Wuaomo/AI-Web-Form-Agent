@@ -156,3 +156,164 @@ def test_task_checkpoint_output_json_safe_parse(tmp_path):
     assert checkpoint.output == {}
 
     session.close()
+
+
+def test_job_and_job_attempt_models_create_and_persist(tmp_path):
+    """Verify Job and JobAttempt models create and load with relationship."""
+
+    from app.database import Base
+    from app.models import Profile, Task, Job, JobAttempt
+    from app.job_constants import JOB_TYPE_ANALYZE_FORM, JOB_STATUS_PENDING, JOB_STATUS_RUNNING, JOB_STATUS_SUCCEEDED
+
+    db_path = tmp_path / "job_test.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+
+    Base.metadata.create_all(bind=engine)
+
+    from sqlalchemy.orm import sessionmaker
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    profile = Profile(profile_name="Test Profile")
+    session.add(profile)
+    session.commit()
+
+    task = Task(url="https://example.com/form", profile_id=profile.id)
+    session.add(task)
+    session.commit()
+
+    job = Job(
+        task_id=task.id,
+        job_type=JOB_TYPE_ANALYZE_FORM,
+        status=JOB_STATUS_PENDING,
+        priority=1,
+        payload_json=json.dumps({"url": "https://example.com/form"}),
+        attempts=0,
+        max_attempts=3,
+    )
+    session.add(job)
+    session.commit()
+
+    attempt = JobAttempt(
+        job_id=job.id,
+        attempt_no=1,
+        status=JOB_STATUS_RUNNING,
+    )
+    session.add(attempt)
+    session.commit()
+
+    attempt.status = JOB_STATUS_SUCCEEDED
+    session.commit()
+
+    session.refresh(job)
+
+    assert job.task_id == task.id
+    assert job.job_type == JOB_TYPE_ANALYZE_FORM
+    assert job.status == JOB_STATUS_PENDING
+    assert job.priority == 1
+    assert job.attempts == 0
+    assert job.max_attempts == 3
+    assert job.locked_by is None
+    assert job.locked_at is None
+    assert job.next_run_at is None
+
+    session.refresh(attempt)
+    assert attempt.job_id == job.id
+    assert attempt.attempt_no == 1
+    assert attempt.status == JOB_STATUS_SUCCEEDED
+    assert attempt.started_at is not None
+    assert attempt.finished_at is None
+
+    session.close()
+
+
+def test_worker_heartbeat_model_creates_and_updates(tmp_path):
+    """Verify WorkerHeartbeat model creates and updates correctly."""
+
+    from app.database import Base
+    from app.models import WorkerHeartbeat
+
+    db_path = tmp_path / "heartbeat_test.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+
+    Base.metadata.create_all(bind=engine)
+
+    from sqlalchemy.orm import sessionmaker
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    heartbeat = WorkerHeartbeat(
+        worker_id="worker-123",
+        hostname="worker-host-01",
+        current_job_id=None,
+        status="running",
+    )
+    session.add(heartbeat)
+    session.commit()
+
+    session.refresh(heartbeat)
+    assert heartbeat.worker_id == "worker-123"
+    assert heartbeat.hostname == "worker-host-01"
+    assert heartbeat.current_job_id is None
+    assert heartbeat.status == "running"
+    assert heartbeat.last_seen_at is not None
+
+    heartbeat.current_job_id = 12345
+    heartbeat.status = "busy"
+    session.commit()
+
+    session.refresh(heartbeat)
+    assert heartbeat.current_job_id == 12345
+    assert heartbeat.status == "busy"
+
+    session.close()
+
+
+def test_job_payload_json_safe_parse(tmp_path):
+    """Verify invalid JSON in payload_json is handled safely."""
+
+    from app.database import Base
+    from app.models import Profile, Task, Job
+    from app.job_constants import JOB_TYPE_ANALYZE_FORM, JOB_STATUS_PENDING
+
+    db_path = tmp_path / "job_payload_test.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+
+    Base.metadata.create_all(bind=engine)
+
+    from sqlalchemy.orm import sessionmaker
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    profile = Profile(profile_name="Test Profile")
+    session.add(profile)
+    session.commit()
+
+    task = Task(url="https://example.com/form", profile_id=profile.id)
+    session.add(task)
+    session.commit()
+
+    job = Job(
+        task_id=task.id,
+        job_type=JOB_TYPE_ANALYZE_FORM,
+        status=JOB_STATUS_PENDING,
+        priority=1,
+        payload_json="{invalid json}",
+    )
+    session.add(job)
+    session.commit()
+
+    session.refresh(job)
+
+    assert job.payload is not None
+    assert isinstance(job.payload, dict)
+    assert job.payload == {}
+
+    job.payload = {"url": "https://example.com/form", "profile_id": profile.id}
+    session.commit()
+
+    session.refresh(job)
+    assert job.payload["url"] == "https://example.com/form"
+    assert job.payload["profile_id"] == profile.id
+
+    session.close()

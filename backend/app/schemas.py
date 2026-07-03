@@ -312,3 +312,53 @@ class TaskCheckpointResponse(BaseModel):
     error_message: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class JobResponse(BaseModel):
+    """An asynchronous job for long-running workflow tasks."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_id: int | None
+    job_type: str
+    status: str
+    priority: int
+    payload: dict[str, object] = Field(default_factory=dict)
+    attempts: int
+    max_attempts: int
+    locked_by: str | None
+    locked_at: datetime | None
+    next_run_at: datetime | None
+    error_reason: str | None
+    error_message: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class JobAttemptResponse(BaseModel):
+    """Record of one execution attempt for a job."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    job_id: int
+    attempt_no: int
+    status: str
+    started_at: datetime
+    finished_at: datetime | None
+    error_reason: str | None
+    error_message: str | None
+
+
+class WorkerHeartbeatResponse(BaseModel):
+    """Heartbeat record tracking a worker's availability and current workload."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    worker_id: str
+    hostname: str | None
+    current_job_id: int | None
+    status: str
+    last_seen_at: datetime
