@@ -10,19 +10,20 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.database import BACKEND_DIR
 from app.database import get_db
-from app.models import ActionLog, FormField, Profile, Screenshot, Task
+from app.models import ActionLog, FormField, Profile, Screenshot, Task, TaskCheckpoint
 from app.schemas import (
     ActionLogResponse,
     FormFieldMappingUpdate,
     FormFieldResponse,
     LLMProvider,
-    TaskLlmUsageResponse,
     MappingConfirmationResponse,
-    ProfileUpdateItem,
     ProfileSkipItem,
+    ProfileUpdateItem,
     ScreenshotResponse,
     SubmissionConfirmationResponse,
+    TaskCheckpointResponse,
     TaskCreate,
+    TaskLlmUsageResponse,
     TaskResponse,
 )
 from app.services.browser_executor import (
@@ -50,7 +51,7 @@ from app.services.llm_provider_config import (
 from app.services.llm_usage_service import list_llm_usage_logs, summarize_llm_usage
 from app.services.log_service import create_log
 from app.services.mapping_cache import save_user_mapping_override
-from app.services.checkpoint_service import write_checkpoint
+from app.services.checkpoint_service import list_checkpoints, write_checkpoint
 from app.workflow_constants import (
     CHECKPOINT_FAILED,
     CHECKPOINT_SUCCESS,
@@ -487,6 +488,20 @@ def list_task_screenshots(
     ]
 
 
+@router.get(
+    "/{task_id}/checkpoints",
+    response_model=list[TaskCheckpointResponse],
+)
+def list_task_checkpoints(
+    task_id: int,
+    db: Session = Depends(get_db),
+) -> list[TaskCheckpoint]:
+    """Return all checkpoints for a task."""
+
+    get_task_or_404(task_id, db)
+    return list_checkpoints(task_id=task_id, db=db)
+
+
 @router.post(
     "/{task_id}/map-fields",
     response_model=list[FormFieldResponse],
@@ -529,10 +544,14 @@ def map_task_fields(
         )
         db.commit()
         return fields
+    except HTTPException:
+        raise
     except Exception as exc:
         db.rollback()
+        task = get_task_or_404(task_id, db)
+        task.status = "FAILED"
         write_checkpoint(
-            task_id=task_id,
+            task_id=task.id,
             stage=WORKFLOW_STAGE_MAPPING,
             status=CHECKPOINT_FAILED,
             input_hash=f"{task_id}:{mode}:{provider or 'default'}",
@@ -541,7 +560,10 @@ def map_task_fields(
             db=db,
         )
         db.commit()
-        raise
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Field mapping failed",
+        ) from exc
 
 
 @router.get(

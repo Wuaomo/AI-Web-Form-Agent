@@ -14,7 +14,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app import config
-from app.models import ActionLog, FormField, Profile, Screenshot, Task
+from app.models import ActionLog, FormField, Profile, Screenshot, Task, TaskCheckpoint
 from app.routers.tasks import router as tasks_router
 from app.services.field_mapper import map_fields_with_llm
 from app.services.form_extractor import ExtractedFormField
@@ -769,3 +769,73 @@ def test_update_field_memory_policy_normalizes_none_to_auto(
     assert response.status_code == 200
     session.refresh(field)
     assert field.profile_memory_policy == "auto"
+
+
+def test_list_checkpoints_returns_task_checkpoints(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task, _ = create_task_with_field(session)
+    session.add(
+        TaskCheckpoint(
+            task_id=task.id,
+            stage="ANALYSIS",
+            status="SUCCESS",
+            input_hash="test-hash",
+            output={"field_count": 1},
+        )
+    )
+    session.add(
+        TaskCheckpoint(
+            task_id=task.id,
+            stage="MAPPING",
+            status="FAILED",
+            input_hash="test-hash-2",
+            failure_reason="LLM_MAPPING_FAILED",
+            error_message="Test error",
+        )
+    )
+    session.commit()
+
+    response = client.get(f"/tasks/{task.id}/checkpoints")
+
+    assert response.status_code == 200
+    checkpoints = response.json()
+    assert len(checkpoints) == 2
+    assert checkpoints[0]["stage"] == "MAPPING"
+    assert checkpoints[0]["status"] == "FAILED"
+    assert checkpoints[0]["failure_reason"] == "LLM_MAPPING_FAILED"
+    assert checkpoints[0]["error_message"] == "Test error"
+    assert checkpoints[1]["stage"] == "ANALYSIS"
+    assert checkpoints[1]["status"] == "SUCCESS"
+
+
+def test_map_fields_failure_sets_task_status_and_checkpoint(
+    test_environment: tuple[TestClient, Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, session = test_environment
+    task, _ = create_task_with_field(session)
+    monkeypatch.setattr(config, "DEEPSEEK_API_KEY", "test-deepseek-key")
+
+    with patch(
+        "app.routers.tasks.map_fields_with_llm",
+        side_effect=Exception("LLM mapping failed"),
+    ):
+        response = client.post(f"/tasks/{task.id}/map-fields?provider=deepseek")
+
+    assert response.status_code == 500
+
+    session.refresh(task)
+    assert task.status == "FAILED"
+
+    checkpoints = list(
+        session.scalars(
+            select(TaskCheckpoint).where(TaskCheckpoint.task_id == task.id)
+        )
+    )
+    assert len(checkpoints) == 1
+    assert checkpoints[0].stage == "MAPPING"
+    assert checkpoints[0].status == "FAILED"
+    assert checkpoints[0].failure_reason == "LLM_MAPPING_FAILED"
+    assert "LLM mapping failed" in checkpoints[0].error_message

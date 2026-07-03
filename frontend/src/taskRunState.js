@@ -116,7 +116,7 @@ const failureStateByStage = {
   MAPPING: {
     statusLabel: "Mapping failed",
     description: "Failed to map form fields to profile values. Check LLM provider configuration.",
-    primaryAction: "review",
+    primaryAction: "map",
     primaryLabel: "Retry mapping",
   },
   FILL: {
