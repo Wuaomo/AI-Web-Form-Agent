@@ -90,6 +90,7 @@ class Task(Base):
     llm_usage_logs: Mapped[list["LlmApiUsageLog"]] = relationship(
         back_populates="task"
     )
+    checkpoints: Mapped[list["TaskCheckpoint"]] = relationship(back_populates="task")
 
 
 class FormField(Base):
@@ -334,3 +335,46 @@ class TaskActionTrace(Base):
     error_message: Mapped[Optional[str]] = mapped_column(Text)
     screenshot_id: Mapped[Optional[int]] = mapped_column(ForeignKey("screenshots.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class TaskCheckpoint(Base):
+    """A recoverable stage result for one task workflow."""
+
+    __tablename__ = "task_checkpoints"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), nullable=False)
+    stage: Mapped[str] = mapped_column(String(50), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    input_hash: Mapped[Optional[str]] = mapped_column(String(64))
+    output_json: Mapped[Optional[str]] = mapped_column(Text)
+    failure_reason: Mapped[Optional[str]] = mapped_column(String(100))
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    task: Mapped["Task"] = relationship(back_populates="checkpoints")
+
+    @property
+    def output(self) -> dict[str, object]:
+        """Return structured output data from JSON, safely handling invalid JSON."""
+
+        if not self.output_json:
+            return {}
+        try:
+            parsed = json.loads(self.output_json)
+        except json.JSONDecodeError:
+            return {}
+        if not isinstance(parsed, dict):
+            return {}
+        return parsed
+
+    @output.setter
+    def output(self, value: dict[str, object] | None) -> None:
+        """Persist structured output as JSON."""
+
+        self.output_json = json.dumps(value or {}, ensure_ascii=False)

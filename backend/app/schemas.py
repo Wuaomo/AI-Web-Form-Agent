@@ -295,3 +295,20 @@ class TaskActionTraceResponse(BaseModel):
     error_message: str | None
     screenshot_id: int | None
     created_at: datetime
+
+
+class TaskCheckpointResponse(BaseModel):
+    """A recoverable stage result for one task workflow."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_id: int
+    stage: str
+    status: str
+    input_hash: str | None
+    output: dict[str, object] = Field(default_factory=dict)
+    failure_reason: str | None
+    error_message: str | None
+    created_at: datetime
+    updated_at: datetime
