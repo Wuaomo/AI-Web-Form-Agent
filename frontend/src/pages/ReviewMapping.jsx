@@ -13,9 +13,6 @@ import {
   buildReviewGroups,
   computeAttentionSummary,
   fieldDisplayName,
-  fieldFormTitle,
-  fieldHint,
-  fieldSectionTitle,
   formatConfidence,
   formatMappingSummary,
   getFieldChoiceOptions,
@@ -24,6 +21,9 @@ import {
   needsMappingReview,
   needsRequiredInput,
   profileKeys,
+  shouldShowAdvancedFieldDetails,
+  shouldShowMappingSource,
+  shouldShowProfileMemoryControl,
   valueControlLabel,
 } from "../reviewMappingPresentation";
 
@@ -402,6 +402,9 @@ function ReviewMapping() {
   const llmUnavailable = mappingMode === "llm" && !selectedProvider?.configured;
   const { requiredMissing, lowConfidence, unmapped } = computeAttentionSummary(fields);
   const reviewGroups = buildReviewGroups(fields);
+  const showMappingSource = shouldShowMappingSource();
+  const showAdvancedFieldDetails = shouldShowAdvancedFieldDetails();
+  const showProfileMemoryControl = shouldShowProfileMemoryControl();
 
   return (
     <section>
@@ -527,42 +530,24 @@ function ReviewMapping() {
                         </span>
                         {renderValueControl(field, { showLabel: false })}
                       </label>
-                      <p className="review-field-source">
-                        {formatMappingSummary(field)} ·{" "}
-                        {formatConfidence(field.confidence)}
-                      </p>
-                      {fieldHint(field) && <p className="field-meta">{fieldHint(field)}</p>}
-                      {field.current_value && (
-                        <p className="field-meta">Current: {field.current_value}</p>
+                      {showMappingSource && (
+                        <p className="review-field-source">
+                          {formatMappingSummary(field)} ·{" "}
+                          {formatConfidence(field.confidence)}
+                        </p>
                       )}
-                      {(fieldFormTitle(field) ||
-                        fieldSectionTitle(field) ||
-                        field.element_ref) && (
+                      {showAdvancedFieldDetails && field.element_ref && (
                         <details className="technical-details review-field-details">
                           <summary>Field details</summary>
                           <dl>
-                            {fieldFormTitle(field) && (
-                              <div>
-                                <dt>Form</dt>
-                                <dd>{fieldFormTitle(field)}</dd>
-                              </div>
-                            )}
-                            {fieldSectionTitle(field) && (
-                              <div>
-                                <dt>Section</dt>
-                                <dd>{fieldSectionTitle(field)}</dd>
-                              </div>
-                            )}
-                            {field.element_ref && (
-                              <div>
-                                <dt>Reference</dt>
-                                <dd>{field.element_ref}</dd>
-                              </div>
-                            )}
+                            <div>
+                              <dt>Reference</dt>
+                              <dd>{field.element_ref}</dd>
+                            </div>
                           </dl>
                         </details>
                       )}
-                      {isReviewableField(field) && (
+                      {showProfileMemoryControl && isReviewableField(field) && (
                         <label className="profile-memory-policy">
                           Memory:
                           <select

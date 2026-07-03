@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  getVisibleRunSummaryItems,
   getTaskRunSummary,
   getTaskRunState,
   isFillableField,
@@ -45,6 +46,14 @@ test("getTaskRunSummary counts found, mapped, missing, and skipped fields", () =
     missingRequiredFields: 1,
     skippedFields: 1,
   });
+});
+
+test("getVisibleRunSummaryItems hides skipped fields from the user summary", () => {
+  assert.deepEqual(getVisibleRunSummaryItems(baseTask), [
+    { key: "totalFields", label: "Fields found", value: 3 },
+    { key: "mappedFields", label: "Mapped", value: 1 },
+    { key: "missingRequiredFields", label: "Need input", value: 1 },
+  ]);
 });
 
 test("getTaskRunState exposes one primary user action for each task status", () => {

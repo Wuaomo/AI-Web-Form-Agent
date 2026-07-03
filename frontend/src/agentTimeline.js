@@ -46,15 +46,6 @@ function getWorkflowTimeline(task, logs = []) {
     });
   }
 
-  function setUpTo(nodeId, state) {
-    const idx = nodes.findIndex((n) => n.id === nodeId);
-    for (let i = 0; i <= idx; i++) {
-      if (nodes[i].state === "pending") {
-        nodes[i].state = state;
-      }
-    }
-  }
-
   switch (status) {
     case "CREATED":
       setState("created", "success");
@@ -155,6 +146,10 @@ function getWorkflowTimeline(task, logs = []) {
   }
 
   return nodes;
+}
+
+function shouldShowWorkflowTimeline() {
+  return false;
 }
 
 function pluralize(count, singular, plural = `${singular}s`) {
@@ -341,4 +336,9 @@ export function buildAgentTimeline(logs, fields = []) {
   ]);
 }
 
-export { fieldDisplayName, getWorkflowTimeline, isFillableField };
+export {
+  fieldDisplayName,
+  getWorkflowTimeline,
+  isFillableField,
+  shouldShowWorkflowTimeline,
+};
