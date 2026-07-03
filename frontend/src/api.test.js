@@ -10,33 +10,29 @@ function jsonResponse(body) {
   });
 }
 
-test("deduplicates and caches concurrent GET requests", async () => {
+test("GET requests always fetch fresh data", async () => {
   clearApiCache();
   const originalFetch = globalThis.fetch;
   let requestCount = 0;
   globalThis.fetch = async () => {
     requestCount += 1;
-    return jsonResponse([{ id: 1, status: "CREATED" }]);
+    return jsonResponse([{ id: requestCount, status: "CREATED" }]);
   };
 
   try {
-    const [firstResult, secondResult] = await Promise.all([
-      api.listTasks(),
-      api.listTasks(),
-    ]);
-    const cachedResult = await api.listTasks();
+    const firstResult = await api.listTasks();
+    const secondResult = await api.listTasks();
 
-    assert.equal(requestCount, 1);
+    assert.equal(requestCount, 2);
     assert.deepEqual(firstResult, [{ id: 1, status: "CREATED" }]);
-    assert.deepEqual(secondResult, firstResult);
-    assert.deepEqual(cachedResult, firstResult);
+    assert.deepEqual(secondResult, [{ id: 2, status: "CREATED" }]);
   } finally {
     clearApiCache();
     globalThis.fetch = originalFetch;
   }
 });
 
-test("clears cached GET responses after a successful mutation", async () => {
+test("mutations use their configured HTTP method", async () => {
   clearApiCache();
   const originalFetch = globalThis.fetch;
   const urls = [];
@@ -51,11 +47,10 @@ test("clears cached GET responses after a successful mutation", async () => {
       url: "https://example.com/form",
       profile_id: 1,
     });
-    await api.listTasks();
 
     assert.deepEqual(
       urls.map((entry) => entry.method),
-      ["GET", "POST", "GET"],
+      ["GET", "POST"],
     );
   } finally {
     clearApiCache();

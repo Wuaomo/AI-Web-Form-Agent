@@ -1,13 +1,7 @@
-const nonFillableFieldTypes = new Set([
-  "button",
-  "file",
-  "submit",
-  "reset",
-  "image",
-]);
+import { isReviewableField } from "./reviewMappingPresentation.js";
 
 export function isFillableField(field) {
-  return !nonFillableFieldTypes.has((field.field_type || "").toLowerCase());
+  return isReviewableField(field);
 }
 
 function hasMappedValue(field) {

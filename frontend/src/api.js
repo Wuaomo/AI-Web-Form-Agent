@@ -1,27 +1,8 @@
 export const API_BASE_URL =
   import.meta.env?.VITE_API_BASE_URL || "http://localhost:8000";
 
-const GET_CACHE_TTL_MS = 5000;
-const responseCache = new Map();
-const inFlightGetRequests = new Map();
-let cacheVersion = 0;
-
 export function clearApiCache() {
-  responseCache.clear();
-  inFlightGetRequests.clear();
-  cacheVersion += 1;
-}
-
-function getCachedResponse(cacheKey) {
-  const cached = responseCache.get(cacheKey);
-  if (!cached) {
-    return null;
-  }
-  if (cached.expiresAt <= Date.now()) {
-    responseCache.delete(cacheKey);
-    return null;
-  }
-  return cached.data;
+  // Kept for tests and older callers; requests are intentionally uncached.
 }
 
 async function performRequest(path, options = {}) {
@@ -54,44 +35,10 @@ async function performRequest(path, options = {}) {
 
 async function request(path, options = {}) {
   const method = (options.method || "GET").toUpperCase();
-  const canCache = method === "GET" && !options.body;
-  const cacheKey = `${method}:${path}`;
-
-  if (canCache) {
-    const cached = getCachedResponse(cacheKey);
-    if (cached !== null) {
-      return cached;
-    }
-
-    const inFlight = inFlightGetRequests.get(cacheKey);
-    if (inFlight) {
-      return inFlight;
-    }
-
-    const requestVersion = cacheVersion;
-    const promise = performRequest(path, options)
-      .then((data) => {
-        if (requestVersion === cacheVersion) {
-          responseCache.set(cacheKey, {
-            data,
-            expiresAt: Date.now() + GET_CACHE_TTL_MS,
-          });
-        }
-        return data;
-      })
-      .finally(() => {
-        inFlightGetRequests.delete(cacheKey);
-      });
-    inFlightGetRequests.set(cacheKey, promise);
-    return promise;
-  }
-
-  const result = await performRequest(path, {
+  return performRequest(path, {
     ...options,
     method,
   });
-  clearApiCache();
-  return result;
 }
 
 export const api = {

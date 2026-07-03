@@ -25,7 +25,8 @@ export function fieldDisplayName(field) {
     field.name ||
     field.hint ||
     field.placeholder ||
-    field.selector
+    field.selector ||
+    "Unnamed field"
   );
 }
 

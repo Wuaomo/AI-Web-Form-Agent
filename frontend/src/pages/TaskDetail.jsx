@@ -14,16 +14,8 @@ import Message from "../components/Message";
 import {
   getTaskRunState,
   getTaskRunSummary,
-  isFillableField,
 } from "../taskRunState";
-
-function needsRequiredInput(field) {
-  return field.required && isFillableField(field) && !field.mapped_value;
-}
-
-function fieldDisplayName(field) {
-  return field.field_label || field.label || field.name || field.selector;
-}
+import { fieldDisplayName, needsRequiredInput } from "../reviewMappingPresentation";
 
 function TaskDetail() {
   const { taskId } = useParams();

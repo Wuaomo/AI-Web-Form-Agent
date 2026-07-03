@@ -1,52 +1,103 @@
-# Phase 5 Personal Web Workflow Agent Implementation Plan
+# Phase 5 Personal Web Workflow Agent
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> For agentic workers: templates are the boundary. If a user goal does not match a supported template, do not automate it.
 
-**Goal:** Expand from application-style form flows into a controlled personal web workflow agent for approved browser tasks such as profile updates, appointment requests, status checks, and receipt downloads.
+## Background
 
-**Architecture:** Add task templates and workflow intents on top of the reviewable workflow-plan system. The system selects a supported template, creates a workflow, generates a reviewable plan, executes only approved safe steps, and records evidence.
+By Phase 4, the product can represent workflows, generate reviewable plans, and
+execute approved safe steps. Phase 5 packages that capability as a bounded
+personal web workflow agent for common browser tasks such as application flows,
+profile updates, appointment requests, status checks, and receipt downloads.
 
-**Tech Stack:** Python, FastAPI, SQLAlchemy, SQLite, pytest, React, Vite, Node test runner, Playwright.
+The key product decision is restraint: users may describe goals, but execution
+must stay inside supported templates and the review-first approval model.
 
-## Global Constraints
+## Goals
 
-- All user-facing page text must be English.
-- All new code comments and docstrings must be English.
+- Define explicit supported workflow templates.
+- Add API and UI surfaces for template-bound workflow creation.
+- Classify user goals into supported templates using deterministic rules.
+- Document product scope and safety boundaries.
+- Update portfolio docs to reflect the form-agent to workflow-agent evolution.
+
+## Non-Goals
+
 - Do not support arbitrary free-form web automation.
-- Every workflow must use a supported template.
-- Every execution must keep the review-first approval model.
-- Payment, purchase, account deletion, destructive settings changes, CAPTCHA solving, and anti-bot bypass remain out of scope.
+- Do not call an LLM for intent classification in this phase.
+- Do not automate payments, purchases, account deletion, CAPTCHA solving,
+  anti-bot bypass, or hidden bulk submissions.
+- Do not claim support for websites or flows that have not been tested.
+- Do not weaken final-submission approval.
 
----
+## Ponytail Scope Controls
 
-## File Structure
+| Temptation | Do instead | Add later only when |
+| --- | --- | --- |
+| LLM router for every goal | Deterministic keyword mapping | Real usage shows rules are inadequate |
+| Template database | Static service list | Users need admin-managed templates |
+| Arbitrary workflow builder | Fixed supported templates | A tested template cannot express needed flow |
+| Marketing landing page | Operational template catalog | The app needs public positioning |
+| Broad website claims | Document tested local/safe flows only | Real compatibility data exists |
 
-- `backend/app/models.py`: add `WorkflowTemplate` and `WorkflowIntent` if persistence is needed.
-- `backend/app/schemas.py`: add template and intent schemas.
-- `backend/app/services/workflow_template_service.py`: define and validate supported templates.
-- `backend/app/services/workflow_intent_service.py`: map user goals to supported templates.
-- `backend/app/routers/workflow_templates.py`: list templates and create workflow from template.
-- `backend/app/main.py`: include template router.
-- `backend/tests/test_workflow_template_service.py`: template rules.
-- `backend/tests/test_workflow_template_endpoints.py`: API tests.
-- `frontend/src/workflowTemplatePresentation.js`: template labels and limitations.
-- `frontend/src/workflowTemplatePresentation.test.js`: helper tests.
-- `frontend/src/pages/CreateWorkflow.jsx`: workflow creation UI.
-- `frontend/src/pages/WorkflowTemplates.jsx`: supported template catalog.
-- `frontend/src/App.jsx`: route registration.
-- `docs/personal-web-workflow-scope.md`: final scope documentation.
+The smallest useful agent is template-bound, deterministic, and review-first.
 
----
+## Design
 
-### Task 1: Define Supported Workflow Templates
+### Product Positioning
 
-**Purpose:** Keep Phase 5 broad enough to be useful but bounded enough to be safe.
+```text
+A review-first personal web workflow agent for approved browser tasks.
+```
 
-**Files:**
-- Create: `backend/app/services/workflow_template_service.py`
-- Test: `backend/tests/test_workflow_template_service.py`
+### Template Boundary
 
-**Interfaces:**
+Required templates:
+
+```text
+application_flow
+profile_update
+appointment_request
+status_check
+receipt_download
+```
+
+Each template defines:
+
+- `id`
+- `title`
+- `description`
+- `allowed_actions`
+- `blocked_actions`
+- `review_policy`
+
+Every template must block:
+
+```text
+payment, purchase, delete, captcha
+```
+
+### Intent Classification
+
+Intent classification is deterministic in Phase 5:
+
+- apply/register/admission/job/internship -> `application_flow`
+- update/profile/account information -> `profile_update`
+- appointment/book/reserve/schedule -> `appointment_request`
+- status/check/progress/application status -> `status_check`
+- receipt/download/confirmation -> `receipt_download`
+
+No match returns no template and a clear reason.
+
+## Implementation Plan
+
+### Task 1: Supported Workflow Templates
+
+Files:
+
+- Create `backend/app/services/workflow_template_service.py`.
+- Test with `backend/tests/test_workflow_template_service.py`.
+
+Interface:
 
 ```python
 SUPPORTED_WORKFLOW_TEMPLATES = [
@@ -64,235 +115,232 @@ def get_workflow_template(template_id: str) -> dict[str, object]:
     """Return one supported workflow template or raise ValueError."""
 ```
 
-**Required Templates:**
-- `application_flow`
-- `profile_update`
-- `appointment_request`
-- `status_check`
-- `receipt_download`
+Implementation:
 
-**Implementation Instructions:**
-- [ ] Each template must include `id`, `title`, `description`, `allowed_actions`, `blocked_actions`, and `review_policy`.
-- [ ] `payment`, `purchase`, `delete`, and `captcha` must be listed under `blocked_actions` for every template.
-- [ ] Use English descriptions.
-- [ ] Do not call an LLM in this task.
+- Include all required templates.
+- Add English descriptions.
+- Include `allowed_actions`, `blocked_actions`, and `review_policy`.
+- Ensure every template blocks payment and delete.
+- Do not call an LLM.
 
-**Tests:**
-- [ ] All required templates exist.
-- [ ] Every template blocks payment and delete.
-- [ ] Unknown template id raises `ValueError`.
-- [ ] Run: `cd backend; pytest tests/test_workflow_template_service.py -v`
+Validation:
 
-**Acceptance Criteria:**
-- The product has explicit supported workflow categories.
+```powershell
+cd backend
+pytest tests/test_workflow_template_service.py -v
+```
 
----
+### Task 2: Template API
 
-### Task 2: Add Template API
+Files:
 
-**Purpose:** Let the frontend show supported workflow types and create workflows from them.
+- Create `backend/app/routers/workflow_templates.py`.
+- Modify `backend/app/main.py`.
+- Modify `backend/app/schemas.py`.
+- Test with `backend/tests/test_workflow_template_endpoints.py`.
 
-**Files:**
-- Create: `backend/app/routers/workflow_templates.py`
-- Modify: `backend/app/main.py`
-- Modify: `backend/app/schemas.py`
-- Test: `backend/tests/test_workflow_template_endpoints.py`
+Endpoints:
 
-**Endpoints:**
-- `GET /workflow-templates`
-- `GET /workflow-templates/{template_id}`
-- `POST /workflow-templates/{template_id}/workflows`
+```text
+GET /workflow-templates
+GET /workflow-templates/{template_id}
+POST /workflow-templates/{template_id}/workflows
+```
 
-**Implementation Instructions:**
-- [ ] `GET /workflow-templates` returns all supported templates.
-- [ ] `POST /workflow-templates/{template_id}/workflows` accepts `profile_id`, `start_url`, and optional `title`.
-- [ ] Use Phase 3 workflow creation service to create the workflow.
-- [ ] Store or return the selected template id with the workflow response.
-- [ ] Unknown template returns `404`.
-- [ ] Missing profile returns `404`.
+Implementation:
 
-**Tests:**
-- [ ] Lists templates.
-- [ ] Unknown template returns `404`.
-- [ ] Valid template creates workflow.
-- [ ] Run: `cd backend; pytest tests/test_workflow_template_endpoints.py -v`
+- Return all supported templates.
+- Return `404` for unknown templates.
+- Create workflows from valid templates using the Phase 3 workflow service.
+- Accept `profile_id`, `start_url`, and optional `title`.
+- Store or return the selected template id with the workflow response.
+- Return `404` for missing profile.
 
-**Acceptance Criteria:**
-- Workflows can be created from explicit templates.
+Validation:
 
----
+```powershell
+cd backend
+pytest tests/test_workflow_template_endpoints.py -v
+```
 
-### Task 3: Add Template Catalog UI
+### Task 3: Template Catalog UI
 
-**Purpose:** Show users what the agent can and cannot do.
+Files:
 
-**Files:**
-- Create: `frontend/src/workflowTemplatePresentation.js`
-- Create: `frontend/src/workflowTemplatePresentation.test.js`
-- Create: `frontend/src/pages/WorkflowTemplates.jsx`
-- Modify: `frontend/src/api.js`
-- Modify: `frontend/src/App.jsx`
-- Modify: `frontend/src/styles.css`
+- Create `frontend/src/workflowTemplatePresentation.js`.
+- Create `frontend/src/workflowTemplatePresentation.test.js`.
+- Create `frontend/src/pages/WorkflowTemplates.jsx`.
+- Modify `frontend/src/api.js`.
+- Modify `frontend/src/App.jsx`.
+- Modify `frontend/src/styles.css` only as needed.
 
-**Implementation Instructions:**
-- [ ] Add route `/workflow-templates`.
-- [ ] Page heading: `"Workflow Templates"`.
-- [ ] Show each template title, description, allowed actions, and blocked actions.
-- [ ] Use clear English blocked action labels:
-  - `"No payments"`
-  - `"No purchases"`
-  - `"No account deletion"`
-  - `"No CAPTCHA bypass"`
-- [ ] Do not use marketing copy; this is an operational product page.
+Implementation:
 
-**Tests:**
-- [ ] Template labels are stable.
-- [ ] Blocked action labels are stable.
-- [ ] Run: `cd frontend; npm test -- workflowTemplatePresentation.test.js`
+- Add route `/workflow-templates`.
+- Page heading: `Workflow Templates`.
+- Show each template title, description, allowed actions, and blocked actions.
+- Use blocked labels:
+  - `No payments`
+  - `No purchases`
+  - `No account deletion`
+  - `No CAPTCHA bypass`
+- Keep copy operational, not marketing-heavy.
 
-**Acceptance Criteria:**
-- Users understand supported and unsupported workflow categories.
+Validation:
 
----
+```powershell
+cd frontend
+npm test -- workflowTemplatePresentation.test.js
+```
 
-### Task 4: Add Create Workflow UI
+### Task 4: Create Workflow UI
 
-**Purpose:** Replace ad hoc task creation for broader workflows with a template-driven entry point.
+Files:
 
-**Files:**
-- Create: `frontend/src/pages/CreateWorkflow.jsx`
-- Modify: `frontend/src/api.js`
-- Modify: `frontend/src/App.jsx`
-- Modify: `frontend/src/styles.css`
+- Create `frontend/src/pages/CreateWorkflow.jsx`.
+- Modify `frontend/src/api.js`.
+- Modify `frontend/src/App.jsx`.
+- Modify `frontend/src/styles.css` only as needed.
 
-**Implementation Instructions:**
-- [ ] Add route `/workflows/new`.
-- [ ] Controls:
+Implementation:
+
+- Add route `/workflows/new`.
+- Add controls:
   - template selector
   - profile selector
   - start URL input
   - optional title input
-- [ ] Button text: `"Create workflow"`.
-- [ ] After creation, navigate to `/workflows/:workflowId`.
-- [ ] Validate URL is non-empty before sending request.
-- [ ] Show English errors from API.
+- Button text: `Create workflow`.
+- Navigate to `/workflows/:workflowId` after creation.
+- Validate non-empty URL before sending.
+- Show English API errors.
 
-**Tests:**
-- [ ] If page-level tests exist, add helper-level tests for label functions. If no page testing pattern exists, keep this task covered by manual verification in Task 8.
+Validation:
 
-**Acceptance Criteria:**
-- Users can start a template-bound workflow from the UI.
+- Add helper tests if matching page-level test patterns exist.
+- Otherwise cover this through manual verification in Task 8.
 
----
+### Task 5: Deterministic Intent Classification
 
-### Task 5: Add Intent Classification Without Autonomy
+Files:
 
-**Purpose:** Let users describe a goal while still mapping only to supported templates.
+- Create `backend/app/services/workflow_intent_service.py`.
+- Test with `backend/tests/test_workflow_template_service.py`.
 
-**Files:**
-- Create: `backend/app/services/workflow_intent_service.py`
-- Test: `backend/tests/test_workflow_template_service.py`
-
-**Interfaces:**
+Interface:
 
 ```python
 def classify_workflow_intent(user_goal: str) -> dict[str, str]:
     """Map a user goal to a supported workflow template using deterministic rules."""
 ```
 
-**Implementation Instructions:**
-- [ ] Use deterministic keyword rules only.
-- [ ] Map apply/register/admission/job/internship to `application_flow`.
-- [ ] Map update/profile/account information to `profile_update`.
-- [ ] Map appointment/book/reserve/schedule to `appointment_request`.
-- [ ] Map status/check/progress/application status to `status_check`.
-- [ ] Map receipt/download/confirmation to `receipt_download`.
-- [ ] If no rule matches, return `{"template_id": "", "reason": "No supported template matched this goal."}`.
-- [ ] Do not call an LLM in this task.
+Implementation:
 
-**Tests:**
-- [ ] Each template has at least one matching goal example.
-- [ ] Unsupported goal returns no template id.
-- [ ] Run: `cd backend; pytest tests/test_workflow_template_service.py -v`
+- Use keyword rules only.
+- Return a template id and reason when matched.
+- Return `{"template_id": "", "reason": "No supported template matched this goal."}` when unsupported.
+- Do not call an LLM.
 
-**Acceptance Criteria:**
-- Goal text improves UX without enabling arbitrary automation.
+Validation:
 
----
+```powershell
+cd backend
+pytest tests/test_workflow_template_service.py -v
+```
 
-### Task 6: Add Scope Documentation
+### Task 6: Scope Documentation
 
-**Purpose:** Present the product as a personal web workflow agent with clear limits.
+Files:
 
-**Files:**
-- Create: `docs/personal-web-workflow-scope.md`
-- Modify: `README.md`
+- Create `docs/personal-web-workflow-scope.md`.
+- Modify `README.md`.
 
-**Implementation Instructions:**
-- [ ] Use this English positioning:
+Content:
+
+- Use the product positioning:
 
 ```text
 A review-first personal web workflow agent for approved browser tasks.
 ```
 
-- [ ] Explain supported templates.
-- [ ] Explain out-of-scope tasks:
+- Explain supported templates.
+- Explain out-of-scope tasks:
   - payments
   - purchases
   - deletes
   - CAPTCHA solving
   - anti-bot bypass
   - hidden bulk submissions
-- [ ] Explain why the system uses templates instead of arbitrary autonomous browsing.
-- [ ] Link the document from README.
+- Explain why templates are used instead of arbitrary autonomous browsing.
 
-**Acceptance Criteria:**
-- The expanded product positioning is broad but not vague.
+### Task 7: Portfolio Packaging Updates
 
----
+Files:
 
-### Task 7: Add Portfolio Packaging Updates
+- Modify `README.md`.
+- Modify `docs/architecture.md`.
+- Modify `docs/demo-walkthrough.md`.
+- Modify `docs/safety-boundaries.md`.
 
-**Purpose:** Make the final expanded system easy to evaluate.
+Implementation:
 
-**Files:**
-- Modify: `README.md`
-- Modify: `docs/architecture.md`
-- Modify: `docs/demo-walkthrough.md`
-- Modify: `docs/safety-boundaries.md`
-
-**Implementation Instructions:**
-- [ ] Update architecture docs to include templates, workflows, plans, and evidence.
-- [ ] Update demo walkthrough with one template-driven flow.
-- [ ] Keep safety boundaries prominent.
-- [ ] Do not claim support for websites or workflows that have not been tested.
-- [ ] Keep all copy English.
-
-**Acceptance Criteria:**
-- The README communicates the evolution from form agent to workflow agent.
-
----
+- Update architecture docs with templates, workflows, plans, and evidence.
+- Add one template-driven flow to the demo walkthrough.
+- Keep safety boundaries prominent.
+- Do not claim support for untested websites.
+- Keep all copy English.
 
 ### Task 8: Verification
 
-**Commands:**
-- [ ] Run: `cd backend; pytest -v`
-- [ ] Run: `cd frontend; npm test`
-- [ ] Run: `cd frontend; npm run build`
+Run:
 
-**Manual Verification:**
-- [ ] Open `/workflow-templates`.
-- [ ] Open `/workflows/new`.
-- [ ] Create a workflow from each supported template using a safe local URL.
-- [ ] Confirm unsupported actions remain blocked.
-- [ ] Confirm final submission still requires explicit approval.
+```powershell
+cd backend
+pytest -v
+```
 
-**Acceptance Criteria:**
-- Template-driven workflows work without enabling arbitrary browsing.
-- Product docs match actual capabilities.
+```powershell
+cd frontend
+npm test
+npm run build
+```
+
+Manual checks:
+
+- Open `/workflow-templates`.
+- Open `/workflows/new`.
+- Create a workflow from each supported template using a safe local URL.
+- Confirm unsupported actions remain blocked.
+- Confirm final submission still requires explicit approval.
+
+## Risks
+
+- **Template sprawl:** Keep templates static until real usage proves the need for
+  admin-managed templates.
+- **False autonomy:** The UI must make template boundaries obvious.
+- **Intent misclassification:** Deterministic rules should fail closed with a
+  clear unsupported reason.
+- **Portfolio overclaiming:** Documentation must describe approved browser tasks,
+  not general-purpose autonomous web control.
+
+## Follow-Up
+
+- Add LLM-assisted intent classification only after deterministic rules produce
+  measurable friction, and keep template validation as the final authority.
+- Add template persistence only when templates need user or admin management.
+- Add compatibility notes only for websites that have been tested.
+
+## Acceptance Criteria
+
+- All required templates exist and block unsafe actions.
+- Template API lists, fetches, and creates template-bound workflows.
+- Template catalog and create-workflow UI are available.
+- Intent classification is deterministic and fails closed.
+- Product documentation clearly states supported and unsupported scope.
+- Final submission remains explicitly approved.
 
 ## Self-Review
 
-- Spec coverage: This plan expands the product into supported personal web workflows.
-- Placeholder scan: No placeholder implementation steps remain.
-- Scope check: This phase remains template-bound and review-first.
+- This phase expands product framing without expanding into arbitrary browsing.
+- The template boundary is the safety boundary.
+- The implementation stays static and deterministic until evidence demands more.

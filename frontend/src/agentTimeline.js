@@ -1,4 +1,4 @@
-const nonFillableFieldTypes = new Set(["button", "submit", "reset", "image", "file"]);
+import { fieldDisplayName, isReviewableField } from "./reviewMappingPresentation.js";
 
 const WORKFLOW_NODES = [
   { id: "created", label: "Created" },
@@ -44,15 +44,6 @@ function getWorkflowTimeline(task, logs = []) {
     nodes.forEach((node) => {
       node.state = state;
     });
-  }
-
-  function setUpTo(nodeId, state) {
-    const idx = nodes.findIndex((n) => n.id === nodeId);
-    for (let i = 0; i <= idx; i++) {
-      if (nodes[i].state === "pending") {
-        nodes[i].state = state;
-      }
-    }
   }
 
   switch (status) {
@@ -170,21 +161,7 @@ function fieldType(field) {
   return (field.field_type || "").toLowerCase();
 }
 
-function isFillableField(field) {
-  return !nonFillableFieldTypes.has(fieldType(field));
-}
-
-function fieldDisplayName(field) {
-  return (
-    field.field_label ||
-    field.label ||
-    field.name ||
-    field.hint ||
-    field.placeholder ||
-    field.selector ||
-    "Unnamed field"
-  );
-}
+const isFillableField = isReviewableField;
 
 function mappedFields(fields) {
   return fields.filter((field) => isFillableField(field) && field.mapped_value);

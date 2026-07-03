@@ -1,106 +1,145 @@
-# Phase 4 Reviewable Workflow Plans Implementation Plan
+# Phase 4 Reviewable Workflow Plans
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> For agentic workers: plan execution is allowed only after explicit approval. Blocked steps stay blocked even if the database is edited by hand.
 
-**Goal:** Add a reviewable action plan layer so users approve a sequence of browser actions before execution.
+## Background
 
-**Architecture:** Build on Phase 2 action candidates and Phase 3 workflow steps. The backend creates `WorkflowPlan` and `WorkflowPlanStep` records from safe candidates; the frontend provides a Review Plan page where users can approve, skip, or edit non-sensitive steps.
+Phase 2 adds typed action candidates. Phase 3 adds ordered workflow steps. Phase
+4 connects them with a reviewable plan layer: the system proposes a sequence of
+safe browser actions, the user reviews the plan, and only approved non-final
+steps may execute.
 
-**Tech Stack:** Python, FastAPI, SQLAlchemy, SQLite, pytest, React, Vite, Node test runner, Playwright.
+This is the first phase that broadens execution beyond the original single-form
+fill path, so the approval model must stay simple and strict.
 
-## Global Constraints
+## Goals
 
-- All user-facing page text must be English.
-- All new code comments and docstrings must be English.
-- The system must never execute an unapproved plan step.
-- Blocked candidates cannot be approved from the UI.
-- Final submission remains a separate explicit approval.
-- Do not support natural-language arbitrary browser commands in this phase.
+- Persist draft workflow plans separately from raw action candidates.
+- Let users review, edit, approve, or skip plan steps.
+- Keep blocked candidates visible but unapprovable.
+- Execute only approved, non-final, non-blocked plan steps.
+- Preserve explicit final submission approval.
 
----
+## Non-Goals
 
-## File Structure
+- Do not support natural-language arbitrary browser commands.
+- Do not run unapproved plans.
+- Do not approve blocked steps from the UI.
+- Do not submit forms automatically.
+- Do not add branching, retries, scheduling, or background execution.
 
-- `backend/app/models.py`: add `WorkflowPlan` and `WorkflowPlanStep`.
-- `backend/app/schemas.py`: add plan request and response schemas.
-- `backend/app/services/workflow_plan_service.py`: generate and validate plans.
-- `backend/app/services/plan_execution_service.py`: execute approved non-final steps through existing browser executor.
-- `backend/app/routers/workflows.py`: plan endpoints.
-- `backend/tests/test_workflow_plan_service.py`: generation and validation tests.
-- `backend/tests/test_workflow_plan_endpoints.py`: API tests.
-- `frontend/src/workflowPlanPresentation.js`: plan labels and validation helpers.
-- `frontend/src/workflowPlanPresentation.test.js`: helper tests.
-- `frontend/src/pages/ReviewWorkflowPlan.jsx`: review UI.
-- `frontend/src/App.jsx`: route registration.
+## Ponytail Scope Controls
 
----
+| Temptation | Do instead | Add later only when |
+| --- | --- | --- |
+| Full workflow DSL | Persist simple ordered plan steps | Users need branching and conditionals |
+| Policy engine | Validate approval with deterministic functions | Safety rules become too numerous for clear code |
+| Background executor | Execute through one request path | Execution becomes long-running or resumable |
+| Plan diff UI | Show current draft steps | Users need to compare plan revisions |
+| Editable selector tooling | Allow only value/status edits | Real review shows selectors need correction |
 
-### Task 1: Add Workflow Plan Models
+The minimal safe version is a draft plan, approval validation, and execution of
+approved non-final steps only.
 
-**Purpose:** Persist action plans separately from raw action candidates.
+## Design
 
-**Files:**
-- Modify: `backend/app/models.py`
-- Modify: `backend/app/schemas.py`
-- Test: `backend/tests/test_database_migrations.py`
+### Architecture
 
-**Interfaces:**
-- `WorkflowPlan`:
-  - `id`
-  - `workflow_run_id`
-  - `workflow_step_id`
-  - `status`
-  - `created_at`
-  - `updated_at`
-- `WorkflowPlanStep`:
-  - `id`
-  - `workflow_plan_id`
-  - `step_index`
-  - `action_candidate_id`
-  - `action_type`
-  - `label`
-  - `selector`
-  - `value`
-  - `status`
-  - `safety_level`
-  - `blocked_reason`
+```text
+WorkflowStep
+  -> ActionCandidate records
+  -> WorkflowPlan
+    -> WorkflowPlanStep records
+    -> Review Plan UI
+    -> Approval validation
+    -> Execute approved non-final steps
+    -> WAITING_APPROVAL before final submit
+```
 
-**Implementation Instructions:**
-- [ ] Use statuses:
-  - `"DRAFT"`
-  - `"APPROVED"`
-  - `"EXECUTING"`
-  - `"WAITING_APPROVAL"`
-  - `"COMPLETED"`
-  - `"FAILED"`
-- [ ] Use plan step statuses:
-  - `"PENDING_REVIEW"`
-  - `"APPROVED"`
-  - `"SKIPPED"`
-  - `"BLOCKED"`
-  - `"DONE"`
-  - `"FAILED"`
-- [ ] Do not reuse `FormField` status fields for plan steps.
+Raw candidates are observations. Plan steps are user-reviewable instructions.
+Execution reads plan steps, not candidates directly.
 
-**Tests:**
-- [ ] Tables are created.
-- [ ] Plan steps order by `step_index`.
-- [ ] Run: `cd backend; pytest tests/test_database_migrations.py -v`
+### Plan Statuses
 
-**Acceptance Criteria:**
-- Plans can be persisted independently from candidates.
+Plan statuses:
 
----
+```text
+DRAFT
+APPROVED
+EXECUTING
+WAITING_APPROVAL
+COMPLETED
+FAILED
+```
 
-### Task 2: Generate Draft Plans From Candidates
+Plan step statuses:
 
-**Purpose:** Create a deterministic draft plan that users can review.
+```text
+PENDING_REVIEW
+APPROVED
+SKIPPED
+BLOCKED
+DONE
+FAILED
+```
 
-**Files:**
-- Create: `backend/app/services/workflow_plan_service.py`
-- Test: `backend/tests/test_workflow_plan_service.py`
+Blocked steps are retained for visibility and cannot become approved through the
+normal API.
 
-**Interfaces:**
+### Approval Rules
+
+Approval fails when:
+
+- A blocked step is being approved.
+- A required fill/select/check step has no value.
+- The plan contains an unsupported action type.
+- The plan attempts final submission.
+
+Return `409` with English validation details.
+
+## Implementation Plan
+
+### Task 1: Workflow Plan Models
+
+Files:
+
+- Modify `backend/app/models.py`.
+- Modify `backend/app/schemas.py`.
+- Test with `backend/tests/test_database_migrations.py`.
+
+Interfaces:
+
+```text
+WorkflowPlan:
+  id, workflow_run_id, workflow_step_id, status, created_at, updated_at
+
+WorkflowPlanStep:
+  id, workflow_plan_id, step_index, action_candidate_id, action_type,
+  label, selector, value, status, safety_level, blocked_reason
+```
+
+Implementation:
+
+- Add SQLAlchemy models with English docstrings.
+- Add response schemas.
+- Order plan steps by `step_index`.
+- Do not reuse `FormField` status fields.
+
+Validation:
+
+```powershell
+cd backend
+pytest tests/test_database_migrations.py -v
+```
+
+### Task 2: Generate Draft Plans
+
+Files:
+
+- Create `backend/app/services/workflow_plan_service.py`.
+- Test with `backend/tests/test_workflow_plan_service.py`.
+
+Interface:
 
 ```python
 def generate_draft_plan(db, workflow_run_id: int, workflow_step_id: int):
@@ -110,152 +149,171 @@ def validate_plan_for_approval(plan) -> list[dict[str, str]]:
     """Return blocking validation errors for a draft plan."""
 ```
 
-**Implementation Instructions:**
-- [ ] Include safe and review-required candidates.
-- [ ] Include blocked candidates as `BLOCKED` plan steps for visibility.
-- [ ] Sort by candidate id unless DOM order is available.
-- [ ] Set text/select/check actions to `PENDING_REVIEW`.
-- [ ] Set blocked actions to `BLOCKED`.
-- [ ] Do not generate a submit action.
-- [ ] Validation must fail if required fill/select/check steps lack values.
+Implementation:
 
-**Tests:**
-- [ ] Safe candidates become pending review steps.
-- [ ] Blocked candidates become blocked steps.
-- [ ] Missing required value blocks approval.
-- [ ] Run: `cd backend; pytest tests/test_workflow_plan_service.py -v`
+- Include safe and review-required candidates.
+- Include blocked candidates as `BLOCKED` plan steps for visibility.
+- Sort by candidate id unless tested DOM order is available.
+- Set fill/select/check actions to `PENDING_REVIEW`.
+- Set blocked actions to `BLOCKED`.
+- Do not generate submit actions.
+- Fail approval when required values are missing.
 
-**Acceptance Criteria:**
-- Draft plans are deterministic and reviewable.
+Validation:
 
----
+```powershell
+cd backend
+pytest tests/test_workflow_plan_service.py -v
+```
 
-### Task 3: Add Plan API Endpoints
+### Task 3: Plan API
 
-**Purpose:** Let the UI create, fetch, update, and approve plans.
+Files:
 
-**Files:**
-- Modify: `backend/app/routers/workflows.py`
-- Modify: `backend/app/schemas.py`
-- Test: `backend/tests/test_workflow_plan_endpoints.py`
+- Modify `backend/app/routers/workflows.py`.
+- Modify `backend/app/schemas.py`.
+- Test with `backend/tests/test_workflow_plan_endpoints.py`.
 
-**Endpoints:**
-- `POST /workflows/{workflow_id}/steps/{step_id}/plan`
-- `GET /workflows/{workflow_id}/steps/{step_id}/plan`
-- `PUT /workflows/{workflow_id}/plans/{plan_id}/steps/{plan_step_id}`
-- `POST /workflows/{workflow_id}/plans/{plan_id}/approve`
+Endpoints:
 
-**Implementation Instructions:**
-- [ ] Updating a plan step may change only `value` and `status`.
-- [ ] Disallow setting `APPROVED` on blocked steps.
-- [ ] Plan approval returns `409` with English validation errors if required steps are incomplete.
-- [ ] Plan approval sets plan status to `"APPROVED"` and step statuses to `"APPROVED"` or `"SKIPPED"`.
-- [ ] Do not execute the plan in approval endpoint.
+```text
+POST /workflows/{workflow_id}/steps/{step_id}/plan
+GET /workflows/{workflow_id}/steps/{step_id}/plan
+PUT /workflows/{workflow_id}/plans/{plan_id}/steps/{plan_step_id}
+POST /workflows/{workflow_id}/plans/{plan_id}/approve
+```
 
-**Tests:**
-- [ ] Draft plan can be created.
-- [ ] Blocked step cannot be approved.
-- [ ] Missing values block plan approval.
-- [ ] Valid plan can be approved.
-- [ ] Run: `cd backend; pytest tests/test_workflow_plan_endpoints.py -v`
+Implementation:
 
-**Acceptance Criteria:**
-- Plans are user-reviewable through API.
+- Updating a step may change only `value` and `status`.
+- Disallow `APPROVED` on blocked steps.
+- Approval returns `409` with English validation errors when incomplete.
+- Approval sets plan status to `APPROVED`.
+- Approval does not execute the plan.
 
----
+Validation:
 
-### Task 4: Add Review Plan UI
+```powershell
+cd backend
+pytest tests/test_workflow_plan_endpoints.py -v
+```
 
-**Purpose:** Let users inspect and approve the planned browser actions.
+### Task 4: Review Plan UI
 
-**Files:**
-- Create: `frontend/src/workflowPlanPresentation.js`
-- Create: `frontend/src/workflowPlanPresentation.test.js`
-- Create: `frontend/src/pages/ReviewWorkflowPlan.jsx`
-- Modify: `frontend/src/api.js`
-- Modify: `frontend/src/App.jsx`
-- Modify: `frontend/src/styles.css`
+Files:
 
-**Implementation Instructions:**
-- [ ] Add route `/workflows/:workflowId/steps/:stepId/review-plan`.
-- [ ] Show heading `"Review Plan"`.
-- [ ] Show each step with:
-  - step number
-  - action type
-  - label
-  - value control where applicable
-  - status
-  - safety level
-  - blocked reason
-- [ ] Use English buttons:
-  - `"Approve plan"`
-  - `"Skip step"`
-  - `"Save value"`
-  - `"Back to workflow"`
-- [ ] Blocked steps must be visibly disabled.
-- [ ] Do not show a button that says `"Run automatically"` in this phase.
+- Create `frontend/src/workflowPlanPresentation.js`.
+- Create `frontend/src/workflowPlanPresentation.test.js`.
+- Create `frontend/src/pages/ReviewWorkflowPlan.jsx`.
+- Modify `frontend/src/api.js`.
+- Modify `frontend/src/App.jsx`.
+- Modify `frontend/src/styles.css` only as needed.
 
-**Tests:**
-- [ ] Status labels are stable.
-- [ ] Blocked steps are identified by helper.
-- [ ] Missing required value is flagged.
-- [ ] Run: `cd frontend; npm test -- workflowPlanPresentation.test.js`
+Implementation:
 
-**Acceptance Criteria:**
-- A user can approve only safe/review-required plan steps.
+- Add route `/workflows/:workflowId/steps/:stepId/review-plan`.
+- Show heading `Review Plan`.
+- Show step number, action type, label, value control where applicable, status,
+  safety level, and blocked reason.
+- Use buttons:
+  - `Approve plan`
+  - `Skip step`
+  - `Save value`
+  - `Back to workflow`
+- Disable blocked steps.
+- Do not show `Run automatically`.
 
----
+Validation:
 
-### Task 5: Execute Approved Non-Final Plan Steps
+```powershell
+cd frontend
+npm test -- workflowPlanPresentation.test.js
+```
 
-**Purpose:** Execute reviewed plan steps while keeping final submit separate.
+### Task 5: Execute Approved Non-Final Steps
 
-**Files:**
-- Create: `backend/app/services/plan_execution_service.py`
-- Modify: `backend/app/routers/workflows.py`
-- Modify: `backend/app/services/browser_executor.py`
-- Test: `backend/tests/test_workflow_plan_endpoints.py`
+Files:
 
-**Endpoint:**
-- `POST /workflows/{workflow_id}/plans/{plan_id}/execute`
+- Create `backend/app/services/plan_execution_service.py`.
+- Modify `backend/app/routers/workflows.py`.
+- Modify `backend/app/services/browser_executor.py` only for minimal reusable
+  action helpers.
+- Test with `backend/tests/test_workflow_plan_endpoints.py`.
 
-**Implementation Instructions:**
-- [ ] Reject execution unless plan status is `"APPROVED"`.
-- [ ] Execute only steps with status `"APPROVED"`.
-- [ ] Skip steps with status `"SKIPPED"`.
-- [ ] Reject blocked steps even if database status was manually changed.
-- [ ] Use existing browser executor patterns for fill/select/check.
-- [ ] After execution, set plan status to `"WAITING_APPROVAL"` if any final review is required.
-- [ ] Do not submit forms in this endpoint.
-- [ ] Capture screenshot after execution.
+Endpoint:
 
-**Tests:**
-- [ ] Draft plan execution returns `409`.
-- [ ] Approved fill step calls executor path.
-- [ ] Blocked step prevents execution.
-- [ ] Execution does not submit final form.
-- [ ] Run: `cd backend; pytest tests/test_workflow_plan_endpoints.py -v`
+```text
+POST /workflows/{workflow_id}/plans/{plan_id}/execute
+```
 
-**Acceptance Criteria:**
-- Reviewed plans can be executed safely.
-- Final submit remains gated.
+Implementation:
 
----
+- Reject execution unless plan status is `APPROVED`.
+- Execute only steps with status `APPROVED`.
+- Skip steps with status `SKIPPED`.
+- Reject blocked steps even if persisted status was tampered with.
+- Reuse existing browser executor patterns for fill/select/check.
+- Do not submit final forms.
+- Capture a screenshot after execution.
+- Set plan status to `WAITING_APPROVAL` when final review is required.
+
+Validation:
+
+```powershell
+cd backend
+pytest tests/test_workflow_plan_endpoints.py -v
+```
 
 ### Task 6: Verification
 
-**Commands:**
-- [ ] Run: `cd backend; pytest -v`
-- [ ] Run: `cd frontend; npm test`
-- [ ] Run: `cd frontend; npm run build`
+Run:
 
-**Acceptance Criteria:**
-- Plan review and approval work.
+```powershell
+cd backend
+pytest -v
+```
+
+```powershell
+cd frontend
+npm test
+npm run build
+```
+
+Manual checks:
+
+- Draft plan can be created and reviewed.
+- Missing required values block approval.
+- Blocked steps cannot be approved.
+- Approved non-final steps execute.
+- Final submission remains a separate explicit approval.
+
+## Risks
+
+- **Approval bypass:** Validate safety in backend execution, not only in the UI.
+- **Plan/action drift:** Generate plans from persisted candidates and keep each
+  plan step linked to its candidate for traceability.
+- **Executor expansion:** Add only the browser helper calls needed by approved
+  fill/select/check steps.
+- **Unsafe final action:** Treat submit-like actions as blocked or final-review
+  only; never execute them in this phase.
+
+## Follow-Up
+
+- Add plan revision history only after users need to compare drafts.
+- Add retries only after real failures show repeatable transient patterns.
+- Add richer value editing only after the basic review UI is used.
+
+## Acceptance Criteria
+
+- Plans persist independently from candidates.
+- Draft plans are deterministic and reviewable.
+- API approval blocks unsafe or incomplete plans.
+- UI prevents approving blocked steps.
 - Execution rejects unapproved or blocked steps.
 - Existing single-task fill flow still works.
 
 ## Self-Review
 
-- Spec coverage: This plan adds Review Plan, approval, and safe plan execution.
-- Placeholder scan: No placeholder implementation steps remain.
-- Scope check: This phase does not add natural-language arbitrary browser control.
+- This phase adds reviewed execution, not open-ended automation.
+- The backend remains the safety authority.
+- The plan model is intentionally small until real workflows prove it needs more.

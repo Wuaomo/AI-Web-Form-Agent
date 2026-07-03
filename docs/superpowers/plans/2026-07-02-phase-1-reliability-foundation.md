@@ -1,199 +1,150 @@
-# Phase 1 Reliability Foundation Implementation Plan
+# Phase 1 Reliability Foundation
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> For agentic workers: implement task-by-task. Keep commits small. Use tests as the gate, not optimism.
 
-**Goal:** Upgrade the current form-filling workflow into a reliable, explainable, and repeatably measurable review-first automation loop.
+## Background
 
-**Architecture:** Keep the existing React -> FastAPI -> SQLite -> Playwright architecture. Add a thin quality layer around the current pipeline: structured failure reasons, benchmark evidence, review attention summaries, task evidence summaries, and portfolio-grade documentation.
+AI Web Form Agent already has the core review-first loop:
 
-**Tech Stack:** Python, FastAPI, SQLAlchemy, pytest, React, Vite, Node test runner, Playwright.
+```text
+Create Profile -> Create Task -> Analyze Form -> Generate Mapping -> Review -> Fill -> Pause Before Submit
+```
 
-## Global Constraints
+The weak point is not missing ambition. It is evidence quality. When extraction,
+mapping, validation, or browser execution fails, the product must explain why in
+stable terms that both users and future agents can act on. Phase 1 turns the
+existing workflow into a reliable, measurable baseline without changing the
+architecture or introducing autonomous behavior.
 
-- All user-facing page text must be English.
-- All new code comments and docstrings must be English.
-- Do not introduce multi-agent runtime architecture in Phase 1.
-- Do not rename existing API routes unless a task explicitly says so.
-- Do not remove safety boundaries: no automatic final submission, no CAPTCHA bypass, no payment automation, no destructive actions, no sensitive profile-memory write-back.
-- Prefer existing modules over new abstractions unless the task explicitly creates a small helper module.
-- Every task must include tests before implementation changes where practical.
-- Every task should be committed independently.
+## Goals
 
----
+- Make benchmark and task failures diagnosable through stable reason codes.
+- Surface review attention clearly before users confirm mappings.
+- Preserve the existing safety model: no automatic final submission.
+- Improve Task Detail evidence so debugging does not require database access.
+- Add enough project documentation for a reviewer to understand architecture,
+  safety boundaries, benchmarks, and a safe demo path.
 
-## File Structure
+## Non-Goals
 
-- `backend/app/failure_reasons.py`: new shared constants and labels for structured backend failure reasons.
-- `backend/app/services/benchmark_runner.py`: normalize benchmark failure reason codes and make failure details more diagnostic.
-- `backend/app/routers/tasks.py`: attach structured failure details to task logs and expose consistent validation messages.
-- `backend/app/schemas.py`: add response models only if a task needs new API shape.
-- `backend/tests/test_benchmark_runner.py`: benchmark scoring and failure reason tests.
-- `backend/tests/test_confirm_submit.py`: approval and required-field guard tests.
-- `backend/tests/test_task_mapping_endpoint.py`: mapping confirmation and validation tests.
-- `frontend/src/benchmarkPresentation.js`: benchmark metric and failure label presentation.
-- `frontend/src/reviewMappingPresentation.js`: review grouping, attention summary, and safety presentation helpers.
-- `frontend/src/agentTimeline.js`: workflow timeline and evidence timeline presentation helpers.
-- `frontend/src/debugReport.js`: copyable debug report content.
-- `frontend/src/pages/Benchmarks.jsx`: benchmark evidence page.
-- `frontend/src/pages/ReviewMapping.jsx`: mapping review page.
-- `frontend/src/pages/TaskDetail.jsx`: task execution evidence page.
-- `frontend/src/*.test.js`: focused unit tests for presentation helpers.
-- `README.md`: concise positioning and demo path.
-- `docs/architecture.md`: system architecture.
-- `docs/safety-boundaries.md`: safety and approval model.
-- `docs/benchmark-methodology.md`: benchmark scoring method.
-- `docs/demo-walkthrough.md`: reproducible demo flow.
+- Do not add multi-agent runtime behavior.
+- Do not add generalized page actions. That belongs to Phase 2.
+- Do not rename existing public routes.
+- Do not change database schema unless a task explicitly needs it.
+- Do not add charts, analytics frameworks, telemetry vendors, or new UI systems.
+- Do not claim benchmark scores unless they were actually run and recorded.
 
----
+## Ponytail Scope Controls
 
-### Task 1: Define Shared Failure Reason Codes
+| Temptation | Do instead | Add later only when |
+| --- | --- | --- |
+| New error framework | Shared string constants in one backend module plus frontend labels | Multiple APIs need versioned error contracts |
+| New task state machine library | Keep existing status strings and add tests around transitions | Status transitions become hard to reason about |
+| New logging service | Reuse existing task logs and debug report generation | Logs need cross-process aggregation |
+| New charting dependency | Show compact benchmark metadata and tables | Reviewers need visual trend analysis across many runs |
+| New documentation site | Add focused Markdown docs linked from README | The docs become too large for README navigation |
 
-**Purpose:** Give backend and frontend agents one canonical vocabulary for why extraction, mapping, validation, or execution failed.
+The smallest useful implementation is one canonical failure vocabulary, a few
+presentation helpers, focused tests, and Markdown docs. Anything beyond that is
+Phase 2+ or evidence-driven follow-up.
 
-**Files:**
-- Create: `backend/app/failure_reasons.py`
-- Modify: `backend/app/services/benchmark_runner.py`
-- Modify: `frontend/src/benchmarkPresentation.js`
-- Test: `backend/tests/test_benchmark_runner.py`
-- Test: `frontend/src/benchmarkPresentation.test.js`
+## Design
 
-**Interfaces:**
-- Produces Python constants:
-  - `FIELD_NOT_EXTRACTED`
-  - `LABEL_NOT_FOUND`
-  - `WRONG_PROFILE_KEY`
-  - `REQUIRED_FIELD_UNMAPPED`
-  - `LOW_CONFIDENCE_MAPPING`
-  - `OPTION_VALUE_MISMATCH`
-  - `UNSUPPORTED_FIELD_TYPE`
-  - `ACTION_FIELD_SKIPPED`
-  - `ACTION_FIELD_SHOULD_SKIP`
-  - `UNEXPECTED_EXTRA_MAPPING`
-  - `LOGIN_REQUIRED`
-  - `BROWSER_FILL_FAILED`
-  - `SUBMISSION_REQUIRES_APPROVAL`
-- Produces JS label support for the snake_case wire values, for example `field_not_extracted -> "Field not extracted"`.
+### Architecture
 
-**Implementation Instructions:**
-- [ ] Create `backend/app/failure_reasons.py`.
-- [ ] Use lowercase snake_case string values on the wire. Do not use uppercase strings in JSON responses.
-- [ ] Include a short English docstring at the top: `"""Shared failure reason codes returned by quality and task evidence APIs."""`
-- [ ] Export `BENCHMARK_FAILURE_REASONS` as a `set[str]` containing the benchmark-related values.
-- [ ] In `benchmark_runner.py`, import constants instead of writing raw strings for new or touched failure records.
-- [ ] Keep backward compatibility in `frontend/src/benchmarkPresentation.js` by preserving `legacyFailureReasonMap`.
-- [ ] Add labels for every new reason code in `failureReasonLabels`.
-- [ ] Do not change database schema in this task.
+Keep the current stack:
 
-**Suggested Backend Constant Shape:**
+```text
+React/Vite UI
+  -> FastAPI API
+    -> SQLAlchemy + SQLite
+    -> FormExtractor
+    -> FieldMapper
+    -> BrowserExecutor
+    -> BenchmarkRunner
+    -> Action logs, screenshots, and LLM usage evidence
+```
+
+Phase 1 adds a quality layer around this flow. It does not replace the flow.
+
+### Failure Reason Contract
+
+Backend reason codes must be lowercase `snake_case` strings on the wire.
+Frontend presentation should map those stable codes to English labels. Legacy
+failure strings may still appear in old benchmark results, so the frontend
+keeps a compatibility map.
+
+Initial shared codes:
+
+```text
+field_not_extracted
+label_not_found
+wrong_profile_key
+required_field_unmapped
+low_confidence_mapping
+option_value_mismatch
+unsupported_field_type
+action_field_skipped
+action_field_should_skip
+unexpected_extra_mapping
+login_required
+browser_fill_failed
+submission_requires_approval
+```
+
+### Review Attention Model
+
+Review Mapping should separate fields that block progress from fields that only
+need awareness:
+
+- `requiredMissing`: required fillable fields without values.
+- `lowConfidence`: mapped fields below the confidence threshold.
+- `optionalUnmapped`: optional fields without values.
+- `skippedActionFields`: fields that are intentionally not reviewable.
+- `sensitiveOrOneTime`: password, OTP, payment, consent, submit, and similar
+  fields that should not become reusable profile memory.
+
+Optional unmapped fields must not block confirmation.
+
+### Evidence Model
+
+Task Detail should answer three questions without raw database inspection:
+
+1. What state is the task in?
+2. What happened during extraction, mapping, confirmation, and fill?
+3. What evidence can a developer copy into a bug report?
+
+Use existing logs, screenshots, profile update results, skipped fields, and LLM
+usage records. Do not create a second event store.
+
+## Implementation Plan
+
+### Task 1: Shared Failure Reason Codes
+
+Files:
+
+- Create `backend/app/failure_reasons.py`.
+- Modify `backend/app/services/benchmark_runner.py`.
+- Modify `frontend/src/benchmarkPresentation.js`.
+- Test with `backend/tests/test_benchmark_runner.py` and
+  `frontend/src/benchmarkPresentation.test.js`.
+
+Implementation:
+
+- Add a short module docstring:
 
 ```python
 """Shared failure reason codes returned by quality and task evidence APIs."""
-
-FIELD_NOT_EXTRACTED = "field_not_extracted"
-LABEL_NOT_FOUND = "label_not_found"
-WRONG_PROFILE_KEY = "wrong_profile_key"
-REQUIRED_FIELD_UNMAPPED = "required_field_unmapped"
-LOW_CONFIDENCE_MAPPING = "low_confidence_mapping"
-OPTION_VALUE_MISMATCH = "option_value_mismatch"
-UNSUPPORTED_FIELD_TYPE = "unsupported_field_type"
-ACTION_FIELD_SKIPPED = "action_field_skipped"
-ACTION_FIELD_SHOULD_SKIP = "action_field_should_skip"
-UNEXPECTED_EXTRA_MAPPING = "unexpected_extra_mapping"
-LOGIN_REQUIRED = "login_required"
-BROWSER_FILL_FAILED = "browser_fill_failed"
-SUBMISSION_REQUIRES_APPROVAL = "submission_requires_approval"
-
-BENCHMARK_FAILURE_REASONS = {
-    FIELD_NOT_EXTRACTED,
-    WRONG_PROFILE_KEY,
-    REQUIRED_FIELD_UNMAPPED,
-    LOW_CONFIDENCE_MAPPING,
-    OPTION_VALUE_MISMATCH,
-    ACTION_FIELD_SHOULD_SKIP,
-    UNEXPECTED_EXTRA_MAPPING,
-    LOGIN_REQUIRED,
-}
 ```
 
-**Tests:**
-- [ ] Add a backend test that all benchmark failure records from a simple scoring example use reason codes in `BENCHMARK_FAILURE_REASONS`.
-- [ ] Add a frontend test that `failureReasonLabel("required_field_unmapped")` returns `"Required field unmapped"`.
-- [ ] Run: `cd backend; pytest tests/test_benchmark_runner.py -v`
-- [ ] Run: `cd frontend; npm test -- benchmarkPresentation.test.js`
+- Export constants using lowercase `snake_case` values.
+- Export `BENCHMARK_FAILURE_REASONS` as `set[str]`.
+- Replace touched raw benchmark reason strings with constants.
+- Preserve `legacyFailureReasonMap` in the frontend.
+- Add labels for every reason code.
+- Do not change the database schema.
 
-**Acceptance Criteria:**
-- All new reason codes are English, stable, and snake_case.
-- Existing benchmark runs still render legacy failure reasons.
-- No page text is Chinese.
-
----
-
-### Task 2: Harden Benchmark Scoring Details
-
-**Purpose:** Make benchmark failures directly actionable for extraction and mapping work.
-
-**Files:**
-- Modify: `backend/app/services/benchmark_runner.py`
-- Modify: `backend/tests/test_benchmark_runner.py`
-- Modify: `frontend/src/benchmarkPresentation.js`
-- Modify: `frontend/src/benchmarkPresentation.test.js`
-
-**Interfaces:**
-- Keeps existing `BenchmarkRunResponse` shape.
-- Each failure object must include:
-  - `selector: str`
-  - `expected_profile_key: str | None`
-  - `actual_profile_key: str | None`
-  - `reason: str`
-  - `detail: str`
-
-**Implementation Instructions:**
-- [ ] Update `score_case()` to use the shared reason constants.
-- [ ] For expected required fields that are extracted but have no mapping, emit `required_field_unmapped`.
-- [ ] For expected action/non-fillable fields that receive a mapping, emit `action_field_should_skip`.
-- [ ] For ignored selectors that receive a mapping, emit `unexpected_extra_mapping`.
-- [ ] Keep `mapping_accuracy` denominator limited to extracted fields with expected profile keys, as the current code does.
-- [ ] Do not make `fill_success_rate` depend on live browser execution in this task; keep it deterministic for local fixtures.
-- [ ] Make all `detail` strings precise and English. Include selector and expected/actual values where useful.
-
-**Test Cases To Add:**
-- [ ] Missing selector produces `field_not_extracted`.
-- [ ] Wrong mapping produces `wrong_profile_key`.
-- [ ] Required extracted selector with no mapped key produces `required_field_unmapped`.
-- [ ] Submit/button/action field with a mapped key produces `action_field_should_skip`.
-- [ ] Ignored selector with a mapped key produces `unexpected_extra_mapping`.
-
-**Commands:**
-- [ ] Run: `cd backend; pytest tests/test_benchmark_runner.py -v`
-- [ ] Run: `cd frontend; npm test -- benchmarkPresentation.test.js`
-
-**Acceptance Criteria:**
-- The Benchmarks page can show a useful reason for every failed benchmark row.
-- No benchmark failure row shows a vague `"unknown"` reason unless old persisted data lacks a reason.
-
----
-
-### Task 3: Add Benchmark Baseline Documentation And Demo Cases
-
-**Purpose:** Make the current reliability level reproducible before future feature expansion.
-
-**Files:**
-- Modify: `backend/benchmarks/README.md`
-- Modify: `README.md`
-- Create: `docs/benchmark-methodology.md`
-
-**Implementation Instructions:**
-- [ ] Document the current benchmark mode choices: `rules` and `llm`.
-- [ ] Explain each metric in English:
-  - `field_extraction_recall`
-  - `field_extraction_precision`
-  - `mapping_accuracy`
-  - `required_field_coverage`
-  - `non_fillable_rejection_rate`
-  - `login_detection_accuracy`
-  - `fill_success_rate`
-  - `llm_fallback_count`
-- [ ] Add a "Recommended baseline run" section with exact commands:
+Validation:
 
 ```powershell
 cd backend
@@ -205,86 +156,115 @@ cd frontend
 npm test -- benchmarkPresentation.test.js
 ```
 
-- [ ] In `README.md`, link to `docs/benchmark-methodology.md`.
-- [ ] Do not claim a specific score unless the implementer runs the benchmark and records the actual number.
+### Task 2: Actionable Benchmark Failures
 
-**Acceptance Criteria:**
-- A reviewer understands what each metric means without reading source code.
-- Documentation does not overclaim reliability.
-- All documentation text is English.
+Files:
 
----
+- Modify `backend/app/services/benchmark_runner.py`.
+- Modify `frontend/src/benchmarkPresentation.js`.
+- Update existing benchmark presentation tests.
 
-### Task 4: Create Review Attention Categories
+Failure objects should include:
 
-**Purpose:** Let users know exactly what requires attention before confirming mappings.
+```text
+selector
+expected_profile_key
+actual_profile_key
+reason
+detail
+```
 
-**Files:**
-- Modify: `frontend/src/reviewMappingPresentation.js`
-- Modify: `frontend/src/reviewMappingPresentation.test.js`
-- Modify: `frontend/src/pages/ReviewMapping.jsx`
+Implementation:
 
-**Interfaces:**
-- `computeAttentionSummary(fields)` should return:
-  - `requiredMissing`
-  - `lowConfidence`
-  - `optionalUnmapped`
-  - `skippedActionFields`
-  - `sensitiveOrOneTime`
+- Emit `field_not_extracted` for missing expected selectors.
+- Emit `wrong_profile_key` for incorrect mappings.
+- Emit `required_field_unmapped` for extracted required fields without mapped
+  values.
+- Emit `action_field_should_skip` for action/non-fillable fields that receive a
+  mapping.
+- Emit `unexpected_extra_mapping` for ignored selectors that receive mappings.
+- Keep `mapping_accuracy` denominator limited to extracted expected profile-key
+  fields.
+- Keep `fill_success_rate` deterministic for local fixtures.
 
-**Implementation Instructions:**
-- [ ] Keep existing `requiredMissing` and `lowConfidence` behavior.
-- [ ] Rename `unmapped` to `optionalUnmapped`, but preserve a compatibility alias if existing tests expect `unmapped`.
-- [ ] Add `skippedActionFields`: fields where `isReviewableField(field) === false`.
-- [ ] Add `sensitiveOrOneTime`: fields whose label/name/placeholder/selector contains tokens:
-  - `password`
-  - `otp`
-  - `verification`
-  - `payment`
-  - `card`
-  - `billing`
-  - `consent`
-  - `terms`
-  - `privacy`
-  - `submit`
-- [ ] Ensure matching is case-insensitive.
-- [ ] Do not block confirmation for optional unmapped fields.
-- [ ] In `ReviewMapping.jsx`, render attention section headings in English:
-  - `"Required missing"`
-  - `"Low confidence"`
-  - `"Optional unmapped"`
-  - `"Skipped action fields"`
-  - `"Sensitive or one-time fields"`
-- [ ] Keep button text English: `"Generate mappings"`, `"Confirm mapping"`.
+Validation:
 
-**Tests:**
-- [ ] Required empty input appears under `requiredMissing`.
-- [ ] Confidence below `0.75` appears under `lowConfidence`.
-- [ ] Optional field without mapping appears under `optionalUnmapped`.
-- [ ] Submit/file/button fields appear under `skippedActionFields`.
-- [ ] Password/OTP/payment-like fields appear under `sensitiveOrOneTime`.
-- [ ] Run: `cd frontend; npm test -- reviewMappingPresentation.test.js`
+```powershell
+cd backend
+pytest tests/test_benchmark_runner.py -v
+```
 
-**Acceptance Criteria:**
-- The Review Mapping page tells users what needs action and what was intentionally skipped.
-- No Chinese UI text is introduced.
+```powershell
+cd frontend
+npm test -- benchmarkPresentation.test.js
+```
 
----
+### Task 3: Benchmark Baseline Documentation
 
-### Task 5: Make Mapping Confirmation Errors Structured And Friendly
+Files:
 
-**Purpose:** Make required-field blocking predictable for both API clients and the UI.
+- Modify `backend/benchmarks/README.md`.
+- Create `docs/benchmark-methodology.md`.
+- Link the methodology from `README.md`.
 
-**Files:**
-- Modify: `backend/app/routers/tasks.py`
-- Modify: `backend/app/schemas.py` if needed
-- Modify: `backend/tests/test_task_mapping_endpoint.py`
-- Modify: `frontend/src/api.js` only if the response parser needs nested detail support
-- Modify: `frontend/src/pages/ReviewMapping.jsx`
+Content requirements:
 
-**Interfaces:**
-- Prefer keeping the HTTP status as `409`.
-- If changing error detail shape, use:
+- Explain `rules` and `llm` modes.
+- Define:
+  - `field_extraction_recall`
+  - `field_extraction_precision`
+  - `mapping_accuracy`
+  - `required_field_coverage`
+  - `non_fillable_rejection_rate`
+  - `login_detection_accuracy`
+  - `fill_success_rate`
+  - `llm_fallback_count`
+- Include exact baseline commands.
+- Avoid unverified reliability claims.
+
+### Task 4: Review Attention Categories
+
+Files:
+
+- Modify `frontend/src/reviewMappingPresentation.js`.
+- Modify `frontend/src/pages/ReviewMapping.jsx`.
+- Test with `frontend/src/reviewMappingPresentation.test.js`.
+
+Implementation:
+
+- Keep existing `requiredMissing` and `lowConfidence` behavior.
+- Rename `unmapped` to `optionalUnmapped`; keep a compatibility alias if needed.
+- Add `skippedActionFields`.
+- Add `sensitiveOrOneTime` using case-insensitive tokens:
+
+```text
+password, otp, verification, payment, card, billing, consent, terms, privacy, submit
+```
+
+- Render headings:
+  - `Required missing`
+  - `Low confidence`
+  - `Optional unmapped`
+  - `Skipped action fields`
+  - `Sensitive or one-time fields`
+
+Validation:
+
+```powershell
+cd frontend
+npm test -- reviewMappingPresentation.test.js
+```
+
+### Task 5: Structured Mapping Confirmation Errors
+
+Files:
+
+- Modify `backend/app/routers/tasks.py`.
+- Modify `backend/app/schemas.py` only if a response model is needed.
+- Modify `frontend/src/api.js` only if nested error detail parsing is needed.
+- Test with `backend/tests/test_task_mapping_endpoint.py`.
+
+Preferred error detail:
 
 ```json
 {
@@ -296,253 +276,154 @@ npm test -- benchmarkPresentation.test.js
 }
 ```
 
-**Implementation Instructions:**
-- [ ] In `confirm_task_mapping()`, when required fields are missing, return `409`.
-- [ ] Preserve a readable English error for existing frontend behavior.
-- [ ] If `api.js` receives an object `detail`, display `detail.message` first.
-- [ ] Do not allow `READY_TO_FILL` when any required fillable field has no `mapped_value`.
-- [ ] Add or update tests to verify status remains unchanged after the failed confirmation.
+Implementation:
 
-**Tests:**
-- [ ] Missing required field returns `409`.
-- [ ] Response contains `required_field_unmapped` if structured detail is implemented.
-- [ ] Task remains in previous status after failed confirmation.
-- [ ] Run: `cd backend; pytest tests/test_task_mapping_endpoint.py -v`
+- Keep HTTP status `409`.
+- Keep an English message for current UI behavior.
+- Do not set `READY_TO_FILL` when required fillable fields are missing.
+- If `api.js` receives an object `detail`, show `detail.message` first.
 
-**Acceptance Criteria:**
-- Users get a clear English message.
-- Agents can programmatically identify the reason.
-
----
-
-### Task 6: Strengthen Profile Memory Safety Evidence
-
-**Purpose:** Make profile write-back behavior auditable and safe.
-
-**Files:**
-- Modify: `backend/app/routers/tasks.py`
-- Modify: `backend/app/schemas.py`
-- Modify: `backend/tests/test_task_mapping_endpoint.py`
-- Modify: `frontend/src/pages/TaskDetail.jsx`
-
-**Interfaces:**
-- Existing `MappingConfirmationResponse.profile_updates` and `profile_skipped` remain.
-- Existing skip reasons remain valid:
-  - `empty_value`
-  - `non_fillable_type`
-  - `one_time_field`
-  - `unchanged`
-  - `do_not_save`
-  - `force_save_blocked`
-
-**Implementation Instructions:**
-- [ ] Do not save values from fields detected by `is_one_time_field()`.
-- [ ] Ensure `force_save` cannot override password, OTP, payment, billing, card, terms, privacy, consent, submit, login, or upload-like fields.
-- [ ] Ensure each skipped field has a useful English `detail`, preferably the field display name.
-- [ ] In `TaskDetail.jsx`, keep the section title `"Skipped fields"`.
-- [ ] Add visible English reasons:
-  - `"One-time or sensitive field"`
-  - `"Blocked because this field looks sensitive"`
-  - `"Do not save (user preference)"`
-- [ ] Do not show sensitive field values in the skipped list.
-
-**Tests:**
-- [ ] Password-like field with `force_save` returns `force_save_blocked`.
-- [ ] Terms/privacy checkbox is skipped as one-time unless explicitly mapped only for filling.
-- [ ] Normal custom field can still be saved.
-- [ ] Run: `cd backend; pytest tests/test_task_mapping_endpoint.py -v`
-
-**Acceptance Criteria:**
-- The system can explain which fields were not saved and why.
-- Sensitive values are not persisted as reusable profile data.
-
----
-
-### Task 7: Improve Task Evidence Timeline
-
-**Purpose:** Make task execution explainable from Task Detail without opening logs manually.
-
-**Files:**
-- Modify: `frontend/src/agentTimeline.js`
-- Modify: `frontend/src/agentTimeline.test.js`
-- Modify: `frontend/src/pages/TaskDetail.jsx`
-- Modify: `frontend/src/styles.css`
-
-**Interfaces:**
-- Keep `getWorkflowTimeline(task, logs)` as the workflow-state helper.
-- Keep `buildAgentTimeline(logs, fields)` as the detailed evidence helper.
-
-**Implementation Instructions:**
-- [ ] In `agentTimeline.js`, ensure every supported task status maps to exactly one active/failed/blocked step.
-- [ ] Add display support for failed mapping logs if action is `"map_fields"` or `"llm_map_fields"`.
-- [ ] Add display support for skipped field summary after extraction.
-- [ ] In `TaskDetail.jsx`, render a detailed `"Execution evidence"` section using `buildAgentTimeline(taskLogs, task.form_fields)`.
-- [ ] For each evidence item, show:
-  - title
-  - status
-  - timestamp
-  - expandable details
-- [ ] Use existing `formatChinaTime()` for timestamps.
-- [ ] Keep all headings and labels English.
-
-**Tests:**
-- [ ] `FAILED` with latest `fill_form` log marks fill as failed.
-- [ ] `LOGIN_REQUIRED` marks analyze as blocked.
-- [ ] `WAITING_APPROVAL` marks approval as active.
-- [ ] `buildAgentTimeline()` creates mapped, missing, and skipped summary entries after extraction.
-- [ ] Run: `cd frontend; npm test -- agentTimeline.test.js`
-
-**Acceptance Criteria:**
-- A reviewer can understand what happened during a task from Task Detail alone.
-- The page does not require inspecting raw database rows.
-
----
-
-### Task 8: Expand Debug Report
-
-**Purpose:** Make copied debug reports useful for fixing failed runs.
-
-**Files:**
-- Modify: `frontend/src/debugReport.js`
-- Modify: `frontend/src/debugReport.test.js`
-- Modify: `frontend/src/pages/TaskDetail.jsx` only if button placement needs adjustment
-
-**Interfaces:**
-- Keep `generateDebugReport(task, profiles, screenshots, llmUsage, logs)`.
-- Output remains plain text.
-
-**Implementation Instructions:**
-- [ ] Include task id, URL, status, profile, and description.
-- [ ] Include counts:
-  - total fields
-  - mapped fields
-  - required missing fields
-  - skipped/non-fillable fields
-- [ ] Include latest failed log if any:
-  - action
-  - status
-  - message
-  - created_at
-- [ ] Include latest screenshot URL if present.
-- [ ] Include LLM usage summary if available.
-- [ ] Include the last 10 logs.
-- [ ] Fix missing required calculation so it treats both `null` and empty string as missing.
-- [ ] Do not include full sensitive mapped values in the report. If values are shown at all, mask them.
-
-**Tests:**
-- [ ] Required field with `mapped_value: null` is counted as missing.
-- [ ] Required field with `mapped_value: ""` is counted as missing.
-- [ ] Latest failed log is included.
-- [ ] LLM usage appears when provided.
-- [ ] Run: `cd frontend; npm test -- debugReport.test.js`
-
-**Acceptance Criteria:**
-- The copied report is enough to diagnose a failed task at a high level.
-- The report avoids leaking sensitive mapped values.
-
----
-
-### Task 9: Improve Benchmarks Page Evidence
-
-**Purpose:** Make benchmark results easier to read and compare.
-
-**Files:**
-- Modify: `frontend/src/pages/Benchmarks.jsx`
-- Modify: `frontend/src/benchmarkPresentation.js`
-- Modify: `frontend/src/benchmarkPresentation.test.js`
-- Modify: `frontend/src/styles.css`
-
-**Implementation Instructions:**
-- [ ] Keep the mode selector with values `"rules"` and `"llm"`.
-- [ ] Keep provider selection disabled unless mode is `"llm"`.
-- [ ] Add run metadata display:
-  - run id
-  - mode
-  - provider if applicable
-  - created time if available
-  - total cases
-  - total failures
-- [ ] In case result rows, sort failed cases before passing cases.
-- [ ] For each case, show a compact status label:
-  - `"Passing"` if zero failures
-  - `"Needs attention"` if one or more failures
-- [ ] Keep table columns English: `"Selector"`, `"Expected"`, `"Actual"`, `"Reason"`, `"Detail"`.
-- [ ] Do not add charts in this task.
-
-**Tests:**
-- [ ] Presentation helper returns correct total failures.
-- [ ] Failure labels remain stable.
-- [ ] Run: `cd frontend; npm test -- benchmarkPresentation.test.js`
-
-**Acceptance Criteria:**
-- The benchmark page clearly communicates quality and failure hotspots.
-- The page remains useful without LLM provider credentials.
-
----
-
-### Task 10: Add Safe Demo Walkthrough
-
-**Purpose:** Give reviewers one complete path to exercise the product.
-
-**Files:**
-- Create: `docs/demo-walkthrough.md`
-- Modify: `README.md`
-
-**Implementation Instructions:**
-- [ ] Write the walkthrough in English.
-- [ ] Use local fixtures first, not external sites.
-- [ ] Include backend setup:
+Validation:
 
 ```powershell
 cd backend
-python -m pip install -r requirements.txt
-python -m playwright install chromium
-uvicorn app.main:app --reload
+pytest tests/test_task_mapping_endpoint.py -v
 ```
 
-- [ ] Include frontend setup:
+### Task 6: Profile Memory Safety Evidence
+
+Files:
+
+- Modify `backend/app/routers/tasks.py`.
+- Modify `backend/app/schemas.py`.
+- Modify `frontend/src/pages/TaskDetail.jsx`.
+- Test with `backend/tests/test_task_mapping_endpoint.py`.
+
+Implementation:
+
+- Do not save one-time or sensitive fields as reusable profile memory.
+- Ensure `force_save` cannot override password, OTP, payment, billing, card,
+  terms, privacy, consent, submit, login, or upload-like fields.
+- Keep `profile_updates` and `profile_skipped`.
+- Keep existing skip reasons.
+- Add useful English `detail` values.
+- Do not display sensitive skipped values.
+
+Validation:
+
+```powershell
+cd backend
+pytest tests/test_task_mapping_endpoint.py -v
+```
+
+### Task 7: Task Evidence Timeline
+
+Files:
+
+- Modify `frontend/src/agentTimeline.js`.
+- Modify `frontend/src/pages/TaskDetail.jsx`.
+- Modify `frontend/src/styles.css` only for minimal layout support.
+- Test with `frontend/src/agentTimeline.test.js`.
+
+Implementation:
+
+- Keep `getWorkflowTimeline(task, logs)`.
+- Keep `buildAgentTimeline(logs, fields)`.
+- Map every supported task status to exactly one active, failed, or blocked step.
+- Show failed mapping logs for `map_fields` and `llm_map_fields`.
+- Show skipped field summary after extraction.
+- Render an `Execution evidence` section with title, status, timestamp, and
+  expandable details.
+- Use `formatChinaTime()` for timestamps.
+
+Validation:
 
 ```powershell
 cd frontend
-npm install
-npm run dev
+npm test -- agentTimeline.test.js
 ```
 
-- [ ] Include a safe demo flow:
-  - create a profile
-  - create a task with a local benchmark fixture URL if supported by the UI
-  - analyze form
-  - generate mappings
-  - review mapping
-  - confirm mapping
-  - fill form
-  - inspect screenshot
-  - stop before final submission unless explicitly approved
-- [ ] Add a README link to the walkthrough.
-- [ ] Do not imply that the app bypasses login, CAPTCHA, or bot checks.
+### Task 8: Debug Report
 
-**Acceptance Criteria:**
-- A reviewer can run the main demo without guessing the sequence.
-- The safety boundary is obvious in the demo.
+Files:
 
----
+- Modify `frontend/src/debugReport.js`.
+- Modify `frontend/src/pages/TaskDetail.jsx` only if placement needs adjustment.
+- Test with `frontend/src/debugReport.test.js`.
 
-### Task 11: Add Architecture Documentation
+Implementation:
 
-**Purpose:** Explain the system as a review-first workflow, not a generic multi-agent app.
+- Keep `generateDebugReport(task, profiles, screenshots, llmUsage, logs)`.
+- Include task id, URL, status, profile, description, field counts, latest failed
+  log, latest screenshot URL, LLM usage, and last 10 logs.
+- Count required missing fields when `mapped_value` is `null` or `""`.
+- Do not include full sensitive mapped values.
 
-**Files:**
-- Create: `docs/architecture.md`
-- Modify: `README.md`
+Validation:
 
-**Implementation Instructions:**
-- [ ] Use this English positioning:
+```powershell
+cd frontend
+npm test -- debugReport.test.js
+```
+
+### Task 9: Benchmarks Page Evidence
+
+Files:
+
+- Modify `frontend/src/pages/Benchmarks.jsx`.
+- Modify `frontend/src/benchmarkPresentation.js`.
+- Modify `frontend/src/styles.css` only if the existing layout cannot support
+  the metadata.
+- Test with `frontend/src/benchmarkPresentation.test.js`.
+
+Implementation:
+
+- Keep modes `rules` and `llm`.
+- Keep provider selection disabled unless mode is `llm`.
+- Show run id, mode, provider when applicable, created time, total cases, and
+  total failures.
+- Sort failed cases before passing cases.
+- Show `Passing` or `Needs attention`.
+- Keep failure table columns: `Selector`, `Expected`, `Actual`, `Reason`,
+  `Detail`.
+- Do not add charts.
+
+Validation:
+
+```powershell
+cd frontend
+npm test -- benchmarkPresentation.test.js
+```
+
+### Task 10: Safe Demo Walkthrough
+
+Files:
+
+- Create `docs/demo-walkthrough.md`.
+- Link it from `README.md`.
+
+Content requirements:
+
+- Use local fixtures first.
+- Include backend and frontend setup commands.
+- Walk through profile creation, task creation, form analysis, mapping, review,
+  fill, screenshot inspection, and stopping before final submission.
+- Do not imply CAPTCHA, login, or bot-check bypass.
+
+### Task 11: Architecture Documentation
+
+Files:
+
+- Create `docs/architecture.md`.
+- Link it from `README.md`.
+
+Required positioning:
 
 ```text
 AI Web Form Agent is a review-first browser automation system for safe web form filling.
 ```
 
-- [ ] Include this architecture diagram in text form:
+Include this diagram:
 
 ```text
 React UI
@@ -555,121 +436,84 @@ React UI
     -> SQLite Persistence
 ```
 
-- [ ] Explain each module in 2-4 sentences:
-  - `FormExtractor`
-  - `FieldMapper`
-  - `BrowserExecutor`
-  - `BenchmarkRunner`
-  - `ActionTraceService`
-  - `LLM usage logging`
-- [ ] Add a short section named `"Why not multi-agent in Phase 1?"`.
-- [ ] State that Phase 1 uses modular workflow components, not multiple autonomous agents.
-- [ ] Link the document from `README.md`.
+Explain `FormExtractor`, `FieldMapper`, `BrowserExecutor`,
+`BenchmarkRunner`, `ActionTraceService`, and LLM usage logging in 2-4 sentences
+each. Add `Why not multi-agent in Phase 1?`.
 
-**Acceptance Criteria:**
-- The project sounds intentional and scoped.
-- The documentation does not oversell multi-agent behavior.
+### Task 12: Safety Boundary Documentation
 
----
+Files:
 
-### Task 12: Add Safety Boundary Documentation
+- Create `docs/safety-boundaries.md`.
+- Link it from `README.md`.
 
-**Purpose:** Make the approval model and prohibited actions explicit.
-
-**Files:**
-- Create: `docs/safety-boundaries.md`
-- Modify: `README.md`
-
-**Implementation Instructions:**
-- [ ] Write all content in English.
-- [ ] Include required boundaries:
-  - no final submission without explicit approval
-  - no CAPTCHA solving
-  - no anti-bot bypass
-  - no payment, purchase, delete, or destructive action automation
-  - no password, OTP, payment card, or one-time consent values saved as reusable profile memory
-  - manual login must be user-controlled
-- [ ] Include a short explanation of the review-first loop:
+Required loop:
 
 ```text
 Extract -> Map -> Review -> Confirm -> Fill -> Pause -> Submit only after approval
 ```
 
-- [ ] Explain how skipped fields and debug evidence support safety.
-- [ ] Link from README.
+Document:
 
-**Acceptance Criteria:**
-- A reviewer can quickly see that the project is safe by design.
-- The app is positioned as controlled automation, not scraping or abuse tooling.
+- No final submission without explicit approval.
+- No CAPTCHA solving.
+- No anti-bot bypass.
+- No payment, purchase, delete, or destructive action automation.
+- No password, OTP, payment card, or one-time consent values saved as reusable
+  profile memory.
+- Manual login is user-controlled.
 
----
+### Task 13: End-to-End Verification
 
-### Task 13: End-to-End Verification Pass
-
-**Purpose:** Confirm Phase 1 is stable after the tasks above.
-
-**Files:**
-- No feature files unless a verification failure requires a fix.
-
-**Commands:**
-- [ ] Run backend tests:
+Run:
 
 ```powershell
 cd backend
 pytest -v
 ```
 
-- [ ] Run frontend tests:
-
 ```powershell
 cd frontend
 npm test
-```
-
-- [ ] Run frontend build:
-
-```powershell
-cd frontend
 npm run build
 ```
 
-- [ ] Start backend and frontend manually and run the demo walkthrough.
-- [ ] Verify these pages contain English text only:
-  - Dashboard
-  - Profiles
-  - Create Task
-  - Task Detail
-  - Review Mapping
-  - Benchmarks
-- [ ] Verify final submission still requires explicit user action.
+Manual checks:
 
-**Acceptance Criteria:**
-- All tests pass.
-- The app builds.
-- The demo walkthrough is reproducible.
-- The UI and new code comments are English.
+- Run the demo walkthrough.
+- Confirm all new UI text is English.
+- Confirm final submission still requires explicit user action.
 
----
+## Risks
 
-## Recommended Execution Order
+- **Reason-code drift:** Backend and frontend labels can diverge. Keep constants
+  small and test labels.
+- **Overblocking:** Sensitive-field detection may flag benign fields. Prefer
+  explainable skip evidence over silent saves.
+- **UI clutter:** Evidence can become noisy. Group summaries first, details on
+  expansion.
+- **Overclaiming:** Documentation can outrun the product. Only document tested
+  behavior as supported.
 
-1. Task 1: Define Shared Failure Reason Codes
-2. Task 2: Harden Benchmark Scoring Details
-3. Task 4: Create Review Attention Categories
-4. Task 5: Make Mapping Confirmation Errors Structured And Friendly
-5. Task 6: Strengthen Profile Memory Safety Evidence
-6. Task 7: Improve Task Evidence Timeline
-7. Task 8: Expand Debug Report
-8. Task 9: Improve Benchmarks Page Evidence
-9. Task 3: Add Benchmark Baseline Documentation And Demo Cases
-10. Task 10: Add Safe Demo Walkthrough
-11. Task 11: Add Architecture Documentation
-12. Task 12: Add Safety Boundary Documentation
-13. Task 13: End-to-End Verification Pass
+## Follow-Up
+
+- Add trend charts only after benchmark history becomes large enough to compare.
+- Add richer failure taxonomy only when current reason codes cannot diagnose real
+  failures.
+- Move to generalized page actions in Phase 2 after Phase 1 evidence is stable.
+
+## Acceptance Criteria
+
+- Backend and frontend focused tests pass for all touched behavior.
+- Benchmark failures use stable reason codes and precise English details.
+- Review Mapping separates blockers from awareness-only items.
+- Task Detail shows useful execution evidence and safe debug reports.
+- README links to benchmark, architecture, demo, and safety documentation.
+- No new autonomous execution path is introduced.
 
 ## Self-Review
 
-- Spec coverage: The plan covers benchmark reliability, failure reason codes, Review Mapping attention summary, Task Detail timeline, debug report, README/docs packaging, and safety boundaries.
-- Placeholder scan: No task contains `TBD`, `TODO`, or unspecified implementation placeholders.
-- Type consistency: The plan preserves existing API route names and existing frontend helper names unless a task explicitly extends return values.
-- Scope check: This plan stays within Phase 1 and does not introduce multi-step workflow planning or multi-agent execution.
+- This phase strengthens the existing reviewed form-fill product.
+- It avoids multi-agent architecture, new UI systems, and speculative telemetry.
+- It gives future phases a reliable evidence baseline instead of a larger bug
+  surface.

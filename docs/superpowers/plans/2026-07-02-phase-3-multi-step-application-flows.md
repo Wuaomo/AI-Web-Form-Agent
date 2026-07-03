@@ -1,101 +1,130 @@
-# Phase 3 Multi-Step Application Flows Implementation Plan
+# Phase 3 Multi-Step Application Flows
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> For agentic workers: reuse the existing task pipeline for each step. Do not invent a second form-filling engine.
 
-**Goal:** Support safe, reviewed, multi-page application-style workflows while preserving the existing single-page form flow.
+## Background
 
-**Architecture:** Add a workflow-run layer above tasks. A workflow contains ordered steps; each step points to a URL or current-page action set, stores extracted fields and action candidates, and pauses at review gates.
+The current product handles one reviewed form-fill task at a time. Real
+application flows often span multiple pages, but they still need the same safety
+properties: extraction, mapping, review, confirmation, fill, and pause before
+submission.
 
-**Tech Stack:** Python, FastAPI, SQLAlchemy, SQLite, pytest, React, Vite, Node test runner, Playwright.
+Phase 3 adds workflow runs and ordered workflow steps. Each step points back to
+the existing `Task` flow instead of duplicating task behavior.
 
-## Global Constraints
+## Goals
 
-- All user-facing page text must be English.
-- All new code comments and docstrings must be English.
-- Do not implement free-form web browsing.
-- Multi-step execution must pause before final submission.
-- Only support same-tab, user-approved progression in this phase.
-- File upload support must be review-required and must not auto-select local files without user selection.
+- Store ordered multi-step workflows.
+- Reuse the existing single-task analysis and review pipeline for each step.
+- Gate progression so users cannot skip review.
+- Add a simple frontend shell to inspect workflow steps and open task review.
+- Preserve the current single-page task flow.
 
----
+## Non-Goals
 
-## File Structure
+- Do not add free-form browsing.
+- Do not execute multi-step plans automatically.
+- Do not support cross-tab orchestration.
+- Do not auto-select files for upload.
+- Do not add arbitrary natural-language browser commands.
 
-- `backend/app/models.py`: add `WorkflowRun` and `WorkflowStep`.
-- `backend/app/schemas.py`: add workflow response models.
-- `backend/app/services/workflow_step_service.py`: create, order, and summarize workflow steps.
-- `backend/app/services/browser_executor.py`: add next-step navigation helper only after review.
-- `backend/app/routers/workflows.py`: new workflow endpoints.
-- `backend/app/main.py`: include workflow router.
-- `backend/tests/test_workflow_steps.py`: service tests.
-- `backend/tests/test_workflow_endpoints.py`: API tests.
-- `frontend/src/workflowPresentation.js`: status and step labels.
-- `frontend/src/workflowPresentation.test.js`: helper tests.
-- `frontend/src/pages/WorkflowDetail.jsx`: workflow UI.
-- `frontend/src/App.jsx`: route registration.
+## Ponytail Scope Controls
 
----
+| Temptation | Do instead | Add later only when |
+| --- | --- | --- |
+| New workflow engine dependency | Two SQLAlchemy models plus a small service | Branching workflows become necessary |
+| Duplicate task analysis code | Create or link normal `Task` records | Task code has been extracted into stable services |
+| Background job runner | Keep prepare actions request-driven | Long-running workflow execution becomes real |
+| Complex visual timeline | Ordered step list | Users need dense comparison across many steps |
+| Cross-tab browser manager | Same-tab, user-approved progression | Real sites require tested cross-tab support |
 
-### Task 1: Add Workflow Run And Step Models
+The minimum useful workflow is an ordered list of reviewed task-backed steps.
 
-**Purpose:** Store multi-step application flows separately from existing single tasks.
+## Design
 
-**Files:**
-- Modify: `backend/app/models.py`
-- Modify: `backend/app/schemas.py`
-- Test: `backend/tests/test_database_migrations.py`
+### Architecture
 
-**Interfaces:**
-- `WorkflowRun`:
-  - `id`
-  - `profile_id`
-  - `start_url`
-  - `title`
-  - `status`
-  - `created_at`
-  - `updated_at`
-- `WorkflowStep`:
-  - `id`
-  - `workflow_run_id`
-  - `step_index`
-  - `task_id`
-  - `url`
-  - `status`
-  - `review_required`
-  - `summary`
+```text
+WorkflowRun
+  -> WorkflowStep 1 -> Task -> existing review-first task flow
+  -> WorkflowStep 2 -> Task -> existing review-first task flow
+  -> WorkflowStep N -> Task -> existing review-first task flow
+```
 
-**Implementation Instructions:**
-- [ ] Add models with English docstrings.
-- [ ] Add relationships from `Profile` to workflow runs if useful.
-- [ ] Use statuses:
-  - `"CREATED"`
-  - `"ANALYZING_STEP"`
-  - `"STEP_REVIEW_REQUIRED"`
-  - `"READY_FOR_NEXT_STEP"`
-  - `"WAITING_APPROVAL"`
-  - `"COMPLETED"`
-  - `"FAILED"`
-- [ ] Do not change existing `Task.status` values.
+`WorkflowRun` owns the user-facing flow. `WorkflowStep` owns ordering and links
+to a normal `Task`. The task continues to own field extraction, mapping,
+confirmation, fill, logs, screenshots, and approval state.
 
-**Tests:**
-- [ ] Tables are created.
-- [ ] Step ordering by `step_index` works.
-- [ ] Run: `cd backend; pytest tests/test_database_migrations.py -v`
+### Status Model
 
-**Acceptance Criteria:**
-- Workflow storage exists without disrupting existing tasks.
+Workflow statuses:
 
----
+```text
+CREATED
+ANALYZING_STEP
+STEP_REVIEW_REQUIRED
+READY_FOR_NEXT_STEP
+WAITING_APPROVAL
+COMPLETED
+FAILED
+```
 
-### Task 2: Add Workflow Service
+Do not change existing `Task.status` values.
 
-**Purpose:** Centralize workflow step creation and status transitions.
+### Progression Gate
 
-**Files:**
-- Create: `backend/app/services/workflow_step_service.py`
-- Test: `backend/tests/test_workflow_steps.py`
+A next step may be appended only when the current linked task is:
 
-**Interfaces:**
+```text
+WAITING_APPROVAL
+COMPLETED
+```
+
+Anything earlier returns `409` with a clear English reason.
+
+## Implementation Plan
+
+### Task 1: Workflow Run And Step Models
+
+Files:
+
+- Modify `backend/app/models.py`.
+- Modify `backend/app/schemas.py`.
+- Test with `backend/tests/test_database_migrations.py`.
+
+Interfaces:
+
+```text
+WorkflowRun:
+  id, profile_id, start_url, title, status, created_at, updated_at
+
+WorkflowStep:
+  id, workflow_run_id, step_index, task_id, url, status,
+  review_required, summary
+```
+
+Implementation:
+
+- Add SQLAlchemy models with English docstrings.
+- Add useful relationships from `Profile` and workflow run.
+- Order steps by `step_index`.
+- Keep existing task tables and statuses unchanged.
+
+Validation:
+
+```powershell
+cd backend
+pytest tests/test_database_migrations.py -v
+```
+
+### Task 2: Workflow Step Service
+
+Files:
+
+- Create `backend/app/services/workflow_step_service.py`.
+- Test with `backend/tests/test_workflow_steps.py`.
+
+Interface:
 
 ```python
 def create_workflow_run(db, profile_id: int, start_url: str, title: str | None = None):
@@ -108,100 +137,87 @@ def summarize_workflow_run(workflow_run) -> dict[str, int]:
     """Return counts for total, completed, blocked, and failed steps."""
 ```
 
-**Implementation Instructions:**
-- [ ] `create_workflow_run()` must create step index `1`.
-- [ ] `append_workflow_step()` must use max existing index + 1.
-- [ ] Do not allow duplicate active steps with the same index.
-- [ ] Keep all comments/docstrings English.
+Implementation:
 
-**Tests:**
-- [ ] Initial workflow has one step.
-- [ ] Appended steps increment index.
-- [ ] Summary counts statuses correctly.
-- [ ] Run: `cd backend; pytest tests/test_workflow_steps.py -v`
+- Initial workflows create step index `1`.
+- Appended steps use max index + 1.
+- Prevent duplicate active steps with the same index.
+- Keep status counting deterministic.
 
-**Acceptance Criteria:**
-- Workflow step ordering is deterministic.
+Validation:
 
----
+```powershell
+cd backend
+pytest tests/test_workflow_steps.py -v
+```
 
-### Task 3: Add Workflow API
+### Task 3: Workflow API
 
-**Purpose:** Let frontend create and inspect multi-step workflow runs.
+Files:
 
-**Files:**
-- Create: `backend/app/routers/workflows.py`
-- Modify: `backend/app/main.py`
-- Modify: `backend/app/schemas.py`
-- Test: `backend/tests/test_workflow_endpoints.py`
+- Create `backend/app/routers/workflows.py`.
+- Modify `backend/app/main.py`.
+- Modify `backend/app/schemas.py`.
+- Test with `backend/tests/test_workflow_endpoints.py`.
 
-**Endpoints:**
-- `POST /workflows`
-- `GET /workflows`
-- `GET /workflows/{workflow_id}`
-- `POST /workflows/{workflow_id}/steps`
+Endpoints:
 
-**Implementation Instructions:**
-- [ ] `POST /workflows` accepts `profile_id`, `start_url`, and optional `title`.
-- [ ] Validate profile exists.
-- [ ] `POST /workflows/{workflow_id}/steps` appends a step with `url`.
-- [ ] Do not execute browser actions from these endpoints.
-- [ ] Return ordered steps in workflow detail response.
+```text
+POST /workflows
+GET /workflows
+GET /workflows/{workflow_id}
+POST /workflows/{workflow_id}/steps
+```
 
-**Tests:**
-- [ ] Creating workflow with missing profile returns `404`.
-- [ ] Creating workflow with valid profile returns first step.
-- [ ] Appending step returns ordered steps.
-- [ ] Run: `cd backend; pytest tests/test_workflow_endpoints.py -v`
+Implementation:
 
-**Acceptance Criteria:**
-- Workflows can be created and inspected.
+- `POST /workflows` accepts `profile_id`, `start_url`, and optional `title`.
+- Validate profile existence.
+- Return ordered steps in detail responses.
+- Do not execute browser actions from these endpoints.
 
----
+Validation:
 
-### Task 4: Analyze One Workflow Step Through Existing Task Flow
+```powershell
+cd backend
+pytest tests/test_workflow_endpoints.py -v
+```
 
-**Purpose:** Reuse current task analysis and mapping for each workflow step.
+### Task 4: Prepare One Workflow Step
 
-**Files:**
-- Modify: `backend/app/routers/workflows.py`
-- Modify: `backend/app/services/workflow_step_service.py`
-- Test: `backend/tests/test_workflow_endpoints.py`
+Files:
 
-**Endpoint:**
-- `POST /workflows/{workflow_id}/steps/{step_id}/prepare`
+- Modify `backend/app/routers/workflows.py`.
+- Modify `backend/app/services/workflow_step_service.py`.
+- Test with `backend/tests/test_workflow_endpoints.py`.
 
-**Implementation Instructions:**
-- [ ] Create a normal `Task` for the step if it does not already have one.
-- [ ] Call existing task analysis behavior through shared service logic if available; if not available, keep this endpoint thin and call reusable functions from `tasks.py` only after extracting them safely.
-- [ ] Set step status to `"STEP_REVIEW_REQUIRED"` when mapping is ready.
-- [ ] Set workflow status to `"STEP_REVIEW_REQUIRED"`.
-- [ ] If login is required, keep step linked to the task and surface the task status.
-- [ ] Do not auto-fill in this task.
+Endpoint:
 
-**Tests:**
-- [ ] Prepare creates a linked task.
-- [ ] Existing linked task is reused.
-- [ ] Workflow status reflects step review requirement.
-- [ ] Run: `cd backend; pytest tests/test_workflow_endpoints.py -v`
+```text
+POST /workflows/{workflow_id}/steps/{step_id}/prepare
+```
 
-**Acceptance Criteria:**
-- Multi-step workflows reuse the current safe task pipeline.
+Implementation:
 
----
+- Create a normal `Task` for the step if none exists.
+- Reuse the existing task analysis behavior through shared service logic where
+  available.
+- Reuse a linked task if it already exists.
+- Set step and workflow status to `STEP_REVIEW_REQUIRED` when mapping is ready.
+- Surface login-required state through the linked task.
+- Do not auto-fill.
 
-### Task 5: Add Workflow Frontend Shell
+### Task 5: Workflow Frontend Shell
 
-**Purpose:** Provide an English UI for reviewing workflow steps.
+Files:
 
-**Files:**
-- Create: `frontend/src/workflowPresentation.js`
-- Create: `frontend/src/workflowPresentation.test.js`
-- Create: `frontend/src/pages/WorkflowDetail.jsx`
-- Modify: `frontend/src/api.js`
-- Modify: `frontend/src/App.jsx`
+- Create `frontend/src/workflowPresentation.js`.
+- Create `frontend/src/workflowPresentation.test.js`.
+- Create `frontend/src/pages/WorkflowDetail.jsx`.
+- Modify `frontend/src/api.js`.
+- Modify `frontend/src/App.jsx`.
 
-**Interfaces:**
+Interface:
 
 ```javascript
 export function workflowStatusLabel(status) {
@@ -213,77 +229,91 @@ export function stepStatusLabel(status) {
 }
 ```
 
-**Implementation Instructions:**
-- [ ] Add API methods for workflow endpoints.
-- [ ] Add route `/workflows/:workflowId`.
-- [ ] Show workflow title, start URL, status, and ordered steps.
-- [ ] Each step should show:
-  - step number
-  - URL
-  - status
-  - linked task button if `task_id` exists
-- [ ] Button text must be English:
-  - `"Prepare step"`
-  - `"Open task review"`
-  - `"Add next step"`
-- [ ] Do not add automatic browser execution buttons.
+Implementation:
 
-**Tests:**
-- [ ] Status labels are stable.
-- [ ] Unknown statuses are humanized.
-- [ ] Run: `cd frontend; npm test -- workflowPresentation.test.js`
+- Add route `/workflows/:workflowId`.
+- Show title, start URL, status, and ordered steps.
+- Show step number, URL, status, and linked task button when `task_id` exists.
+- Use button text:
+  - `Prepare step`
+  - `Open task review`
+  - `Add next step`
+- Do not add automatic execution buttons.
 
-**Acceptance Criteria:**
-- Users can see a multi-step workflow shell and open existing task review.
+Validation:
 
----
+```powershell
+cd frontend
+npm test -- workflowPresentation.test.js
+```
 
-### Task 6: Add Next-Step Gate
+### Task 6: Next-Step Gate
 
-**Purpose:** Prevent workflow progression unless the current step has been reviewed and filled or intentionally skipped.
+Files:
 
-**Files:**
-- Modify: `backend/app/services/workflow_step_service.py`
-- Modify: `backend/app/routers/workflows.py`
-- Test: `backend/tests/test_workflow_endpoints.py`
+- Modify `backend/app/services/workflow_step_service.py`.
+- Modify `backend/app/routers/workflows.py`.
+- Test with `backend/tests/test_workflow_endpoints.py`.
 
-**Implementation Instructions:**
-- [ ] Add a function:
+Interface:
 
 ```python
 def can_append_next_step(current_step) -> tuple[bool, str | None]:
     """Return whether a next step can be appended after the current step."""
 ```
 
-- [ ] Allow next step only when current linked task status is `"WAITING_APPROVAL"` or `"COMPLETED"`.
-- [ ] Return a clear English reason when blocked.
-- [ ] API should return `409` when next step is blocked.
+Implementation:
 
-**Tests:**
-- [ ] Created step blocks next step.
-- [ ] Waiting approval allows next step.
-- [ ] Completed allows next step.
-- [ ] Run: `cd backend; pytest tests/test_workflow_endpoints.py -v`
-
-**Acceptance Criteria:**
-- Multi-step flows cannot silently skip review gates.
-
----
+- Allow next step only after linked task status `WAITING_APPROVAL` or
+  `COMPLETED`.
+- Return `409` with an English reason when blocked.
+- Keep the rule in one service function.
 
 ### Task 7: Verification
 
-**Commands:**
-- [ ] Run: `cd backend; pytest -v`
-- [ ] Run: `cd frontend; npm test`
-- [ ] Run: `cd frontend; npm run build`
+Run:
 
-**Acceptance Criteria:**
-- Single-page task flow still works.
-- Workflow shell supports ordered steps.
-- No multi-step action executes without review.
+```powershell
+cd backend
+pytest -v
+```
+
+```powershell
+cd frontend
+npm test
+npm run build
+```
+
+Manual checks:
+
+- Existing single-task flow still works.
+- Workflow steps stay ordered.
+- Users cannot add the next step before review gates are satisfied.
+
+## Risks
+
+- **Duplicate task logic:** Keep workflow prepare thin and reuse task behavior.
+- **Status confusion:** Workflow status summarizes step state; task status still
+  owns actual form-fill progress.
+- **Premature automation:** This phase creates structure and gates only, not
+  automatic multi-step execution.
+
+## Follow-Up
+
+- Add reviewable plans in Phase 4.
+- Add template-bound personal workflows in Phase 5.
+- Add branching only after linear workflows are tested and insufficient.
+
+## Acceptance Criteria
+
+- Workflow storage exists without disrupting tasks.
+- Workflow APIs create, list, fetch, and append ordered steps.
+- Preparing a step creates or reuses a linked task.
+- The frontend shell shows workflow progress and links to task review.
+- Progression is blocked until review gates are met.
 
 ## Self-Review
 
-- Spec coverage: This plan adds multi-step application workflow structure while reusing the existing task pipeline.
-- Placeholder scan: No placeholder implementation steps remain.
-- Scope check: This phase avoids autonomous planning and keeps same-tab, user-approved progression.
+- This phase adds the smallest workflow layer that can work.
+- It does not build a planner, scheduler, or autonomous browser.
+- The existing task flow remains the execution authority.
