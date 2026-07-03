@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildAgentTimeline, getWorkflowTimeline } from "./agentTimeline.js";
+import {
+  buildAgentTimeline,
+  getWorkflowTimeline,
+  shouldShowWorkflowTimeline,
+} from "./agentTimeline.js";
 
 test("builds user-facing timeline entries from logs and fields", () => {
   const logs = [
@@ -251,4 +255,8 @@ test("getWorkflowTimeline for FAILED without logs", () => {
   const nodes = getWorkflowTimeline({ status: "FAILED", form_fields: [], analyzed: true });
   assert.equal(nodes.find((n) => n.id === "created").state, "success");
   assert.equal(nodes.find((n) => n.id === "analyze").state, "failed");
+});
+
+test("workflow timeline is hidden from the default user-facing task view", () => {
+  assert.equal(shouldShowWorkflowTimeline(), false);
 });

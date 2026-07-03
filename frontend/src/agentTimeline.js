@@ -148,6 +148,10 @@ function getWorkflowTimeline(task, logs = []) {
   return nodes;
 }
 
+function shouldShowWorkflowTimeline() {
+  return false;
+}
+
 function pluralize(count, singular, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`;
 }
@@ -318,4 +322,9 @@ export function buildAgentTimeline(logs, fields = []) {
   ]);
 }
 
-export { fieldDisplayName, getWorkflowTimeline, isFillableField };
+export {
+  fieldDisplayName,
+  getWorkflowTimeline,
+  isFillableField,
+  shouldShowWorkflowTimeline,
+};

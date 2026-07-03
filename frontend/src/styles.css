@@ -262,7 +262,7 @@ textarea {
 
 .run-summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 0.75rem;
 }
 
@@ -648,8 +648,8 @@ th {
 .review-form-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 1rem;
-  padding: 1rem 1.1rem;
+  gap: 0.75rem;
+  padding: 0.7rem 0.85rem;
   border-bottom: 1px solid #edf1f6;
 }
 
@@ -658,7 +658,7 @@ th {
 }
 
 .review-form-row-needs-review {
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.34fr);
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 0.3fr);
   background: #fffaf2;
 }
 
@@ -668,8 +668,8 @@ th {
 
 .review-field-control {
   display: grid;
-  grid-template-columns: minmax(180px, 0.34fr) minmax(0, 1fr);
-  gap: 0.9rem;
+  grid-template-columns: minmax(120px, 0.18fr) minmax(0, 1fr);
+  gap: 0.75rem;
   align-items: center;
 }
 
@@ -682,11 +682,17 @@ th {
 }
 
 .review-field-source {
-  margin: 0.45rem 0 0;
-  padding-left: calc(34% + 0.6rem);
+  margin: 0.35rem 0 0;
+  padding-left: calc(18% + 0.6rem);
   color: #687386;
   font-size: 0.82rem;
   overflow-wrap: anywhere;
+}
+
+.review-form-row input,
+.review-form-row select {
+  min-height: 42px;
+  padding: 0.55rem 0.7rem;
 }
 
 .field-value-stack {
