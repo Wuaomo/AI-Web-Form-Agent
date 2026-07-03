@@ -1,6 +1,6 @@
-import { API_BASE_URL } from "./api";
+import { API_BASE_URL } from "./api.js";
 
-export function generateDebugReport(task, profiles = [], screenshots = [], llmUsage = null, logs = []) {
+export function generateDebugReport(task, profiles = [], screenshots = [], llmUsage = null, logs = [], checkpoints = []) {
   const profile = profiles.find((p) => p.id === task?.profile_id);
   const profileName = profile?.profile_name || task?.profile_id || "—";
 
@@ -33,6 +33,35 @@ export function generateDebugReport(task, profiles = [], screenshots = [], llmUs
     requiredMissing.forEach((field) => {
       const label = field.field_label || field.label || field.name || field.selector;
       lines.push(`  - ${label}`);
+    });
+  }
+
+  if (checkpoints.length > 0) {
+    lines.push("");
+    lines.push("Checkpoints:");
+    checkpoints.slice(-10).forEach((cp) => {
+      lines.push(`  Stage: ${cp.stage} | Status: ${cp.status}`);
+      if (cp.failure_reason) {
+        lines.push(`    Failure reason: ${cp.failure_reason}`);
+      }
+      if (cp.error_message) {
+        lines.push(`    Error: ${cp.error_message}`);
+      }
+      if (cp.output && typeof cp.output === "object") {
+        lines.push(`    Output: ${JSON.stringify(cp.output)}`);
+      }
+    });
+  }
+
+  const failedCheckpoints = checkpoints.filter((cp) => cp.status === "FAILED");
+  if (failedCheckpoints.length > 0) {
+    lines.push("");
+    lines.push("Failure evidence:");
+    failedCheckpoints.forEach((cp) => {
+      lines.push(`  [${cp.stage}] ${cp.failure_reason || "Unknown failure"}`);
+      if (cp.error_message) {
+        lines.push(`    ${cp.error_message}`);
+      }
     });
   }
 
