@@ -106,4 +106,5 @@ export const api = {
   confirmSubmit: (taskId) =>
     request(`/tasks/${taskId}/confirm-submit`, { method: "POST" }),
   getTaskLlmUsage: (taskId) => request(`/tasks/${taskId}/llm-usage`),
+  listTaskCheckpoints: (taskId) => request(`/tasks/${taskId}/checkpoints`),
 };

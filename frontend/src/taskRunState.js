@@ -106,13 +106,52 @@ const stateByStatus = {
   },
 };
 
-export function getTaskRunState(task) {
-  return (
-    stateByStatus[task?.status] || {
+const failureStateByStage = {
+  ANALYSIS: {
+    statusLabel: "Analysis failed",
+    description: "Failed to analyze the form structure. Check the URL or network connection.",
+    primaryAction: "prepare",
+    primaryLabel: "Retry analysis",
+  },
+  MAPPING: {
+    statusLabel: "Mapping failed",
+    description: "Failed to map form fields to profile values. Check LLM provider configuration.",
+    primaryAction: "map",
+    primaryLabel: "Retry mapping",
+  },
+  FILL: {
+    statusLabel: "Fill failed",
+    description: "Failed to fill the form. Check the browser session or form selectors.",
+    primaryAction: "fill",
+    primaryLabel: "Retry fill",
+  },
+};
+
+function getFailedStage(checkpoints) {
+  const failedCheckpoints = checkpoints.filter((cp) => cp.status === "FAILED");
+  if (failedCheckpoints.length === 0) {
+    return null;
+  }
+  return failedCheckpoints[failedCheckpoints.length - 1].stage;
+}
+
+export function getTaskRunState(task, checkpoints = []) {
+  const baseState = stateByStatus[task?.status];
+  if (!baseState) {
+    return {
       statusLabel: task?.status || "Unknown",
       description: "Check the task details before continuing.",
       primaryAction: null,
       primaryLabel: "",
+    };
+  }
+
+  if (task?.status === "FAILED") {
+    const failedStage = getFailedStage(checkpoints);
+    if (failedStage && failureStateByStage[failedStage]) {
+      return failureStateByStage[failedStage];
     }
-  );
+  }
+
+  return baseState;
 }

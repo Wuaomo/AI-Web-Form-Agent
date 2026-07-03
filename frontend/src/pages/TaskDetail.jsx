@@ -36,6 +36,7 @@ function TaskDetail() {
   );
   const [llmUsage, setLlmUsage] = useState(null);
   const [taskLogs, setTaskLogs] = useState([]);
+  const [taskCheckpoints, setTaskCheckpoints] = useState([]);
 
   useEffect(() => {
     if (
@@ -60,14 +61,16 @@ function TaskDetail() {
       api.listLlmProviders(),
       api.listTaskLogs(taskId),
       api.getTaskLlmUsage(taskId).catch(() => null),
+      api.listTaskCheckpoints(taskId).catch(() => []),
     ])
-      .then(([taskResult, screenshotItems, profileItems, providerItems, logItems, usageResult]) => {
+      .then(([taskResult, screenshotItems, profileItems, providerItems, logItems, usageResult, checkpointItems]) => {
         setTask(taskResult);
         setScreenshots(screenshotItems);
         setProfiles(profileItems);
         setLlmProviders(providerItems);
         setTaskLogs(logItems);
         setLlmUsage(usageResult);
+        setTaskCheckpoints(checkpointItems);
         setSelectedLlmProvider(getSavedLlmProvider(providerItems));
       })
       .catch((requestError) => setError(requestError.message))
@@ -75,16 +78,18 @@ function TaskDetail() {
   }, [taskId]);
 
   async function refreshTaskData(nextTask = null) {
-    const [taskResult, screenshotItems, logItems, usageResult] = await Promise.all([
+    const [taskResult, screenshotItems, logItems, usageResult, checkpointItems] = await Promise.all([
       nextTask ? Promise.resolve(nextTask) : api.getTask(taskId),
       api.listTaskScreenshots(taskId),
       api.listTaskLogs(taskId),
       api.getTaskLlmUsage(taskId).catch(() => null),
+      api.listTaskCheckpoints(taskId).catch(() => []),
     ]);
     setTask(taskResult);
     setScreenshots(screenshotItems);
     setTaskLogs(logItems);
     setLlmUsage(usageResult);
+    setTaskCheckpoints(checkpointItems);
   }
 
   async function runAction(actionName, request, successMessage) {
@@ -155,7 +160,7 @@ function TaskDetail() {
   }
 
   async function copyDebugReport() {
-    const report = generateDebugReport(task, profiles, screenshots, llmUsage, taskLogs);
+    const report = generateDebugReport(task, profiles, screenshots, llmUsage, taskLogs, taskCheckpoints);
     try {
       await navigator.clipboard.writeText(report);
       setNotice("Debug report copied to clipboard.");
@@ -205,17 +210,19 @@ function TaskDetail() {
   );
   const llmUnavailable = mappingMode === "llm" && !selectedProvider?.configured;
   const missingRequiredFields = task?.form_fields.filter(needsRequiredInput) || [];
-  const runState = getTaskRunState(task);
+  const runState = getTaskRunState(task, taskCheckpoints);
   const runSummaryItems = getVisibleRunSummaryItems(task);
   const showWorkflowTimeline = shouldShowWorkflowTimeline();
   const workflowNodes = showWorkflowTimeline && task ? getWorkflowTimeline(task, taskLogs) : [];
   const primaryDisabled =
     isBusy ||
     !runState.primaryAction ||
-    (runState.primaryAction === "prepare" && llmUnavailable);
+    (runState.primaryAction === "prepare" && llmUnavailable) ||
+    (runState.primaryAction === "map" && llmUnavailable);
   const primaryLabelByBusyAction = {
     prepare: "Preparing...",
     login: "Waiting for login...",
+    map: "Mapping...",
     fill: "Filling...",
     approve: "Submitting...",
   };
@@ -235,6 +242,22 @@ function TaskDetail() {
     }
     if (runState.primaryAction === "review") {
       navigate(`/tasks/${taskId}/review-mapping`);
+      return;
+    }
+    if (runState.primaryAction === "map") {
+      setBusyAction("map");
+      setError("");
+      setNotice("");
+      api.mapTaskFields(taskId, getMappingOptions())
+        .then(() => {
+          refreshTaskData();
+          navigate(`/tasks/${taskId}/review-mapping`);
+        })
+        .catch((requestError) => {
+          setError(requestError.message);
+          refreshTaskData();
+        })
+        .finally(() => setBusyAction(""));
       return;
     }
     if (runState.primaryAction === "fill") {

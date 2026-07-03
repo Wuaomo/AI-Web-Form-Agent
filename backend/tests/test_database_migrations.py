@@ -1,5 +1,6 @@
 """Tests for database migration helpers."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -69,3 +70,89 @@ def test_init_db_adds_all_missing_columns_to_existing_form_fields_table(tmp_path
     assert "current_value" in columns
     assert "options" in columns
     assert "profile_memory_policy" in columns
+
+
+def test_task_checkpoint_model_creates_profile_task_and_checkpoint(tmp_path):
+    """Verify TaskCheckpoint model creates and loads checkpoints with relationship."""
+
+    from app.database import Base
+    from app.models import Profile, Task, TaskCheckpoint, utc_now
+    from app.workflow_constants import WORKFLOW_STAGE_ANALYSIS, CHECKPOINT_SUCCESS
+
+    db_path = tmp_path / "checkpoint_test.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+
+    Base.metadata.create_all(bind=engine)
+
+    from sqlalchemy.orm import sessionmaker
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    profile = Profile(profile_name="Test Profile")
+    session.add(profile)
+    session.commit()
+
+    task = Task(url="https://example.com/form", profile_id=profile.id)
+    session.add(task)
+    session.commit()
+
+    checkpoint = TaskCheckpoint(
+        task_id=task.id,
+        stage=WORKFLOW_STAGE_ANALYSIS,
+        status=CHECKPOINT_SUCCESS,
+        input_hash="abc123",
+        output_json=json.dumps({"fields": ["email", "name"]}),
+    )
+    session.add(checkpoint)
+    session.commit()
+
+    session.refresh(task)
+
+    assert len(task.checkpoints) == 1
+    assert task.checkpoints[0].stage == WORKFLOW_STAGE_ANALYSIS
+    assert task.checkpoints[0].status == CHECKPOINT_SUCCESS
+    assert task.checkpoints[0].input_hash == "abc123"
+
+    session.close()
+
+
+def test_task_checkpoint_output_json_safe_parse(tmp_path):
+    """Verify invalid JSON in output_json is handled safely."""
+
+    from app.database import Base
+    from app.models import Profile, Task, TaskCheckpoint
+    from app.workflow_constants import WORKFLOW_STAGE_MAPPING, CHECKPOINT_SUCCESS
+
+    db_path = tmp_path / "checkpoint_json_test.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+
+    Base.metadata.create_all(bind=engine)
+
+    from sqlalchemy.orm import sessionmaker
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    profile = Profile(profile_name="Test Profile")
+    session.add(profile)
+    session.commit()
+
+    task = Task(url="https://example.com/form", profile_id=profile.id)
+    session.add(task)
+    session.commit()
+
+    checkpoint = TaskCheckpoint(
+        task_id=task.id,
+        stage=WORKFLOW_STAGE_MAPPING,
+        status=CHECKPOINT_SUCCESS,
+        output_json="{invalid json}",
+    )
+    session.add(checkpoint)
+    session.commit()
+
+    session.refresh(checkpoint)
+
+    assert checkpoint.output is not None
+    assert isinstance(checkpoint.output, dict)
+    assert checkpoint.output == {}
+
+    session.close()

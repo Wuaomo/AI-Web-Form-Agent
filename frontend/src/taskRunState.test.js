@@ -91,3 +91,51 @@ test("getTaskRunState uses user-facing status labels", () => {
     "Waiting for approval",
   );
 });
+
+test("getTaskRunState shows recovery-aware label for analysis failure", () => {
+  const checkpoints = [
+    { stage: "ANALYSIS", status: "FAILED" },
+  ];
+  const state = getTaskRunState({ ...baseTask, status: "FAILED" }, checkpoints);
+  assert.equal(state.statusLabel, "Analysis failed");
+  assert.equal(state.primaryAction, "prepare");
+  assert.equal(state.primaryLabel, "Retry analysis");
+});
+
+test("getTaskRunState shows recovery-aware label for mapping failure", () => {
+  const checkpoints = [
+    { stage: "ANALYSIS", status: "SUCCESS" },
+    { stage: "MAPPING", status: "FAILED" },
+  ];
+  const state = getTaskRunState({ ...baseTask, status: "FAILED" }, checkpoints);
+  assert.equal(state.statusLabel, "Mapping failed");
+  assert.equal(state.primaryAction, "map");
+  assert.equal(state.primaryLabel, "Retry mapping");
+});
+
+test("getTaskRunState shows recovery-aware label for fill failure", () => {
+  const checkpoints = [
+    { stage: "ANALYSIS", status: "SUCCESS" },
+    { stage: "MAPPING", status: "SUCCESS" },
+    { stage: "FILL", status: "FAILED" },
+  ];
+  const state = getTaskRunState({ ...baseTask, status: "FAILED" }, checkpoints);
+  assert.equal(state.statusLabel, "Fill failed");
+  assert.equal(state.primaryAction, "fill");
+  assert.equal(state.primaryLabel, "Retry fill");
+});
+
+test("getTaskRunState falls back to generic FAILED state when no checkpoint available", () => {
+  const state = getTaskRunState({ ...baseTask, status: "FAILED" }, []);
+  assert.equal(state.statusLabel, "Failed");
+  assert.equal(state.primaryAction, "prepare");
+});
+
+test("getTaskRunState ignores checkpoints for non-FAILED status", () => {
+  const checkpoints = [
+    { stage: "ANALYSIS", status: "FAILED" },
+  ];
+  const state = getTaskRunState(baseTask, checkpoints);
+  assert.equal(state.statusLabel, "Needs review");
+  assert.equal(state.primaryAction, "review");
+});
