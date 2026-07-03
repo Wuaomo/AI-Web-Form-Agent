@@ -50,6 +50,17 @@ from app.services.llm_provider_config import (
 from app.services.llm_usage_service import list_llm_usage_logs, summarize_llm_usage
 from app.services.log_service import create_log
 from app.services.mapping_cache import save_user_mapping_override
+from app.services.checkpoint_service import write_checkpoint
+from app.workflow_constants import (
+    CHECKPOINT_FAILED,
+    CHECKPOINT_SUCCESS,
+    FAILURE_ANALYSIS_FAILED,
+    FAILURE_BROWSER_FILL_FAILED,
+    FAILURE_LLM_MAPPING_FAILED,
+    WORKFLOW_STAGE_ANALYSIS,
+    WORKFLOW_STAGE_FILL,
+    WORKFLOW_STAGE_MAPPING,
+)
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -356,11 +367,28 @@ async def analyze_task(
             mark_login_required(task, db)
         else:
             save_extracted_fields(task, analysis, db)
+        write_checkpoint(
+            task_id=task.id,
+            stage=WORKFLOW_STAGE_ANALYSIS,
+            status=CHECKPOINT_SUCCESS,
+            input_hash=f"{task.url}:{task.profile_id}",
+            output={"field_count": len(analysis.fields), "login_required": analysis.login_required},
+            db=db,
+        )
         db.commit()
     except Exception as exc:
         db.rollback()
         task = get_task_or_404(task_id, db)
         task.status = "FAILED"
+        write_checkpoint(
+            task_id=task.id,
+            stage=WORKFLOW_STAGE_ANALYSIS,
+            status=CHECKPOINT_FAILED,
+            input_hash=f"{task.url}:{task.profile_id}",
+            failure_reason=FAILURE_ANALYSIS_FAILED,
+            error_message=str(exc),
+            db=db,
+        )
         create_log(
             task_id=task.id,
             step=get_next_log_step(task.id, db),
@@ -472,21 +500,48 @@ def map_task_fields(
     """Generate and save Agent mappings, with a developer rule-mode override."""
 
     get_task_or_404(task_id, db)
-    if mode == "llm":
-        try:
-            selected_provider = resolve_llm_provider(provider)
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(exc),
-            ) from exc
-        if not is_provider_configured(selected_provider):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=get_provider_setup_hint(selected_provider),
-            )
-        return map_fields_with_llm(task_id, db, provider=selected_provider)
-    return map_fields_by_rules(task_id, db)
+    try:
+        if mode == "llm":
+            try:
+                selected_provider = resolve_llm_provider(provider)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=str(exc),
+                ) from exc
+            if not is_provider_configured(selected_provider):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=get_provider_setup_hint(selected_provider),
+                )
+            fields = map_fields_with_llm(task_id, db, provider=selected_provider)
+        else:
+            fields = map_fields_by_rules(task_id, db)
+
+        mapped_count = sum(1 for f in fields if f.mapped_profile_key)
+        write_checkpoint(
+            task_id=task_id,
+            stage=WORKFLOW_STAGE_MAPPING,
+            status=CHECKPOINT_SUCCESS,
+            input_hash=f"{task_id}:{mode}:{provider or 'default'}",
+            output={"field_count": len(fields), "mapped_count": mapped_count, "mode": mode},
+            db=db,
+        )
+        db.commit()
+        return fields
+    except Exception as exc:
+        db.rollback()
+        write_checkpoint(
+            task_id=task_id,
+            stage=WORKFLOW_STAGE_MAPPING,
+            status=CHECKPOINT_FAILED,
+            input_hash=f"{task_id}:{mode}:{provider or 'default'}",
+            failure_reason=FAILURE_LLM_MAPPING_FAILED if mode == "llm" else FAILURE_ANALYSIS_FAILED,
+            error_message=str(exc),
+            db=db,
+        )
+        db.commit()
+        raise
 
 
 @router.get(
@@ -842,6 +897,14 @@ async def fill_task_form(
             db=db,
         )
         task.status = "WAITING_APPROVAL"
+        write_checkpoint(
+            task_id=task.id,
+            stage=WORKFLOW_STAGE_FILL,
+            status=CHECKPOINT_SUCCESS,
+            input_hash=f"{task.id}:{len(mapped_fields)}",
+            output={"filled_count": len(mapped_fields)},
+            db=db,
+        )
         create_log(
             task_id=task.id,
             step=step + 1,
@@ -855,6 +918,15 @@ async def fill_task_form(
         db.rollback()
         task = get_task_or_404(task_id, db)
         task.status = "FAILED"
+        write_checkpoint(
+            task_id=task.id,
+            stage=WORKFLOW_STAGE_FILL,
+            status=CHECKPOINT_FAILED,
+            input_hash=f"{task.id}:{len(mapped_fields)}",
+            failure_reason=FAILURE_BROWSER_FILL_FAILED,
+            error_message=str(exc),
+            db=db,
+        )
         create_log(
             task_id=task.id,
             step=get_next_log_step(task.id, db),
