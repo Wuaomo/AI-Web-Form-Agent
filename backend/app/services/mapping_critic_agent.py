@@ -27,6 +27,7 @@ def run_mapping_critic_review(db: Session, task: Task, review_input: dict) -> di
 
     issues = []
     warnings = []
+    items = []
     fields = review_input.get("form_fields", [])
 
     required_fields = [f for f in fields if f.get("required")]
@@ -34,13 +35,17 @@ def run_mapping_critic_review(db: Session, task: Task, review_input: dict) -> di
     
     if len(mapped_required_fields) < len(required_fields):
         missing_count = len(required_fields) - len(mapped_required_fields)
-        issues.append(f"{missing_count} required field(s) not mapped")
+        issue_text = f"{missing_count} required field(s) not mapped"
+        issues.append(issue_text)
+        items.append({"type": "issue", "message": issue_text})
 
     for field in fields:
         confidence = field.get("confidence")
         if confidence is not None and confidence < 0.75:
             label = field.get("label") or field.get("selector", "unknown field")
-            warnings.append(f"Low confidence mapping ({confidence:.2f}) for: {label}")
+            warning_text = f"Low confidence mapping ({confidence:.2f}) for: {label}"
+            warnings.append(warning_text)
+            items.append({"type": "warning", "message": warning_text, "field_label": label, "confidence": confidence})
 
         mapped_key = field.get("mapped_profile_key")
         if mapped_key:
@@ -48,14 +53,20 @@ def run_mapping_critic_review(db: Session, task: Task, review_input: dict) -> di
             if mapped_value is None or mapped_value == "":
                 label = field.get("label") or field.get("selector", "unknown field")
                 if field.get("required"):
-                    issues.append(f"Required field has empty mapped value: {label}")
+                    issue_text = f"Required field has empty mapped value: {label}"
+                    issues.append(issue_text)
+                    items.append({"type": "issue", "message": issue_text, "field_label": label})
                 else:
-                    warnings.append(f"Optional field has empty mapped value: {label}")
+                    warning_text = f"Optional field has empty mapped value: {label}"
+                    warnings.append(warning_text)
+                    items.append({"type": "warning", "message": warning_text, "field_label": label})
 
     profile_keys_used = [f["mapped_profile_key"] for f in fields if f.get("mapped_profile_key")]
     duplicate_keys = [k for k in set(profile_keys_used) if profile_keys_used.count(k) > 1]
     if duplicate_keys:
-        issues.append(f"Duplicate profile key mappings: {', '.join(duplicate_keys)}")
+        issue_text = f"Duplicate profile key mappings: {', '.join(duplicate_keys)}"
+        issues.append(issue_text)
+        items.append({"type": "issue", "message": issue_text, "duplicate_keys": duplicate_keys})
 
     if issues:
         decision = AGENT_DECISION_BLOCK if any("required" in issue.lower() for issue in issues) else AGENT_DECISION_REVIEW_REQUIRED
@@ -64,11 +75,22 @@ def run_mapping_critic_review(db: Session, task: Task, review_input: dict) -> di
     else:
         decision = AGENT_DECISION_PASS
 
+    confidence_score = min(1.0, max(0.5, 0.95 - len(issues) * 0.1 - len(warnings) * 0.05))
+
+    if decision == AGENT_DECISION_PASS:
+        summary = "All field mappings are valid and complete"
+    elif decision == AGENT_DECISION_BLOCK:
+        summary = f"Critical mapping issues detected: {len(issues)} issues"
+    else:
+        summary = f"Mapping review recommended: {len(warnings)} warnings"
+
     return {
         "decision": decision,
+        "summary": summary,
+        "items": items,
         "issues": issues,
         "warnings": warnings,
-        "confidence": min(1.0, max(0.5, 0.95 - len(issues) * 0.1 - len(warnings) * 0.05)),
+        "confidence": confidence_score,
         "role": "MAPPING_CRITIC",
         "model": None,
         "provider": None,

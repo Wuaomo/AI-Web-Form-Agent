@@ -27,12 +27,36 @@ from app.services.execution_verification_agent import run_execution_verification
 
 logger = logging.getLogger(__name__)
 
+AGENT_ROLE_TO_FUNCTION = {
+    AGENT_ROLE_MAPPING_CRITIC: run_mapping_critic_review,
+    AGENT_ROLE_SAFETY_REVIEW: run_safety_review,
+    AGENT_ROLE_EXECUTION_VERIFICATION: run_execution_verification_review,
+}
 
-def hash_input_data(data: dict) -> str:
-    """Return a SHA256 hash of the input data for caching purposes."""
+REQUIRED_AGENT_OUTPUT_KEYS = {"decision", "summary", "items"}
 
-    serialized = json.dumps(data, sort_keys=True, ensure_ascii=False)
+
+def build_agent_input_hash(payload: object) -> str:
+    """Return deterministic hash for agent input."""
+
+    serialized = json.dumps(payload, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def validate_agent_json(payload: object, required_keys: set[str] = REQUIRED_AGENT_OUTPUT_KEYS) -> dict[str, object]:
+    """Validate agent JSON output and return a dict.
+
+    Raises ValueError if required keys are missing.
+    """
+
+    if not isinstance(payload, dict):
+        raise ValueError("Agent output must be a dictionary")
+
+    missing_keys = required_keys - set(payload.keys())
+    if missing_keys:
+        raise ValueError(f"Missing required keys in agent output: {', '.join(missing_keys)}")
+
+    return payload
 
 
 def save_agent_review(
@@ -83,18 +107,20 @@ def get_agent_review_by_role(db: Session, task_id: int, role: str) -> Optional[A
     )
 
 
-def run_agent_reviews(db: Session, task: Task) -> dict[str, AgentReview]:
-    """Run all agent reviews in sequence and return results.
+def run_agent_review_sequence(task_id: int, db: Session, roles: list[str]) -> list[AgentReview]:
+    """Run selected review agents in fixed order.
 
-    Agents are called in a fixed order:
-    1. Mapping Critic - reviews field-to-profile mappings
-    2. Safety Review - checks for sensitive data handling
-    3. Execution Verification - validates form filling execution
-
-    Each agent returns a strict JSON decision that is validated before persistence.
+    Agents are executed in the order specified in the roles list.
+    Each agent's output is validated for required keys (decision, summary, items).
+    Invalid JSON becomes REVIEW_REQUIRED with evidence of the validation failure.
+    Coordinator persists every accepted decision.
     """
 
-    results = {}
+    task = db.get(Task, task_id)
+    if not task:
+        raise ValueError(f"Task {task_id} not found")
+
+    results = []
     review_input = {
         "task_id": task.id,
         "url": task.url,
@@ -115,52 +141,77 @@ def run_agent_reviews(db: Session, task: Task) -> dict[str, AgentReview]:
         ],
     }
 
-    mapping_review = run_mapping_critic_review(db, task, review_input)
-    if mapping_review:
-        input_hash = hash_input_data(review_input)
-        saved_review = save_agent_review(
-            db,
-            task.id,
-            AGENT_ROLE_MAPPING_CRITIC,
-            mapping_review["decision"],
-            input_hash,
-            json.dumps(mapping_review, ensure_ascii=False),
-            mapping_review.get("model"),
-            mapping_review.get("provider"),
-        )
-        results[AGENT_ROLE_MAPPING_CRITIC] = saved_review
+    input_hash = build_agent_input_hash(review_input)
 
-    safety_review = run_safety_review(db, task, review_input)
-    if safety_review:
-        input_hash = hash_input_data(review_input)
-        saved_review = save_agent_review(
-            db,
-            task.id,
-            AGENT_ROLE_SAFETY_REVIEW,
-            safety_review["decision"],
-            input_hash,
-            json.dumps(safety_review, ensure_ascii=False),
-            safety_review.get("model"),
-            safety_review.get("provider"),
-        )
-        results[AGENT_ROLE_SAFETY_REVIEW] = saved_review
+    for role in roles:
+        if role not in AGENT_ROLE_TO_FUNCTION:
+            logger.warning(f"Unknown agent role: {role}, skipping")
+            continue
 
-    execution_review = run_execution_verification_review(db, task, review_input)
-    if execution_review:
-        input_hash = hash_input_data(review_input)
-        saved_review = save_agent_review(
-            db,
-            task.id,
-            AGENT_ROLE_EXECUTION_VERIFICATION,
-            execution_review["decision"],
-            input_hash,
-            json.dumps(execution_review, ensure_ascii=False),
-            execution_review.get("model"),
-            execution_review.get("provider"),
-        )
-        results[AGENT_ROLE_EXECUTION_VERIFICATION] = saved_review
+        agent_function = AGENT_ROLE_TO_FUNCTION[role]
+
+        try:
+            agent_output = agent_function(db, task, review_input)
+
+            validated_output = validate_agent_json(agent_output)
+
+            decision = validated_output["decision"]
+            if decision not in {AGENT_DECISION_PASS, AGENT_DECISION_REVIEW_REQUIRED, AGENT_DECISION_BLOCK}:
+                raise ValueError(f"Invalid decision value: {decision}")
+
+            saved_review = save_agent_review(
+                db,
+                task.id,
+                role,
+                decision,
+                input_hash,
+                json.dumps(validated_output, ensure_ascii=False),
+                validated_output.get("model"),
+                validated_output.get("provider"),
+            )
+            results.append(saved_review)
+
+        except Exception as exc:
+            logger.error(f"Agent {role} failed: {exc}")
+
+            failure_output = {
+                "decision": AGENT_DECISION_REVIEW_REQUIRED,
+                "summary": f"Agent {role} validation failed",
+                "items": [{"error": str(exc)}],
+                "role": role,
+                "model": None,
+                "provider": None,
+            }
+
+            saved_review = save_agent_review(
+                db,
+                task.id,
+                role,
+                AGENT_DECISION_REVIEW_REQUIRED,
+                input_hash,
+                json.dumps(failure_output, ensure_ascii=False),
+                None,
+                None,
+            )
+            results.append(saved_review)
 
     return results
+
+
+def run_agent_reviews(db: Session, task: Task) -> dict[str, AgentReview]:
+    """Run all agent reviews in sequence and return results.
+
+    Agents are called in a fixed order:
+    1. Mapping Critic - reviews field-to-profile mappings
+    2. Safety Review - checks for sensitive data handling
+    3. Execution Verification - validates form filling execution
+
+    Each agent returns a strict JSON decision that is validated before persistence.
+    """
+
+    roles = [AGENT_ROLE_MAPPING_CRITIC, AGENT_ROLE_SAFETY_REVIEW, AGENT_ROLE_EXECUTION_VERIFICATION]
+    results = run_agent_review_sequence(task.id, db, roles)
+    return {review.role: review for review in results}
 
 
 def has_blocking_review(db: Session, task_id: int) -> bool:

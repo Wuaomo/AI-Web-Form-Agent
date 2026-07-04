@@ -31,6 +31,7 @@ def run_execution_verification_review(db: Session, task: Task, review_input: dic
 
     issues = []
     warnings = []
+    items = []
 
     verification_results = (
         db.query(FieldVerificationResult)
@@ -39,7 +40,9 @@ def run_execution_verification_review(db: Session, task: Task, review_input: dic
     )
 
     if not verification_results:
-        warnings.append("No verification results found for this task")
+        warning_text = "No verification results found for this task"
+        warnings.append(warning_text)
+        items.append({"type": "warning", "message": warning_text})
 
     failed_results = [r for r in verification_results if r.status == VERIFICATION_STATUS_FAILED]
     verified_results = [r for r in verification_results if r.status == VERIFICATION_STATUS_VERIFIED]
@@ -47,14 +50,20 @@ def run_execution_verification_review(db: Session, task: Task, review_input: dic
 
     if failed_results:
         for result in failed_results:
-            issues.append(f"Field verification failed: selector={result.selector}, reason={result.reason}")
+            issue_text = f"Field verification failed: selector={result.selector}, reason={result.reason}"
+            issues.append(issue_text)
+            items.append({"type": "issue", "message": issue_text, "selector": result.selector, "reason": result.reason})
 
     if skipped_results:
         for result in skipped_results:
             if result.reason == "SENSITIVE_FIELD_SKIPPED":
-                warnings.append(f"Sensitive field skipped: selector={result.selector}")
+                warning_text = f"Sensitive field skipped: selector={result.selector}"
+                warnings.append(warning_text)
+                items.append({"type": "warning", "message": warning_text, "selector": result.selector, "reason": result.reason})
             else:
-                warnings.append(f"Field verification skipped: selector={result.selector}, reason={result.reason}")
+                warning_text = f"Field verification skipped: selector={result.selector}, reason={result.reason}"
+                warnings.append(warning_text)
+                items.append({"type": "warning", "message": warning_text, "selector": result.selector, "reason": result.reason})
 
     fields = review_input.get("form_fields", [])
     fillable_fields = [f for f in fields if f.get("field_type") not in {"button", "file", "submit", "reset", "image"}]
@@ -62,7 +71,9 @@ def run_execution_verification_review(db: Session, task: Task, review_input: dic
 
     if verification_results and len(verified_results) < len(mapped_fields):
         missing_verification = len(mapped_fields) - len(verified_results)
-        warnings.append(f"{missing_verification} mapped field(s) not verified")
+        warning_text = f"{missing_verification} mapped field(s) not verified"
+        warnings.append(warning_text)
+        items.append({"type": "warning", "message": warning_text, "missing_count": missing_verification})
 
     if issues:
         decision = AGENT_DECISION_BLOCK
@@ -73,13 +84,22 @@ def run_execution_verification_review(db: Session, task: Task, review_input: dic
 
     verification_count = len(verification_results)
     verified_count = len(verified_results)
-    confidence = 0.5 if verification_count == 0 else min(1.0, verified_count / max(1, verification_count))
+    confidence_score = 0.5 if verification_count == 0 else min(1.0, verified_count / max(1, verification_count))
+
+    if decision == AGENT_DECISION_PASS:
+        summary = f"All {verified_count} fields verified successfully"
+    elif decision == AGENT_DECISION_BLOCK:
+        summary = f"Verification failed: {len(failed_results)} field(s) failed"
+    else:
+        summary = f"Verification review recommended: {len(warnings)} warnings"
 
     return {
         "decision": decision,
+        "summary": summary,
+        "items": items,
         "issues": issues,
         "warnings": warnings,
-        "confidence": confidence,
+        "confidence": confidence_score,
         "verification_summary": {
             "total": verification_count,
             "verified": verified_count,
