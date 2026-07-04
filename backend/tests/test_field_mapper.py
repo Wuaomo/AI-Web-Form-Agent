@@ -708,6 +708,8 @@ class LLMFieldMapperTests(unittest.TestCase):
         self.assertTrue(usage_log.cache_hit)
 
     def test_deepseek_request_records_error_on_exception(self) -> None:
+        self._add_field(label="Contact Email", selector="#contact-email")
+
         with (
             patch("app.services.field_mapper.config.DEEPSEEK_API_KEY", "test-key"),
             patch(
@@ -715,19 +717,17 @@ class LLMFieldMapperTests(unittest.TestCase):
                 side_effect=TimeoutError("API timeout"),
             ),
         ):
-            with self.assertRaises(TimeoutError):
-                _request_deepseek_mapping(
-                    "Map this field",
-                    task_id=self.task_id,
-                    db=self.db,
-                )
+            result = map_fields_with_llm_result(self.task_id, self.db, provider="deepseek")
 
-        usage_log = self.db.scalar(
+        self.assertTrue(result.used_fallback)
+
+        usage_logs = self.db.scalars(
             select(LlmApiUsageLog).where(
                 LlmApiUsageLog.task_id == self.task_id
             )
-        )
-        self.assertIsNotNone(usage_log)
+        ).all()
+        self.assertEqual(len(usage_logs), 1)
+        usage_log = usage_logs[0]
         self.assertEqual(usage_log.error_type, "TimeoutError")
         self.assertTrue(usage_log.fallback_used)
         self.assertGreaterEqual(usage_log.latency_ms, 0)

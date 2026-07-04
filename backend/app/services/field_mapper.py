@@ -741,12 +741,67 @@ def _record_deepseek_error(
         record_llm_api_usage(task_id=task_id, usage=usage, db=db)
 
 
-def _request_openai_mapping(prompt: str) -> str:
+def _extract_openai_usage(response: dict[str, object], latency_ms: int = 0) -> dict[str, object]:
+    """Build internal token metrics from OpenAI's usage payload."""
+
+    usage = response.get("usage")
+    if not isinstance(usage, dict):
+        return {
+            "provider": "openai",
+            "model": config.OPENAI_MODEL,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 0,
+            "cache_hit": False,
+            "cache_hit_rate": 0.0,
+            "latency_ms": latency_ms,
+            "cache_source": "no_cache",
+        }
+
+    prompt_tokens = _usage_int(usage, "prompt_tokens") or 0
+    completion_tokens = _usage_int(usage, "completion_tokens") or 0
+    total_tokens = _usage_int(usage, "total_tokens")
+    cache_hit_tokens = _usage_int(usage, "prompt_cache_hit_tokens") or 0
+    cache_miss_tokens = _usage_int(usage, "prompt_cache_miss_tokens")
+
+    if total_tokens is None:
+        total_tokens = prompt_tokens + completion_tokens
+    if cache_miss_tokens is None:
+        cache_miss_tokens = max(prompt_tokens - cache_hit_tokens, 0)
+
+    cache_hit = cache_hit_tokens > 0
+    cache_hit_rate = cache_hit_tokens / prompt_tokens if prompt_tokens else 0
+
+    cache_source = "provider_prompt_cache" if cache_hit else "no_cache"
+
+    return {
+        "provider": "openai",
+        "model": config.OPENAI_MODEL,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "cache_hit_tokens": cache_hit_tokens,
+        "cache_miss_tokens": cache_miss_tokens,
+        "cache_hit": cache_hit,
+        "cache_hit_rate": cache_hit_rate,
+        "latency_ms": latency_ms,
+        "cache_source": cache_source,
+    }
+
+
+def _request_openai_mapping(
+    prompt: str,
+    task_id: int | None = None,
+    db: Session | None = None,
+) -> str:
     """Request schema-constrained JSON from the OpenAI Responses API."""
 
     if not config.OPENAI_API_KEY:
         raise RuntimeError("OPENAI_API_KEY is not configured")
 
+    start_time = time.perf_counter()
     response = _post_json(
         "https://api.openai.com/v1/responses",
         {
@@ -766,15 +821,63 @@ def _request_openai_mapping(prompt: str) -> str:
         },
         {"Authorization": f"Bearer {config.OPENAI_API_KEY}"},
     )
+    latency_ms = int((time.perf_counter() - start_time) * 1000)
+    usage = _extract_openai_usage(response, latency_ms=latency_ms)
+    logger.info("OpenAI API usage: %s", json.dumps(usage, ensure_ascii=False))
+    if task_id is not None:
+        record_llm_api_usage(task_id=task_id, usage=usage, db=db)
     return _extract_openai_output_text(response)
 
 
-def _request_gemini_mapping(prompt: str) -> str:
+def _extract_gemini_usage(response: dict[str, object], latency_ms: int = 0) -> dict[str, object]:
+    """Build internal token metrics from Gemini's usage payload."""
+
+    prompt_tokens = 0
+    completion_tokens = 0
+    cache_hit_tokens = 0
+
+    try:
+        candidates = response.get("candidates")
+        if isinstance(candidates, list) and len(candidates) > 0:
+            usage_metadata = candidates[0].get("usageMetadata")
+            if isinstance(usage_metadata, dict):
+                prompt_tokens = _usage_int(usage_metadata, "promptTokenCount") or 0
+                completion_tokens = _usage_int(usage_metadata, "candidatesTokenCount") or 0
+    except (KeyError, IndexError, TypeError):
+        pass
+
+    total_tokens = prompt_tokens + completion_tokens
+    cache_miss_tokens = max(prompt_tokens - cache_hit_tokens, 0)
+    cache_hit = cache_hit_tokens > 0
+    cache_hit_rate = cache_hit_tokens / prompt_tokens if prompt_tokens else 0
+    cache_source = "provider_prompt_cache" if cache_hit else "no_cache"
+
+    return {
+        "provider": "gemini",
+        "model": config.GEMINI_MODEL,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "cache_hit_tokens": cache_hit_tokens,
+        "cache_miss_tokens": cache_miss_tokens,
+        "cache_hit": cache_hit,
+        "cache_hit_rate": cache_hit_rate,
+        "latency_ms": latency_ms,
+        "cache_source": cache_source,
+    }
+
+
+def _request_gemini_mapping(
+    prompt: str,
+    task_id: int | None = None,
+    db: Session | None = None,
+) -> str:
     """Request schema-constrained JSON from Gemini generateContent."""
 
     if not config.GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY is not configured")
 
+    start_time = time.perf_counter()
     response = _post_json(
         (
             "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -789,6 +892,11 @@ def _request_gemini_mapping(prompt: str) -> str:
         },
         {"x-goog-api-key": config.GEMINI_API_KEY},
     )
+    latency_ms = int((time.perf_counter() - start_time) * 1000)
+    usage = _extract_gemini_usage(response, latency_ms=latency_ms)
+    logger.info("Gemini API usage: %s", json.dumps(usage, ensure_ascii=False))
+    if task_id is not None:
+        record_llm_api_usage(task_id=task_id, usage=usage, db=db)
 
     try:
         return response["candidates"][0]["content"]["parts"][0]["text"]
@@ -811,46 +919,34 @@ def _request_deepseek_mapping(
         config.DEEPSEEK_MODEL,
     )
     start_time = time.perf_counter()
-    try:
-        response = _post_json(
-            "https://api.deepseek.com/chat/completions",
-            {
-                "model": config.DEEPSEEK_MODEL,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You map form fields to profile keys. Output valid JSON "
-                            "only, using this shape: "
-                            '{"mappings":[{"field_id":1,'
-                            '"mapped_profile_key":"email","confidence":0.9}]}.'
-                        ),
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                "response_format": {"type": "json_object"},
-                "thinking": {"type": "disabled"},
-                "max_tokens": 2000,
-                "stream": False,
-            },
-            {"Authorization": f"Bearer {config.DEEPSEEK_API_KEY}"},
-        )
-        latency_ms = int((time.perf_counter() - start_time) * 1000)
-        _record_deepseek_usage(response, task_id=task_id, db=db, latency_ms=latency_ms)
-        output_text = _extract_chat_completion_output_text(response, "DeepSeek")
-        logger.warning("DeepSeek mapping API returned output text")
-        return output_text
-    except Exception as exc:
-        latency_ms = int((time.perf_counter() - start_time) * 1000)
-        _record_deepseek_error(
-            provider="deepseek",
-            model=config.DEEPSEEK_MODEL,
-            task_id=task_id,
-            db=db,
-            error_type=type(exc).__name__,
-            latency_ms=latency_ms,
-        )
-        raise
+    response = _post_json(
+        "https://api.deepseek.com/chat/completions",
+        {
+            "model": config.DEEPSEEK_MODEL,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You map form fields to profile keys. Output valid JSON "
+                        "only, using this shape: "
+                        '{"mappings":[{"field_id":1,'
+                        '"mapped_profile_key":"email","confidence":0.9}]}.'
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            "response_format": {"type": "json_object"},
+            "thinking": {"type": "disabled"},
+            "max_tokens": 2000,
+            "stream": False,
+        },
+        {"Authorization": f"Bearer {config.DEEPSEEK_API_KEY}"},
+    )
+    latency_ms = int((time.perf_counter() - start_time) * 1000)
+    _record_deepseek_usage(response, task_id=task_id, db=db, latency_ms=latency_ms)
+    output_text = _extract_chat_completion_output_text(response, "DeepSeek")
+    logger.warning("DeepSeek mapping API returned output text")
+    return output_text
 
 
 def _request_llm_mapping(
@@ -863,9 +959,9 @@ def _request_llm_mapping(
 
     selected_provider = resolve_llm_provider(provider)
     if selected_provider == "openai":
-        return _request_openai_mapping(prompt)
+        return _request_openai_mapping(prompt, task_id=task_id, db=db)
     if selected_provider == "gemini":
-        return _request_gemini_mapping(prompt)
+        return _request_gemini_mapping(prompt, task_id=task_id, db=db)
     if selected_provider == "deepseek":
         return _request_deepseek_mapping(prompt, task_id=task_id, db=db)
     raise ValueError("LLM_PROVIDER must be 'openai', 'gemini', or 'deepseek'")
@@ -1010,6 +1106,7 @@ def _map_fields_with_llm_result(
     )
     profile = _profile_payload(task)
     selected_provider: str | None = None
+    start_time = time.perf_counter()
 
     try:
         try:
@@ -1090,6 +1187,7 @@ def _map_fields_with_llm_result(
         )
         return LlmMappingResult(fields=mapped_fields, used_fallback=False)
     except Exception as exc:
+        latency_ms = int((time.perf_counter() - start_time) * 1000)
         db.rollback()
         logger.warning(
             "LLM mapping failed for task %s; using rules: %s",
@@ -1114,7 +1212,7 @@ def _map_fields_with_llm_result(
                 "cache_miss_tokens": 0,
                 "cache_hit": False,
                 "cache_hit_rate": 0.0,
-                "latency_ms": 0,
+                "latency_ms": latency_ms,
                 "error_type": type(exc).__name__,
                 "fallback_used": True,
                 "cache_source": "no_cache",
