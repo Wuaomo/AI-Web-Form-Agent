@@ -2,10 +2,13 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
+
+	"ai-web-form-agent-metrics/metrics"
 )
+
+var aggregator = metrics.NewAggregator()
 
 func main() {
 	http.HandleFunc("/health", healthHandler)
@@ -19,13 +22,13 @@ func main() {
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, `{"status":"ok"}`)
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 func metricsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, `{}`)
+	json.NewEncoder(w).Encode(aggregator.Snapshot())
 }
 
 func eventsHandler(w http.ResponseWriter, r *http.Request) {
@@ -34,10 +37,13 @@ func eventsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var event map[string]interface{}
+	var event metrics.Event
 	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
 		log.Printf("Error parsing event: %v", err)
+		w.WriteHeader(http.StatusBadRequest)
+		return
 	}
 
+	aggregator.Record(event)
 	w.WriteHeader(http.StatusAccepted)
 }

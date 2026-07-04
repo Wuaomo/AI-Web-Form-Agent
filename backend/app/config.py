@@ -59,3 +59,5 @@ LLM_PROVIDER_DETAILS = {
         "model_env": "DEEPSEEK_MODEL",
     },
 }
+
+METRICS_SIDECAR_URL = os.getenv("METRICS_SIDECAR_URL", "")
