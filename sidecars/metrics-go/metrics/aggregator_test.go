@@ -23,9 +23,9 @@ func TestRecordEventIncrementsTotal(t *testing.T) {
 func TestJobTypeCountsIncrement(t *testing.T) {
 	agg := NewAggregator()
 
-	agg.Record(Event{EventType: "job_succeeded", JobType: "MAP_FIELDS"})
-	agg.Record(Event{EventType: "job_succeeded", JobType: "FILL_FORM"})
-	agg.Record(Event{EventType: "job_succeeded", JobType: "MAP_FIELDS"})
+	agg.Record(Event{EventType: "job_enqueued", JobType: "MAP_FIELDS"})
+	agg.Record(Event{EventType: "job_enqueued", JobType: "FILL_FORM"})
+	agg.Record(Event{EventType: "job_enqueued", JobType: "MAP_FIELDS"})
 
 	snapshot := agg.Snapshot()
 
@@ -131,5 +131,31 @@ func TestEmptySnapshot(t *testing.T) {
 	}
 	if snapshot.RetryCount != 0 {
 		t.Errorf("Expected retry count 0, got %d", snapshot.RetryCount)
+	}
+}
+
+func TestJobsByTypeCountsOnlyOnEnqueued(t *testing.T) {
+	agg := NewAggregator()
+
+	agg.Record(Event{EventType: "job_enqueued", JobType: "MAP_FIELDS"})
+	agg.Record(Event{EventType: "job_started", JobType: "MAP_FIELDS"})
+	agg.Record(Event{EventType: "job_succeeded", JobType: "MAP_FIELDS"})
+
+	snapshot := agg.Snapshot()
+
+	if snapshot.JobsByType["MAP_FIELDS"] != 1 {
+		t.Errorf("Expected MAP_FIELDS count 1 (only from job_enqueued), got %d", snapshot.JobsByType["MAP_FIELDS"])
+	}
+}
+
+func TestCheckpointWrittenDoesNotIncrementJobsByType(t *testing.T) {
+	agg := NewAggregator()
+
+	agg.Record(Event{EventType: "checkpoint_written", JobType: "ANALYSIS"})
+
+	snapshot := agg.Snapshot()
+
+	if _, exists := snapshot.JobsByType["ANALYSIS"]; exists {
+		t.Errorf("Expected JobsByType to not contain 'ANALYSIS' from checkpoint_written event")
 	}
 }

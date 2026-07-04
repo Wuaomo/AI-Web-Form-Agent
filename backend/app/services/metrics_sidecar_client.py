@@ -1,8 +1,9 @@
+import json
 import logging
 import os
+import urllib.error
+import urllib.request
 from typing import Any
-
-import requests
 
 logger = logging.getLogger(__name__)
 
@@ -21,12 +22,16 @@ def emit_metrics_event(event: dict[str, Any]) -> bool:
         return False
 
     try:
-        response = requests.post(
-            f"{sidecar_url}/events",
-            json=event,
-            timeout=0.5,
+        url = f"{sidecar_url.rstrip('/')}/events"
+        data = json.dumps(event).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
         )
-        return response.status_code == 202
+        with urllib.request.urlopen(req, timeout=0.5) as response:
+            return response.getcode() == 202
     except Exception as e:
         logger.warning("Failed to emit metrics event: %s", str(e))
         return False

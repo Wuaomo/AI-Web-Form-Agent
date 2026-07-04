@@ -45,12 +45,14 @@ def execute_job(db: Session, job: Job) -> None:
     """
 
     started_at = time.monotonic()
+    worker_id = job.locked_by or ""
+
     emit_metrics_event({
         "event_type": "job_started",
         "task_id": job.task_id or 0,
         "job_id": job.id,
         "job_type": job.job_type,
-        "worker_id": job.locked_by or "",
+        "worker_id": worker_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
 
@@ -75,7 +77,7 @@ def execute_job(db: Session, job: Job) -> None:
             "job_id": job.id,
             "job_type": job.job_type,
             "duration_ms": duration_ms,
-            "worker_id": job.locked_by or "",
+            "worker_id": worker_id,
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
 
@@ -87,7 +89,7 @@ def execute_job(db: Session, job: Job) -> None:
             error_message=str(exc),
             retry=True,
         )
-        _emit_failure_event(job, started_at, is_retry=True)
+        _emit_failure_event(job, started_at, is_retry=True, worker_id=worker_id)
     except Exception as exc:
         error_reason = _get_error_reason(job.job_type, exc)
         mark_job_failed(
@@ -97,7 +99,7 @@ def execute_job(db: Session, job: Job) -> None:
             error_message=str(exc),
             retry=False,
         )
-        _emit_failure_event(job, started_at, is_retry=False)
+        _emit_failure_event(job, started_at, is_retry=False, worker_id=worker_id)
 
 
 def run_worker_once(db: Session, worker_id: str, allowed_job_types: set[str] | None = None) -> bool:
@@ -131,13 +133,14 @@ def run_worker_once(db: Session, worker_id: str, allowed_job_types: set[str] | N
         record_worker_heartbeat(db=db, worker_id=worker_id, current_job_id=None, status="idle")
 
 
-def _emit_failure_event(job: Job, started_at: float, is_retry: bool) -> None:
+def _emit_failure_event(job: Job, started_at: float, is_retry: bool, worker_id: str) -> None:
     """Emit a job_failed or job_retry_scheduled metrics event.
 
     Args:
         job: The job that failed
         started_at: Monotonic timestamp when the job started
         is_retry: Whether the failure will be retried
+        worker_id: The worker ID that executed the job
     """
 
     duration_ms = int((time.monotonic() - started_at) * 1000)
@@ -148,7 +151,7 @@ def _emit_failure_event(job: Job, started_at: float, is_retry: bool) -> None:
         "job_id": job.id,
         "job_type": job.job_type,
         "duration_ms": duration_ms,
-        "worker_id": job.locked_by or "",
+        "worker_id": worker_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
 

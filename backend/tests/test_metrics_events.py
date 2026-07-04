@@ -1,6 +1,7 @@
 """Tests for metrics event emission at workflow boundaries."""
 
 import pytest
+import urllib.error
 from unittest.mock import patch, MagicMock
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -92,6 +93,7 @@ def test_successful_job_emits_started_and_succeeded_events(db_session):
     assert succeeded_event["task_id"] == task_id
     assert succeeded_event["job_id"] == job.id
     assert succeeded_event["job_type"] == JOB_TYPE_ANALYZE_FORM
+    assert succeeded_event["worker_id"] == "worker-test-1"
     assert "duration_ms" in succeeded_event
 
 
@@ -132,6 +134,7 @@ def test_failed_job_emits_failed_event(db_session):
     assert failed_event["task_id"] == task_id
     assert failed_event["job_id"] == job.id
     assert failed_event["job_type"] == JOB_TYPE_ANALYZE_FORM
+    assert failed_event["worker_id"] == "worker-test-1"
     assert "duration_ms" in failed_event
 
 
@@ -163,6 +166,12 @@ def test_retryable_job_emits_retry_scheduled_event(db_session):
 
     event_types = [call.args[0]["event_type"] for call in mock_emit.call_args_list]
     assert "job_retry_scheduled" in event_types
+
+    retry_event = next(
+        call.args[0] for call in mock_emit.call_args_list
+        if call.args[0]["event_type"] == "job_retry_scheduled"
+    )
+    assert retry_event["worker_id"] == "worker-test-1"
 
 
 def test_checkpoint_write_emits_checkpoint_event(db_session):
@@ -216,7 +225,6 @@ def test_sidecar_failure_does_not_fail_job(db_session):
     """Verify sidecar failure does not propagate to job execution."""
 
     from app.services.job_worker import execute_job
-    import requests
 
     db, task_id = db_session
 
@@ -232,7 +240,7 @@ def test_sidecar_failure_does_not_fail_job(db_session):
     db.commit()
 
     with patch("app.services.job_worker._execute_analyze_stage") as mock_analyze, \
-         patch("app.services.metrics_sidecar_client.requests.post", side_effect=requests.exceptions.RequestException("sidecar down")), \
+         patch("app.services.metrics_sidecar_client.urllib.request.urlopen", side_effect=urllib.error.URLError("sidecar down")), \
          patch("os.getenv", return_value="http://localhost:9100"):
         mock_analyze.return_value = None
         execute_job(db=db, job=job)

@@ -57,7 +57,7 @@ func TestMetricsEndpoint(t *testing.T) {
 func TestEventsEndpointPost(t *testing.T) {
 	aggregator = metrics.NewAggregator()
 
-	eventBody := `{"event_type":"job_succeeded","task_id":55,"job_id":101,"job_type":"MAP_FIELDS","duration_ms":1200,"worker_id":"worker-local-1","created_at":"2026-07-03T10:00:00Z"}`
+	eventBody := `{"event_type":"job_enqueued","task_id":55,"job_id":101,"job_type":"MAP_FIELDS","duration_ms":0,"worker_id":"worker-local-1","created_at":"2026-07-03T10:00:00Z"}`
 
 	req, err := http.NewRequest("POST", "/events", bytes.NewBufferString(eventBody))
 	if err != nil {

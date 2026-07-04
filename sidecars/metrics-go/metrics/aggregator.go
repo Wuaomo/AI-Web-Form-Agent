@@ -58,6 +58,9 @@ func (a *Aggregator) Record(event Event) {
 	switch event.EventType {
 	case "job_enqueued":
 		a.jobsByStatus["enqueued"]++
+		if event.JobType != "" {
+			a.jobsByType[event.JobType]++
+		}
 	case "job_started":
 		a.jobsByStatus["started"]++
 	case "job_succeeded":
@@ -71,16 +74,12 @@ func (a *Aggregator) Record(event Event) {
 		a.jobsByStatus["checkpoint_written"]++
 	}
 
-	if event.JobType != "" {
-		a.jobsByType[event.JobType]++
-
-		if event.DurationMS > 0 {
-			stats := a.avgDurationByJobType[event.JobType]
-			stats.Total += event.DurationMS
-			stats.Count++
-			stats.Avg = stats.Total / stats.Count
-			a.avgDurationByJobType[event.JobType] = stats
-		}
+	if event.JobType != "" && event.DurationMS > 0 {
+		stats := a.avgDurationByJobType[event.JobType]
+		stats.Total += event.DurationMS
+		stats.Count++
+		stats.Avg = stats.Total / stats.Count
+		a.avgDurationByJobType[event.JobType] = stats
 	}
 
 	if event.WorkerID != "" {
