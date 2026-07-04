@@ -92,6 +92,7 @@ class Task(Base):
     )
     checkpoints: Mapped[list["TaskCheckpoint"]] = relationship(back_populates="task")
     jobs: Mapped[list["Job"]] = relationship(back_populates="task")
+    verification_results: Mapped[list["FieldVerificationResult"]] = relationship(back_populates="task")
 
 
 class FormField(Base):
@@ -468,3 +469,35 @@ class WorkerHeartbeat(Base):
     current_job_id: Mapped[Optional[int]] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(50), nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+VERIFICATION_STATUS_VERIFIED = "VERIFIED"
+VERIFICATION_STATUS_PARTIAL = "PARTIAL"
+VERIFICATION_STATUS_FAILED = "FAILED"
+VERIFICATION_STATUS_SKIPPED = "SKIPPED"
+
+VERIFICATION_REASON_SELECTOR_NOT_FOUND = "SELECTOR_NOT_FOUND"
+VERIFICATION_REASON_VALUE_MISMATCH = "VALUE_MISMATCH"
+VERIFICATION_REASON_OPTION_NOT_SELECTED = "OPTION_NOT_SELECTED"
+VERIFICATION_REASON_FIELD_DISABLED = "FIELD_DISABLED"
+VERIFICATION_REASON_SENSITIVE_FIELD_SKIPPED = "SENSITIVE_FIELD_SKIPPED"
+VERIFICATION_REASON_PAGE_NAVIGATED_UNEXPECTEDLY = "PAGE_NAVIGATED_UNEXPECTEDLY"
+
+
+class FieldVerificationResult(Base):
+    """Post-fill verification result for one form field."""
+
+    __tablename__ = "field_verification_results"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), nullable=False)
+    field_id: Mapped[Optional[int]] = mapped_column(Integer)
+    selector: Mapped[str] = mapped_column(String(1000), nullable=False)
+    expected_value_hash: Mapped[Optional[str]] = mapped_column(String(64))
+    actual_value_hash: Mapped[Optional[str]] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    reason: Mapped[Optional[str]] = mapped_column(String(100))
+    message: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    task: Mapped["Task"] = relationship(back_populates="verification_results")
