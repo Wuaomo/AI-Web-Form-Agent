@@ -104,6 +104,11 @@ class LlmApiUsageLogResponse(BaseModel):
     cache_miss_tokens: int
     cache_hit: bool
     cache_hit_rate: float
+    latency_ms: int
+    error_type: str | None
+    fallback_used: bool
+    cache_source: str
+    estimated_cost: float
     created_at: datetime
 
 
@@ -118,6 +123,23 @@ class LlmUsageSummaryResponse(BaseModel):
     cache_hit_tokens: int
     cache_miss_tokens: int
     cache_hit_rate: float
+    average_latency_ms: int
+    p95_latency_ms: int
+    fallback_count: int
+    estimated_cost: float
+
+
+class ProviderLlmUsageSummaryResponse(BaseModel):
+    """Aggregated LLM usage for one provider-model combination."""
+
+    provider: str
+    model: str
+    request_count: int
+    average_latency_ms: int
+    p95_latency_ms: int
+    cache_hit_rate: float
+    fallback_count: int
+    estimated_cost: float
 
 
 class TaskLlmUsageResponse(BaseModel):

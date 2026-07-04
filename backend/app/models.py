@@ -189,6 +189,11 @@ class LlmApiUsageLog(Base):
     cache_miss_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
     cache_hit: Mapped[bool] = mapped_column(Boolean, nullable=False)
     cache_hit_rate: Mapped[float] = mapped_column(Float, nullable=False)
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    error_type: Mapped[Optional[str]] = mapped_column(String(100))
+    fallback_used: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    cache_source: Mapped[str] = mapped_column(String(50), default="no_cache", nullable=False)
+    estimated_cost: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     task: Mapped["Task"] = relationship(back_populates="llm_usage_logs")

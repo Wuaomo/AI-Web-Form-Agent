@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.schemas import LlmUsageSummaryResponse
-from app.services.llm_usage_service import summarize_llm_usage
+from app.schemas import LlmUsageSummaryResponse, ProviderLlmUsageSummaryResponse
+from app.services.llm_usage_service import summarize_llm_usage, summarize_llm_usage_by_provider
 
 router = APIRouter(prefix="/llm-usage", tags=["llm-usage"])
 
@@ -17,3 +17,12 @@ def get_llm_usage_summary(
     """Return aggregate LLM usage across all tasks."""
 
     return summarize_llm_usage(db)
+
+
+@router.get("/providers", response_model=list[ProviderLlmUsageSummaryResponse])
+def get_llm_usage_by_provider(
+    db: Session = Depends(get_db),
+) -> list[dict[str, str | int | float]]:
+    """Return aggregate LLM usage grouped by provider and model."""
+
+    return summarize_llm_usage_by_provider(db)
