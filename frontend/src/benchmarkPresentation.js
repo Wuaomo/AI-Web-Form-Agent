@@ -98,7 +98,54 @@ export function summarizeBenchmarkRun(run = {}) {
       (count, caseResult) => count + caseFailureCount(caseResult),
       0,
     ),
+    durationMs: run.duration_ms || 0,
+    regressionCount: run.regression_count || 0,
+    improvementCount: run.improvement_count || 0,
+    mode: run.mode || "rules",
+    provider: run.provider || null,
+    stressMode: run.mode_detail || null,
+    baselineRunId: run.baseline_run_id || null,
   };
+}
+
+export function formatDuration(durationMs) {
+  if (durationMs === null || durationMs === undefined || Number.isNaN(Number(durationMs))) {
+    return "N/A";
+  }
+  const ms = Number(durationMs);
+  if (ms >= 1000) {
+    return `${(ms / 1000).toFixed(1)}s`;
+  }
+  return `${Math.round(ms)}ms`;
+}
+
+export function formatRegressionStatus(regressionCount, improvementCount) {
+  if (regressionCount > 0 && improvementCount > 0) {
+    return `${improvementCount} improved, ${regressionCount} regressed`;
+  }
+  if (regressionCount > 0) {
+    return `${regressionCount} regressed`;
+  }
+  if (improvementCount > 0) {
+    return `${improvementCount} improved`;
+  }
+  return "No changes";
+}
+
+export function sortCaseResults(caseResults = []) {
+  return [...caseResults].sort((a, b) => {
+    const failuresA = caseFailureCount(a);
+    const failuresB = caseFailureCount(b);
+
+    if (failuresA > 0 && failuresB === 0) {
+      return -1;
+    }
+    if (failuresA === 0 && failuresB > 0) {
+      return 1;
+    }
+
+    return 0;
+  });
 }
 
 export function selectDefaultProviderId(providers = []) {

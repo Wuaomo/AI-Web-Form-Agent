@@ -1,12 +1,14 @@
 """Benchmark runner API endpoints."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
 from app.models import BenchmarkRun
 from app.schemas import BenchmarkRunRequest, BenchmarkRunResponse
+from app.services.benchmark_report_service import build_benchmark_markdown_report
 from app.services.benchmark_runner import run_benchmarks
 from app.services.llm_provider_config import (
     get_provider_setup_hint,
@@ -103,4 +105,24 @@ def get_benchmark_run(
             detail="Benchmark run not found",
         )
     return run
+
+
+@router.get("/runs/{run_id}/report", response_class=PlainTextResponse)
+def get_benchmark_report(
+    run_id: int,
+    db: Session = Depends(get_db),
+) -> str:
+    """Return a copyable Markdown report for one benchmark run."""
+
+    run = db.scalar(
+        select(BenchmarkRun)
+        .options(selectinload(BenchmarkRun.case_results))
+        .where(BenchmarkRun.id == run_id)
+    )
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Benchmark run not found",
+        )
+    return build_benchmark_markdown_report(run)
 

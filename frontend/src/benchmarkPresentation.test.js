@@ -5,12 +5,15 @@ import {
   benchmarkMetricOrder,
   caseFailureCount,
   failureReasonLabel,
+  formatDuration,
   formatMetricPercent,
   formatMetricValue,
+  formatRegressionStatus,
   metricEntries,
   normalizeFailureReason,
   selectDefaultProviderId,
   shouldDisableBenchmarkRun,
+  sortCaseResults,
   summaryMetricEntries,
   summarizeBenchmarkRun,
 } from "./benchmarkPresentation.js";
@@ -154,5 +157,67 @@ test("failureReasonLabel returns human-readable English labels for stable failur
   assert.equal(failureReasonLabel("field_not_extracted"), "Field not extracted");
   assert.equal(failureReasonLabel("action_field_should_skip"), "Action field should be skipped");
   assert.equal(failureReasonLabel("profile_key_mismatch"), "Wrong profile key");
+});
+
+test("formatDuration formats milliseconds correctly", () => {
+  assert.equal(formatDuration(500), "500ms");
+  assert.equal(formatDuration(1500), "1.5s");
+  assert.equal(formatDuration(0), "0ms");
+  assert.equal(formatDuration(null), "N/A");
+  assert.equal(formatDuration(undefined), "N/A");
+});
+
+test("formatRegressionStatus formats regression and improvement counts", () => {
+  assert.equal(formatRegressionStatus(0, 0), "No changes");
+  assert.equal(formatRegressionStatus(2, 0), "2 regressed");
+  assert.equal(formatRegressionStatus(0, 3), "3 improved");
+  assert.equal(formatRegressionStatus(1, 2), "2 improved, 1 regressed");
+});
+
+test("sortCaseResults sorts failed cases first", () => {
+  const cases = [
+    { id: 1, failures: [] },
+    { id: 2, failures: [{ selector: "#name" }] },
+    { id: 3, failures: [] },
+    { id: 4, failures: [{ selector: "#email" }, { selector: "#phone" }] },
+  ];
+
+  const sorted = sortCaseResults(cases);
+
+  assert.equal(sorted[0].id, 2);
+  assert.equal(sorted[1].id, 4);
+  assert.equal(sorted[2].id, 1);
+  assert.equal(sorted[3].id, 3);
+});
+
+test("summarizeBenchmarkRun includes duration and regression counts", () => {
+  const run = {
+    average_score: 0.75,
+    total_cases: 5,
+    duration_ms: 2500,
+    regression_count: 1,
+    improvement_count: 2,
+    mode: "llm",
+    provider: "openai",
+    mode_detail: "cache_warm",
+    baseline_run_id: 10,
+    case_results: [
+      { failures: [] },
+      { failures: [{ selector: "#email" }] },
+    ],
+  };
+
+  const summary = summarizeBenchmarkRun(run);
+
+  assert.equal(summary.averageScore, "75%");
+  assert.equal(summary.totalCases, 5);
+  assert.equal(summary.totalFailures, 1);
+  assert.equal(summary.durationMs, 2500);
+  assert.equal(summary.regressionCount, 1);
+  assert.equal(summary.improvementCount, 2);
+  assert.equal(summary.mode, "llm");
+  assert.equal(summary.provider, "openai");
+  assert.equal(summary.stressMode, "cache_warm");
+  assert.equal(summary.baselineRunId, 10);
 });
 

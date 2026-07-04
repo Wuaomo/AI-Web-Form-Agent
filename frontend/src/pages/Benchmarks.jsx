@@ -5,9 +5,12 @@ import Message from "../components/Message";
 import {
   caseFailureCount,
   failureReasonLabel,
+  formatDuration,
+  formatRegressionStatus,
   metricEntries,
   selectDefaultProviderId,
   shouldDisableBenchmarkRun,
+  sortCaseResults,
   summaryMetricEntries,
   summarizeBenchmarkRun,
 } from "../benchmarkPresentation";
@@ -21,6 +24,7 @@ function Benchmarks() {
   const [providersError, setProvidersError] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
 
   async function loadRuns() {
     setError("");
@@ -75,6 +79,18 @@ function Benchmarks() {
       setError(requestError.message);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function copyMarkdownReport() {
+    if (!selectedRun) return;
+    try {
+      const report = await api.getBenchmarkReport(selectedRun.id);
+      await navigator.clipboard.writeText(report);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (requestError) {
+      setError(requestError.message);
     }
   }
 
@@ -160,6 +176,18 @@ function Benchmarks() {
               <span>Failures</span>
               <strong>{summary.totalFailures}</strong>
             </div>
+            <div className="metric-card">
+              <span>Duration</span>
+              <strong>{formatDuration(selectedRun.duration_ms)}</strong>
+            </div>
+            <div className="metric-card">
+              <span>Regressions</span>
+              <strong>{selectedRun.regression_count || 0}</strong>
+            </div>
+            <div className="metric-card">
+              <span>Improvements</span>
+              <strong>{selectedRun.improvement_count || 0}</strong>
+            </div>
           </div>
 
           <div className="benchmark-layout">
@@ -180,7 +208,17 @@ function Benchmarks() {
 
             <div className="benchmark-detail">
               <div className="card">
-                <h3>Run configuration</h3>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+                  <h3>Run configuration</h3>
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    onClick={copyMarkdownReport}
+                    disabled={busy}
+                  >
+                    {copied ? "Copied!" : "Copy Markdown Report"}
+                  </button>
+                </div>
                 <dl className="metric-list">
                   <div>
                     <dt>Mode</dt>
@@ -192,6 +230,24 @@ function Benchmarks() {
                       <dd>{selectedRun.provider || selectedRun.provider_id || "—"}</dd>
                     </div>
                   )}
+                  {selectedRun.mode_detail && (
+                    <div>
+                      <dt>Stress Mode</dt>
+                      <dd>{selectedRun.mode_detail}</dd>
+                    </div>
+                  )}
+                  {selectedRun.baseline_run_id && (
+                    <div>
+                      <dt>Baseline Run</dt>
+                      <dd>#{selectedRun.baseline_run_id}</dd>
+                    </div>
+                  )}
+                  {selectedRun.regression_count > 0 || selectedRun.improvement_count > 0 ? (
+                    <div>
+                      <dt>Regression Status</dt>
+                      <dd>{formatRegressionStatus(selectedRun.regression_count, selectedRun.improvement_count)}</dd>
+                    </div>
+                  ) : null}
                 </dl>
               </div>
 
@@ -210,7 +266,7 @@ function Benchmarks() {
               <div className="card">
                 <h3>Case results</h3>
                 <div className="benchmark-case-list">
-                  {(selectedRun.case_results || []).map((caseResult) => (
+                  {sortCaseResults(selectedRun.case_results || []).map((caseResult) => (
                     <details key={caseResult.id} open={caseFailureCount(caseResult) > 0}>
                       <summary>
                         <span>{caseResult.title}</span>
