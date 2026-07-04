@@ -581,3 +581,34 @@ def test_benchmark_run_default_values(tmp_path):
     assert run.mode_detail is None
 
     session.close()
+
+
+def test_add_missing_benchmark_run_columns(tmp_path):
+    """Verify _add_missing_benchmark_run_columns adds new columns to legacy benchmark_runs table."""
+
+    from app.database import _add_missing_benchmark_run_columns
+
+    db_path = tmp_path / "legacy_benchmark.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+
+    with engine.begin() as connection:
+        connection.execute(text("""
+            CREATE TABLE benchmark_runs (
+                id INTEGER PRIMARY KEY,
+                mode VARCHAR(50) NOT NULL,
+                provider VARCHAR(50),
+                total_cases INTEGER NOT NULL,
+                average_score FLOAT NOT NULL,
+                summary_metrics TEXT NOT NULL,
+                created_at DATETIME NOT NULL
+            )
+        """))
+
+    _add_missing_benchmark_run_columns(engine)
+
+    columns = {column["name"] for column in inspect(engine).get_columns("benchmark_runs")}
+    assert "baseline_run_id" in columns
+    assert "duration_ms" in columns
+    assert "regression_count" in columns
+    assert "improvement_count" in columns
+    assert "mode_detail" in columns

@@ -1,17 +1,19 @@
 """Benchmark case loading, execution, and metric scoring."""
 
 import json
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from statistics import mean
 from typing import Any
 
 from playwright.sync_api import sync_playwright
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.database import BACKEND_DIR
-from app.models import FormField, LlmApiUsageLog, Profile, Task
+from app.models import BenchmarkRun, FormField, LlmApiUsageLog, Profile, Task
+from app.services.benchmark_comparison_service import compare_summary_metrics
 from app.services.field_mapper import _match_profile_key, map_fields_with_llm_result
 from app.services.form_extractor import _EXTRACT_FIELDS_SCRIPT, _LOGIN_DETECTION_SCRIPT
 
@@ -395,12 +397,31 @@ def _average_metrics(case_results: list[dict[str, Any]]) -> dict[str, float]:
     return averaged
 
 
+def _find_baseline_run(
+    db: Session,
+    mode: str,
+    provider: str | None,
+) -> BenchmarkRun | None:
+    """Find the most recent benchmark run with the same mode and provider to use as baseline."""
+
+    query = (
+        select(BenchmarkRun)
+        .where(BenchmarkRun.mode == mode)
+        .where(BenchmarkRun.provider == provider)
+        .order_by(BenchmarkRun.created_at.desc(), BenchmarkRun.id.desc())
+        .limit(1)
+    )
+    return db.scalar(query)
+
+
 def run_benchmarks(
     mode: str = "rules",
     provider: str | None = None,
     db: Session | None = None,
 ) -> BenchmarkRunSummary:
     """Run all benchmark cases and optionally persist the results."""
+
+    start_time = time.time()
 
     case_results: list[dict[str, Any]] = []
     for case in load_benchmark_cases():
@@ -414,6 +435,8 @@ def run_benchmarks(
                 "failures": scored["failures"],
             }
         )
+
+    duration_ms = int((time.time() - start_time) * 1000)
 
     summary_metrics = _average_metrics(case_results)
     average_score = mean(
@@ -434,7 +457,24 @@ def run_benchmarks(
     )
 
     if db is not None:
-        from app.models import BenchmarkCaseResult, BenchmarkRun
+        from app.models import BenchmarkCaseResult
+
+        baseline_run = _find_baseline_run(db, mode, provider)
+        baseline_run_id = baseline_run.id if baseline_run else None
+
+        regression_count = 0
+        improvement_count = 0
+        if baseline_run:
+            comparison = compare_summary_metrics(
+                current=summary_metrics,
+                baseline=baseline_run.summary_metrics,
+            )
+            for metric_result in comparison.values():
+                classification = metric_result.get("classification")
+                if classification == "regressed":
+                    regression_count += 1
+                elif classification == "improved":
+                    improvement_count += 1
 
         run = BenchmarkRun(
             mode=mode,
@@ -442,6 +482,10 @@ def run_benchmarks(
             total_cases=summary.total_cases,
             average_score=summary.average_score,
             summary_metrics_json=json.dumps(summary.summary_metrics),
+            baseline_run_id=baseline_run_id,
+            duration_ms=duration_ms,
+            regression_count=regression_count,
+            improvement_count=improvement_count,
         )
         db.add(run)
         db.flush()

@@ -43,6 +43,7 @@ def init_db() -> None:
     _add_missing_form_field_columns()
     _add_missing_profile_columns()
     _add_missing_llm_usage_log_columns()
+    _add_missing_benchmark_run_columns()
 
 
 def _add_missing_form_field_columns(target_engine=engine) -> None:
@@ -126,6 +127,35 @@ def _add_missing_llm_usage_log_columns() -> None:
                 connection.execute(
                     text(
                         f"ALTER TABLE llm_api_usage_logs "
+                        f"ADD COLUMN {column_name} {column_type}"
+                    )
+                )
+
+
+def _add_missing_benchmark_run_columns(target_engine=engine) -> None:
+    """Add new columns when opening an older SQLite database without benchmark_runs comparison fields."""
+
+    inspector = inspect(target_engine)
+    if "benchmark_runs" not in inspector.get_table_names():
+        return
+
+    existing_columns = {
+        column["name"] for column in inspector.get_columns("benchmark_runs")
+    }
+    missing_columns = {
+        "baseline_run_id": "INTEGER",
+        "duration_ms": "INTEGER NOT NULL DEFAULT 0",
+        "regression_count": "INTEGER NOT NULL DEFAULT 0",
+        "improvement_count": "INTEGER NOT NULL DEFAULT 0",
+        "mode_detail": "VARCHAR(200)",
+    }
+
+    with target_engine.begin() as connection:
+        for column_name, column_type in missing_columns.items():
+            if column_name not in existing_columns:
+                connection.execute(
+                    text(
+                        f"ALTER TABLE benchmark_runs "
                         f"ADD COLUMN {column_name} {column_type}"
                     )
                 )
