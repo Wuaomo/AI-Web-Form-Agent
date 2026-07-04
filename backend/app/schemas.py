@@ -296,6 +296,11 @@ class BenchmarkRunResponse(BaseModel):
     total_cases: int
     average_score: float
     summary_metrics: dict[str, float]
+    baseline_run_id: int | None
+    duration_ms: int
+    regression_count: int
+    improvement_count: int
+    mode_detail: str | None
     created_at: datetime
     case_results: list[BenchmarkCaseResultResponse] = Field(default_factory=list)
 

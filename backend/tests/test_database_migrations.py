@@ -473,3 +473,111 @@ def test_llm_api_usage_log_default_values_for_existing_rows(tmp_path):
     assert usage_log.estimated_cost == 0.0
 
     session.close()
+
+
+def test_benchmark_run_with_baseline_and_duration(tmp_path):
+    """Verify BenchmarkRun model creates with baseline_run_id, duration_ms, and comparison fields."""
+
+    import json
+    from app.database import Base
+    from app.models import BenchmarkRun, BenchmarkCaseResult
+
+    db_path = tmp_path / "benchmark_run_test.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+
+    Base.metadata.create_all(bind=engine)
+
+    from sqlalchemy.orm import sessionmaker
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    baseline_run = BenchmarkRun(
+        mode="rules",
+        provider=None,
+        total_cases=5,
+        average_score=0.95,
+        summary_metrics_json=json.dumps({
+            "field_extraction_recall": 0.9,
+            "mapping_accuracy": 0.95,
+            "required_field_coverage": 1.0,
+        }),
+        duration_ms=1234,
+    )
+    session.add(baseline_run)
+    session.commit()
+
+    current_run = BenchmarkRun(
+        mode="rules",
+        provider=None,
+        total_cases=5,
+        average_score=0.92,
+        summary_metrics_json=json.dumps({
+            "field_extraction_recall": 0.85,
+            "mapping_accuracy": 0.92,
+            "required_field_coverage": 1.0,
+        }),
+        baseline_run_id=baseline_run.id,
+        duration_ms=1567,
+        regression_count=2,
+        improvement_count=0,
+        mode_detail="stress_test",
+    )
+    session.add(current_run)
+    session.commit()
+
+    session.refresh(baseline_run)
+    assert baseline_run.id is not None
+    assert baseline_run.baseline_run_id is None
+    assert baseline_run.duration_ms == 1234
+    assert baseline_run.regression_count == 0
+    assert baseline_run.improvement_count == 0
+    assert baseline_run.mode_detail is None
+
+    session.refresh(current_run)
+    assert current_run.baseline_run_id == baseline_run.id
+    assert current_run.duration_ms == 1567
+    assert current_run.regression_count == 2
+    assert current_run.improvement_count == 0
+    assert current_run.mode_detail == "stress_test"
+
+    session.close()
+
+
+def test_benchmark_run_default_values(tmp_path):
+    """Verify BenchmarkRun new fields have safe defaults for existing rows."""
+
+    import json
+    from app.database import Base
+    from app.models import BenchmarkRun
+
+    db_path = tmp_path / "benchmark_run_defaults_test.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+
+    Base.metadata.create_all(bind=engine)
+
+    from sqlalchemy.orm import sessionmaker
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    run = BenchmarkRun(
+        mode="llm",
+        provider="openai",
+        total_cases=3,
+        average_score=0.88,
+        summary_metrics_json=json.dumps({
+            "field_extraction_recall": 0.85,
+            "mapping_accuracy": 0.90,
+        }),
+    )
+    session.add(run)
+    session.commit()
+
+    session.refresh(run)
+
+    assert run.baseline_run_id is None
+    assert run.duration_ms == 0
+    assert run.regression_count == 0
+    assert run.improvement_count == 0
+    assert run.mode_detail is None
+
+    session.close()

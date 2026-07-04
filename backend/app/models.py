@@ -271,6 +271,11 @@ class BenchmarkRun(Base):
     total_cases: Mapped[int] = mapped_column(Integer, nullable=False)
     average_score: Mapped[float] = mapped_column(Float, nullable=False)
     summary_metrics_json: Mapped[str] = mapped_column("summary_metrics", Text, nullable=False)
+    baseline_run_id: Mapped[Optional[int]] = mapped_column(Integer)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    regression_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    improvement_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    mode_detail: Mapped[Optional[str]] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     case_results: Mapped[list["BenchmarkCaseResult"]] = relationship(
