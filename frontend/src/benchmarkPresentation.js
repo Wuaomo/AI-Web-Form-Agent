@@ -7,6 +7,11 @@ export const benchmarkMetricOrder = [
   "login_detection_accuracy",
   "fill_success_rate",
   "llm_fallback_count",
+  "average_case_duration_ms",
+  "p95_case_duration_ms",
+  "llm_cache_hit_rate",
+  "retry_success_rate",
+  "failure_rate",
 ];
 
 const metricLabels = {
@@ -18,6 +23,11 @@ const metricLabels = {
   login_detection_accuracy: "Login detection accuracy",
   fill_success_rate: "Fill success rate",
   llm_fallback_count: "LLM fallback count",
+  average_case_duration_ms: "Average case duration",
+  p95_case_duration_ms: "P95 case duration",
+  llm_cache_hit_rate: "LLM cache hit rate",
+  retry_success_rate: "Retry success rate",
+  failure_rate: "Failure rate",
 };
 
 export function formatMetricPercent(value) {
@@ -28,15 +38,25 @@ export function formatMetricPercent(value) {
 }
 
 export function formatMetricValue(key, value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return "N/A";
+  }
+
   if (key === "llm_fallback_count") {
-    if (value === null || value === undefined || Number.isNaN(Number(value))) {
-      return "N/A";
-    }
     const numericValue = Number(value);
     return Number.isInteger(numericValue)
       ? String(numericValue)
       : numericValue.toFixed(2);
   }
+
+  if (key.endsWith("_duration_ms")) {
+    const ms = Number(value);
+    if (ms >= 1000) {
+      return `${(ms / 1000).toFixed(1)}s`;
+    }
+    return `${Math.round(ms)}ms`;
+  }
+
   return formatMetricPercent(value);
 }
 
@@ -78,7 +98,54 @@ export function summarizeBenchmarkRun(run = {}) {
       (count, caseResult) => count + caseFailureCount(caseResult),
       0,
     ),
+    durationMs: run.duration_ms || 0,
+    regressionCount: run.regression_count || 0,
+    improvementCount: run.improvement_count || 0,
+    mode: run.mode || "rules",
+    provider: run.provider || null,
+    stressMode: run.mode_detail || null,
+    baselineRunId: run.baseline_run_id || null,
   };
+}
+
+export function formatDuration(durationMs) {
+  if (durationMs === null || durationMs === undefined || Number.isNaN(Number(durationMs))) {
+    return "N/A";
+  }
+  const ms = Number(durationMs);
+  if (ms >= 1000) {
+    return `${(ms / 1000).toFixed(1)}s`;
+  }
+  return `${Math.round(ms)}ms`;
+}
+
+export function formatRegressionStatus(regressionCount, improvementCount) {
+  if (regressionCount > 0 && improvementCount > 0) {
+    return `${improvementCount} improved, ${regressionCount} regressed`;
+  }
+  if (regressionCount > 0) {
+    return `${regressionCount} regressed`;
+  }
+  if (improvementCount > 0) {
+    return `${improvementCount} improved`;
+  }
+  return "No changes";
+}
+
+export function sortCaseResults(caseResults = []) {
+  return [...caseResults].sort((a, b) => {
+    const failuresA = caseFailureCount(a);
+    const failuresB = caseFailureCount(b);
+
+    if (failuresA > 0 && failuresB === 0) {
+      return -1;
+    }
+    if (failuresA === 0 && failuresB > 0) {
+      return 1;
+    }
+
+    return 0;
+  });
 }
 
 export function selectDefaultProviderId(providers = []) {

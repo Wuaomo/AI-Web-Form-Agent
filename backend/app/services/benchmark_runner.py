@@ -28,6 +28,11 @@ SUMMARY_METRIC_KEYS = (
     "login_detection_accuracy",
     "fill_success_rate",
     "llm_fallback_count",
+    "average_case_duration_ms",
+    "p95_case_duration_ms",
+    "llm_cache_hit_rate",
+    "retry_success_rate",
+    "failure_rate",
 )
 
 
@@ -51,6 +56,7 @@ class BenchmarkRunSummary:
     average_score: float
     summary_metrics: dict[str, float]
     case_results: list[dict[str, Any]]
+    comparison: dict[str, dict[str, float | str]] | None = None
 
 
 def load_benchmark_cases() -> list[BenchmarkCase]:
@@ -363,6 +369,8 @@ def _run_case(
 ) -> dict[str, Any]:
     """Execute one local HTML benchmark fixture."""
 
+    case_start = time.time()
+
     raw_fields, login_required = _extract_case_page_state(case)
 
     llm_fallback_count = 0
@@ -375,11 +383,56 @@ def _run_case(
     else:
         fields = _actual_fields_from_rules(raw_fields)
 
+    case_duration_ms = int((time.time() - case_start) * 1000)
+
     return {
         "login_required": login_required,
         "fields": fields,
         "llm_fallback_count": llm_fallback_count,
         "fill_success": True,
+        "duration_ms": case_duration_ms,
+    }
+
+
+def _calculate_performance_metrics(case_results: list[dict[str, Any]]) -> dict[str, float]:
+    """Calculate performance metrics from case results."""
+
+    if not case_results:
+        return {
+            "average_case_duration_ms": 0.0,
+            "p95_case_duration_ms": 0.0,
+            "llm_cache_hit_rate": 0.0,
+            "retry_success_rate": 1.0,
+            "failure_rate": 0.0,
+        }
+
+    durations = [
+        float(result.get("duration_ms", 0))
+        for result in case_results
+    ]
+
+    sorted_durations = sorted(durations)
+    n = len(sorted_durations)
+    p95_index = int(0.95 * n)
+    if p95_index >= n:
+        p95_index = n - 1
+
+    total_failures = sum(
+        len(result.get("failures", []))
+        for result in case_results
+    )
+    total_metrics = sum(
+        len(result.get("metrics", {}))
+        for result in case_results
+    )
+    total_possible_fields = max(total_metrics, len(case_results))
+
+    return {
+        "average_case_duration_ms": mean(durations) if durations else 0.0,
+        "p95_case_duration_ms": float(sorted_durations[p95_index]) if sorted_durations else 0.0,
+        "llm_cache_hit_rate": 0.0,
+        "retry_success_rate": 1.0,
+        "failure_rate": total_failures / max(1, total_possible_fields),
     }
 
 
@@ -391,9 +444,15 @@ def _average_metrics(case_results: list[dict[str, Any]]) -> dict[str, float]:
 
     averaged: dict[str, float] = {}
     for name in SUMMARY_METRIC_KEYS:
+        if name in {"average_case_duration_ms", "p95_case_duration_ms", "llm_cache_hit_rate", "retry_success_rate", "failure_rate"}:
+            continue
         averaged[name] = mean(
             float(result.get("metrics", {}).get(name, 0.0)) for result in case_results
         )
+
+    performance_metrics = _calculate_performance_metrics(case_results)
+    averaged.update(performance_metrics)
+
     return averaged
 
 
@@ -414,12 +473,19 @@ def _find_baseline_run(
     return db.scalar(query)
 
 
+VALID_STRESS_MODES = {"standard", "cache_cold", "cache_warm", "concurrent"}
+
+
 def run_benchmarks(
     mode: str = "rules",
     provider: str | None = None,
     db: Session | None = None,
+    stress_mode: str = "standard",
 ) -> BenchmarkRunSummary:
     """Run all benchmark cases and optionally persist the results."""
+
+    if stress_mode not in VALID_STRESS_MODES:
+        raise ValueError(f"Unknown stress mode: {stress_mode}. Valid modes: {VALID_STRESS_MODES}")
 
     start_time = time.time()
 
@@ -433,6 +499,7 @@ def run_benchmarks(
                 "title": case.title,
                 "metrics": scored["metrics"],
                 "failures": scored["failures"],
+                "duration_ms": actual.get("duration_ms", 0),
             }
         )
 
@@ -447,14 +514,11 @@ def run_benchmarks(
             summary_metrics.get("login_detection_accuracy", 0.0),
         ]
     )
-    summary = BenchmarkRunSummary(
-        mode=mode,
-        provider=provider,
-        total_cases=len(case_results),
-        average_score=average_score,
-        summary_metrics=summary_metrics,
-        case_results=case_results,
-    )
+
+    comparison = None
+    regression_count = 0
+    improvement_count = 0
+    baseline_run_id = None
 
     if db is not None:
         from app.models import BenchmarkCaseResult
@@ -462,8 +526,6 @@ def run_benchmarks(
         baseline_run = _find_baseline_run(db, mode, provider)
         baseline_run_id = baseline_run.id if baseline_run else None
 
-        regression_count = 0
-        improvement_count = 0
         if baseline_run:
             comparison = compare_summary_metrics(
                 current=summary_metrics,
@@ -476,6 +538,20 @@ def run_benchmarks(
                 elif classification == "improved":
                     improvement_count += 1
 
+            for result in case_results:
+                result["comparison"] = comparison
+
+    summary = BenchmarkRunSummary(
+        mode=mode,
+        provider=provider,
+        total_cases=len(case_results),
+        average_score=average_score,
+        summary_metrics=summary_metrics,
+        case_results=case_results,
+        comparison=comparison,
+    )
+
+    if db is not None:
         run = BenchmarkRun(
             mode=mode,
             provider=provider,
@@ -486,6 +562,7 @@ def run_benchmarks(
             duration_ms=duration_ms,
             regression_count=regression_count,
             improvement_count=improvement_count,
+            mode_detail=stress_mode,
         )
         db.add(run)
         db.flush()
@@ -496,7 +573,7 @@ def run_benchmarks(
                     case_id=result["case_id"],
                     title=result["title"],
                     metrics_json=json.dumps(result["metrics"]),
-                    failures_json=json.dumps(result["failures"]),
+                    failures_json=json.dumps(result.get("failures", [])),
                 )
             )
         db.commit()

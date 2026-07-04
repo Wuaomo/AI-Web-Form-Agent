@@ -92,7 +92,7 @@ def test_run_benchmark_persists_and_returns_results(
         ],
     )
 
-    def fake_run_benchmarks(*, mode: str, provider: str | None, db: Session) -> BenchmarkRunSummary:
+    def fake_run_benchmarks(*, mode: str, provider: str | None, db: Session, stress_mode: str = "standard") -> BenchmarkRunSummary:
         assert mode == "rules"
         assert provider is None
         _persist_summary(db, summary)
@@ -128,7 +128,7 @@ def test_run_benchmark_rules_mode_succeeds(test_environment: tuple[TestClient, S
         case_results=[],
     )
 
-    def fake_run_benchmarks(*, mode: str, provider: str | None, db: Session) -> BenchmarkRunSummary:
+    def fake_run_benchmarks(*, mode: str, provider: str | None, db: Session, stress_mode: str = "standard") -> BenchmarkRunSummary:
         assert mode == "rules"
         assert provider is None
         _persist_summary(db, summary)
@@ -161,7 +161,7 @@ def test_run_benchmark_empty_body_defaults_to_rules(
         case_results=[],
     )
 
-    def fake_run_benchmarks(*, mode: str, provider: str | None, db: Session) -> BenchmarkRunSummary:
+    def fake_run_benchmarks(*, mode: str, provider: str | None, db: Session, stress_mode: str = "standard") -> BenchmarkRunSummary:
         assert mode == "rules"
         assert provider is None
         _persist_summary(db, summary)
@@ -213,7 +213,7 @@ def test_run_benchmark_llm_with_configured_provider_calls_runner(
         case_results=[],
     )
 
-    def fake_run_benchmarks(*, mode: str, provider: str | None, db: Session) -> BenchmarkRunSummary:
+    def fake_run_benchmarks(*, mode: str, provider: str | None, db: Session, stress_mode: str = "standard") -> BenchmarkRunSummary:
         assert mode == "llm"
         assert provider == "openai"
         _persist_summary(db, summary)
@@ -233,4 +233,14 @@ def test_run_benchmark_llm_with_configured_provider_calls_runner(
     assert mocked_runner.call_args.kwargs["mode"] == "llm"
     assert mocked_runner.call_args.kwargs["provider"] == "openai"
     assert mocked_runner.call_args.kwargs["db"] is not None
+    assert mocked_runner.call_args.kwargs["stress_mode"] == "standard"
+
+
+def test_report_endpoint_returns_404_for_missing_run(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, _ = test_environment
+    response = client.get("/benchmarks/runs/999/report")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Benchmark run not found"
 
