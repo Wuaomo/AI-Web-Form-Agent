@@ -159,6 +159,30 @@ $env:GEMINI_MODEL="gemini-2.5-flash"
 If a selected provider is unavailable, the API returns a setup hint and the
 application can continue in rules mode.
 
+## Optional Go Metrics Sidecar
+
+An optional Go sidecar can aggregate task/job metrics and worker heartbeats in
+memory. The FastAPI backend remains the source of truth; the sidecar only
+receives event notifications and exposes read-only `/health` and `/metrics`
+endpoints. The backend works normally without the sidecar.
+
+Start the sidecar:
+
+```powershell
+cd sidecars/metrics-go
+go run .
+```
+
+Enable event emission from the backend:
+
+```powershell
+$env:METRICS_SIDECAR_URL="http://localhost:9100"
+```
+
+Available metrics include total events, jobs by status, jobs by type, average
+duration by job type, worker last seen, and retry count. See
+[docs/go-metrics-sidecar.md](docs/go-metrics-sidecar.md) for full details.
+
 ## Demo Walkthrough
 
 1. Create a profile with reusable contact and education information.
