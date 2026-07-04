@@ -407,3 +407,19 @@ class FieldVerificationResultResponse(BaseModel):
     reason: str | None
     message: str | None
     created_at: datetime
+
+
+class AgentReviewResponse(BaseModel):
+    """Review decision from an AI agent for a form automation task."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_id: int
+    role: str
+    decision: str
+    input_hash: str
+    output: dict[str, object] = Field(default_factory=dict)
+    model: str | None
+    provider: str | None
+    created_at: datetime

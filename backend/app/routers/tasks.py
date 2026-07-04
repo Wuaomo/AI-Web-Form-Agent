@@ -16,9 +16,10 @@ from app.job_constants import (
     JOB_TYPE_FILL_FORM,
     JOB_TYPE_MAP_FIELDS,
 )
-from app.models import ActionLog, FormField, Job, Profile, Screenshot, Task, TaskCheckpoint
+from app.models import ActionLog, AgentReview, FormField, Job, Profile, Screenshot, Task, TaskCheckpoint
 from app.schemas import (
     ActionLogResponse,
+    AgentReviewResponse,
     FieldVerificationResultResponse,
     FormFieldMappingUpdate,
     FormFieldResponse,
@@ -367,6 +368,36 @@ def get_task_verification_results(task_id: int, db: Session = Depends(get_db)) -
         .order_by(FieldVerificationResult.id)
     )
     return list(db.scalars(statement))
+
+
+@router.get("/{task_id}/agent-reviews", response_model=list[AgentReviewResponse])
+def get_task_agent_reviews(task_id: int, db: Session = Depends(get_db)) -> list[AgentReview]:
+    """Return all agent reviews for a task."""
+
+    from app.services.agent_coordinator import get_agent_reviews_for_task
+
+    task = get_task_or_404(task_id, db)
+    return get_agent_reviews_for_task(db, task.id)
+
+
+@router.post("/{task_id}/run-agent-reviews", response_model=list[AgentReviewResponse])
+def run_task_agent_reviews(task_id: int, db: Session = Depends(get_db)) -> list[AgentReview]:
+    """Run all agent reviews for a task and return results.
+
+    Agents are called in sequence:
+    1. Mapping Critic - reviews field-to-profile mappings
+    2. Safety Review - checks for sensitive data handling
+    3. Execution Verification - validates form filling execution
+
+    Each agent returns a structured decision (PASS, REVIEW_REQUIRED, BLOCK).
+    """
+
+    from app.services.agent_coordinator import run_agent_reviews, get_agent_reviews_for_task
+
+    task = get_task_or_404(task_id, db)
+    run_agent_reviews(db, task)
+    db.commit()
+    return get_agent_reviews_for_task(db, task.id)
 
 
 @router.post("/{task_id}/analyze", response_model=Union[TaskResponse, JobResponse])

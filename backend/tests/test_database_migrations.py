@@ -696,3 +696,129 @@ def test_field_verification_result_model_creates_and_persists(tmp_path):
     assert skipped_verification.actual_value_hash is None
 
     session.close()
+
+
+def test_agent_review_model_creates_and_persists(tmp_path):
+    """Verify AgentReview model creates and loads correctly with relationship."""
+
+    import json
+    from app.database import Base
+    from app.models import Profile, Task, AgentReview
+    from app.agent_constants import (
+        AGENT_ROLE_MAPPING_CRITIC,
+        AGENT_ROLE_SAFETY_REVIEW,
+        AGENT_DECISION_PASS,
+        AGENT_DECISION_REVIEW_REQUIRED,
+        AGENT_DECISION_BLOCK,
+    )
+
+    db_path = tmp_path / "agent_review_test.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+
+    Base.metadata.create_all(bind=engine)
+
+    from sqlalchemy.orm import sessionmaker
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    profile = Profile(profile_name="Test Profile")
+    session.add(profile)
+    session.commit()
+
+    task = Task(url="https://example.com/form", profile_id=profile.id)
+    session.add(task)
+    session.commit()
+
+    mapping_review = AgentReview(
+        task_id=task.id,
+        role=AGENT_ROLE_MAPPING_CRITIC,
+        decision=AGENT_DECISION_PASS,
+        input_hash="abc123def456",
+        output_json=json.dumps({"issues": [], "confidence": 0.95}),
+        model="gpt-4o-mini",
+        provider="openai",
+    )
+    session.add(mapping_review)
+    session.commit()
+
+    safety_review = AgentReview(
+        task_id=task.id,
+        role=AGENT_ROLE_SAFETY_REVIEW,
+        decision=AGENT_DECISION_REVIEW_REQUIRED,
+        input_hash="ghi789jkl012",
+        output_json=json.dumps({"issues": ["Potential sensitive field detected"], "confidence": 0.85}),
+        model="deepseek-v4-flash",
+        provider="deepseek",
+    )
+    session.add(safety_review)
+    session.commit()
+
+    session.refresh(task)
+    assert len(task.agent_reviews) == 2
+
+    session.refresh(mapping_review)
+    assert mapping_review.task_id == task.id
+    assert mapping_review.role == AGENT_ROLE_MAPPING_CRITIC
+    assert mapping_review.decision == AGENT_DECISION_PASS
+    assert mapping_review.input_hash == "abc123def456"
+    assert mapping_review.model == "gpt-4o-mini"
+    assert mapping_review.provider == "openai"
+    assert mapping_review.created_at is not None
+
+    assert mapping_review.output is not None
+    assert isinstance(mapping_review.output, dict)
+    assert mapping_review.output["issues"] == []
+    assert mapping_review.output["confidence"] == 0.95
+
+    session.refresh(safety_review)
+    assert safety_review.role == AGENT_ROLE_SAFETY_REVIEW
+    assert safety_review.decision == AGENT_DECISION_REVIEW_REQUIRED
+    assert safety_review.output["issues"] == ["Potential sensitive field detected"]
+
+    session.close()
+
+
+def test_agent_review_output_json_safe_parse(tmp_path):
+    """Verify invalid JSON in output_json is handled safely."""
+
+    from app.database import Base
+    from app.models import Profile, Task, AgentReview
+    from app.agent_constants import (
+        AGENT_ROLE_MAPPING_CRITIC,
+        AGENT_DECISION_BLOCK,
+    )
+
+    db_path = tmp_path / "agent_review_json_test.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+
+    Base.metadata.create_all(bind=engine)
+
+    from sqlalchemy.orm import sessionmaker
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    profile = Profile(profile_name="Test Profile")
+    session.add(profile)
+    session.commit()
+
+    task = Task(url="https://example.com/form", profile_id=profile.id)
+    session.add(task)
+    session.commit()
+
+    review = AgentReview(
+        task_id=task.id,
+        role=AGENT_ROLE_MAPPING_CRITIC,
+        decision=AGENT_DECISION_BLOCK,
+        input_hash="invalid123",
+        output_json="{invalid json}",
+    )
+    session.add(review)
+    session.commit()
+
+    session.refresh(review)
+
+    assert review.output is not None
+    assert isinstance(review.output, dict)
+    assert review.output == {}
+
+    session.close()

@@ -93,6 +93,7 @@ class Task(Base):
     checkpoints: Mapped[list["TaskCheckpoint"]] = relationship(back_populates="task")
     jobs: Mapped[list["Job"]] = relationship(back_populates="task")
     verification_results: Mapped[list["FieldVerificationResult"]] = relationship(back_populates="task")
+    agent_reviews: Mapped[list["AgentReview"]] = relationship(back_populates="task")
 
 
 class FormField(Base):
@@ -501,3 +502,35 @@ class FieldVerificationResult(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     task: Mapped["Task"] = relationship(back_populates="verification_results")
+
+
+class AgentReview(Base):
+    """Review decision from an AI agent for a form automation task."""
+
+    __tablename__ = "agent_reviews"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), nullable=False)
+    role: Mapped[str] = mapped_column(String(50), nullable=False)
+    decision: Mapped[str] = mapped_column(String(50), nullable=False)
+    input_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    output_json: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[Optional[str]] = mapped_column(String(100))
+    provider: Mapped[Optional[str]] = mapped_column(String(50))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    task: Mapped["Task"] = relationship(back_populates="agent_reviews")
+
+    @property
+    def output(self) -> dict[str, object]:
+        """Return structured output data from JSON, safely handling invalid JSON."""
+
+        if not self.output_json:
+            return {}
+        try:
+            parsed = json.loads(self.output_json)
+        except json.JSONDecodeError:
+            return {}
+        if not isinstance(parsed, dict):
+            return {}
+        return parsed
