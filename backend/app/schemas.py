@@ -104,6 +104,11 @@ class LlmApiUsageLogResponse(BaseModel):
     cache_miss_tokens: int
     cache_hit: bool
     cache_hit_rate: float
+    latency_ms: int
+    error_type: str | None
+    fallback_used: bool
+    cache_source: str
+    estimated_cost: float
     created_at: datetime
 
 

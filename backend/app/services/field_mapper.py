@@ -1,5 +1,6 @@
 """Rule-based and LLM-assisted form field mapping."""
 
+import time
 from dataclasses import dataclass
 import json
 import logging
@@ -638,7 +639,7 @@ def _usage_int(usage: dict[str, object], key: str) -> int | None:
     return None
 
 
-def _extract_deepseek_usage(response: dict[str, object]) -> dict[str, object]:
+def _extract_deepseek_usage(response: dict[str, object], latency_ms: int = 0) -> dict[str, object]:
     """Build internal token and cache metrics from DeepSeek's usage payload."""
 
     usage = response.get("usage")
@@ -647,6 +648,7 @@ def _extract_deepseek_usage(response: dict[str, object]) -> dict[str, object]:
             "provider": "deepseek",
             "model": config.DEEPSEEK_MODEL,
             "usage_available": False,
+            "latency_ms": latency_ms,
         }
 
     prompt_tokens = _usage_int(usage, "prompt_tokens") or 0
@@ -660,6 +662,11 @@ def _extract_deepseek_usage(response: dict[str, object]) -> dict[str, object]:
     if cache_miss_tokens is None:
         cache_miss_tokens = max(prompt_tokens - cache_hit_tokens, 0)
 
+    cache_hit = cache_hit_tokens > 0
+    cache_hit_rate = cache_hit_tokens / prompt_tokens if prompt_tokens else 0
+
+    cache_source = "provider_prompt_cache" if cache_hit else "no_cache"
+
     return {
         "provider": "deepseek",
         "model": config.DEEPSEEK_MODEL,
@@ -668,10 +675,10 @@ def _extract_deepseek_usage(response: dict[str, object]) -> dict[str, object]:
         "total_tokens": total_tokens,
         "cache_hit_tokens": cache_hit_tokens,
         "cache_miss_tokens": cache_miss_tokens,
-        "cache_hit": cache_hit_tokens > 0,
-        "cache_hit_rate": (
-            cache_hit_tokens / prompt_tokens if prompt_tokens else 0
-        ),
+        "cache_hit": cache_hit,
+        "cache_hit_rate": cache_hit_rate,
+        "latency_ms": latency_ms,
+        "cache_source": cache_source,
     }
 
 
@@ -688,11 +695,48 @@ def _record_deepseek_usage(
     response: dict[str, object],
     task_id: int | None,
     db: Session | None,
+    latency_ms: int = 0,
 ) -> None:
     """Log usage and persist it when this request belongs to a task."""
 
-    usage = _extract_deepseek_usage(response)
+    usage = _extract_deepseek_usage(response, latency_ms=latency_ms)
     _log_deepseek_usage(usage)
+    if task_id is not None:
+        record_llm_api_usage(task_id=task_id, usage=usage, db=db)
+
+
+def _record_deepseek_error(
+    *,
+    provider: str,
+    model: str,
+    task_id: int | None,
+    db: Session | None,
+    error_type: str,
+    latency_ms: int,
+) -> None:
+    """Record a failed DeepSeek API request with error details."""
+
+    usage = {
+        "provider": provider,
+        "model": model,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "cache_hit_tokens": 0,
+        "cache_miss_tokens": 0,
+        "cache_hit": False,
+        "cache_hit_rate": 0.0,
+        "latency_ms": latency_ms,
+        "error_type": error_type,
+        "fallback_used": True,
+        "cache_source": "no_cache",
+        "estimated_cost": 0.0,
+    }
+    logger.warning(
+        "DeepSeek API error: %s, latency_ms: %s",
+        error_type,
+        latency_ms,
+    )
     if task_id is not None:
         record_llm_api_usage(task_id=task_id, usage=usage, db=db)
 
@@ -766,33 +810,47 @@ def _request_deepseek_mapping(
         "Calling DeepSeek mapping API with model %s",
         config.DEEPSEEK_MODEL,
     )
-    response = _post_json(
-        "https://api.deepseek.com/chat/completions",
-        {
-            "model": config.DEEPSEEK_MODEL,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You map form fields to profile keys. Output valid JSON "
-                        "only, using this shape: "
-                        '{"mappings":[{"field_id":1,'
-                        '"mapped_profile_key":"email","confidence":0.9}]}.'
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            "response_format": {"type": "json_object"},
-            "thinking": {"type": "disabled"},
-            "max_tokens": 2000,
-            "stream": False,
-        },
-        {"Authorization": f"Bearer {config.DEEPSEEK_API_KEY}"},
-    )
-    _record_deepseek_usage(response, task_id=task_id, db=db)
-    output_text = _extract_chat_completion_output_text(response, "DeepSeek")
-    logger.warning("DeepSeek mapping API returned output text")
-    return output_text
+    start_time = time.perf_counter()
+    try:
+        response = _post_json(
+            "https://api.deepseek.com/chat/completions",
+            {
+                "model": config.DEEPSEEK_MODEL,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You map form fields to profile keys. Output valid JSON "
+                            "only, using this shape: "
+                            '{"mappings":[{"field_id":1,'
+                            '"mapped_profile_key":"email","confidence":0.9}]}.'
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                "response_format": {"type": "json_object"},
+                "thinking": {"type": "disabled"},
+                "max_tokens": 2000,
+                "stream": False,
+            },
+            {"Authorization": f"Bearer {config.DEEPSEEK_API_KEY}"},
+        )
+        latency_ms = int((time.perf_counter() - start_time) * 1000)
+        _record_deepseek_usage(response, task_id=task_id, db=db, latency_ms=latency_ms)
+        output_text = _extract_chat_completion_output_text(response, "DeepSeek")
+        logger.warning("DeepSeek mapping API returned output text")
+        return output_text
+    except Exception as exc:
+        latency_ms = int((time.perf_counter() - start_time) * 1000)
+        _record_deepseek_error(
+            provider="deepseek",
+            model=config.DEEPSEEK_MODEL,
+            task_id=task_id,
+            db=db,
+            error_type=type(exc).__name__,
+            latency_ms=latency_ms,
+        )
+        raise
 
 
 def _request_llm_mapping(
@@ -932,6 +990,38 @@ def _response_covers_fillable_fields(
     return _fillable_field_ids(fields).issubset(mapped_field_ids)
 
 
+def _record_cache_usage(
+    *,
+    task_id: int,
+    db: Session,
+    provider: str,
+    model: str,
+    cache_source: str,
+) -> None:
+    """Record a cache hit usage log without making an API call."""
+
+    record_llm_api_usage(
+        task_id=task_id,
+        usage={
+            "provider": provider,
+            "model": model,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 0,
+            "cache_hit": True,
+            "cache_hit_rate": 1.0,
+            "latency_ms": 0,
+            "error_type": None,
+            "fallback_used": False,
+            "cache_source": cache_source,
+            "estimated_cost": 0.0,
+        },
+        db=db,
+    )
+
+
 def _map_fields_with_llm_result(
     task_id: int,
     db: Session,
@@ -951,6 +1041,7 @@ def _map_fields_with_llm_result(
         )
     )
     profile = _profile_payload(task)
+    selected_provider: str | None = None
 
     try:
         try:
@@ -978,6 +1069,13 @@ def _map_fields_with_llm_result(
                     fields,
                     override_response,
                 )
+                _record_cache_usage(
+                    task_id=task_id,
+                    db=db,
+                    provider=selected_provider,
+                    model=cache_context.model,
+                    cache_source="user_override_cache",
+                )
             return LlmMappingResult(
                 fields=_apply_llm_mappings(fields, profile, result, db),
                 used_fallback=False,
@@ -1004,6 +1102,13 @@ def _map_fields_with_llm_result(
                     cache_context,
                     fields,
                     merged_cached_response,
+                )
+                _record_cache_usage(
+                    task_id=task_id,
+                    db=db,
+                    provider=selected_provider,
+                    model=cache_context.model,
+                    cache_source="app_mapping_cache",
                 )
             return LlmMappingResult(
                 fields=_apply_llm_mappings(fields, profile, result, db),
@@ -1036,6 +1141,32 @@ def _map_fields_with_llm_result(
             "LLM mapping failed for task %s; using rules: %s",
             task_id,
             exc,
+        )
+        provider_for_log = selected_provider or "unknown"
+        model_for_log = (
+            model_for_provider(selected_provider)
+            if selected_provider
+            else "unknown"
+        )
+        record_llm_api_usage(
+            task_id=task_id,
+            usage={
+                "provider": provider_for_log,
+                "model": model_for_log,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+                "cache_hit_tokens": 0,
+                "cache_miss_tokens": 0,
+                "cache_hit": False,
+                "cache_hit_rate": 0.0,
+                "latency_ms": 0,
+                "error_type": type(exc).__name__,
+                "fallback_used": True,
+                "cache_source": "no_cache",
+                "estimated_cost": 0.0,
+            },
+            db=db,
         )
         return LlmMappingResult(fields=_map_fields(task_id, db), used_fallback=True)
 

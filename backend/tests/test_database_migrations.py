@@ -317,3 +317,159 @@ def test_job_payload_json_safe_parse(tmp_path):
     assert job.payload["profile_id"] == profile.id
 
     session.close()
+
+
+def test_llm_api_usage_log_new_fields_with_defaults(tmp_path):
+    """Verify LlmApiUsageLog model creates with new observability fields and safe defaults."""
+
+    from app.database import Base
+    from app.models import Profile, Task, LlmApiUsageLog
+
+    db_path = tmp_path / "llm_usage_test.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+
+    Base.metadata.create_all(bind=engine)
+
+    from sqlalchemy.orm import sessionmaker
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    profile = Profile(profile_name="Test Profile")
+    session.add(profile)
+    session.commit()
+
+    task = Task(url="https://example.com/form", profile_id=profile.id)
+    session.add(task)
+    session.commit()
+
+    usage_log = LlmApiUsageLog(
+        task_id=task.id,
+        provider="deepseek",
+        model="deepseek-v4-flash",
+        prompt_tokens=100,
+        completion_tokens=25,
+        total_tokens=125,
+        cache_hit_tokens=50,
+        cache_miss_tokens=50,
+        cache_hit=True,
+        cache_hit_rate=0.5,
+        latency_ms=234,
+        error_type=None,
+        fallback_used=False,
+        cache_source="provider_prompt_cache",
+        estimated_cost=0.00125,
+    )
+    session.add(usage_log)
+    session.commit()
+
+    session.refresh(usage_log)
+
+    assert usage_log.latency_ms == 234
+    assert usage_log.error_type is None
+    assert usage_log.fallback_used is False
+    assert usage_log.cache_source == "provider_prompt_cache"
+    assert usage_log.estimated_cost == 0.00125
+
+    session.close()
+
+
+def test_llm_api_usage_log_fallback_and_error_records(tmp_path):
+    """Verify LlmApiUsageLog records fallback_used and error_type correctly."""
+
+    from app.database import Base
+    from app.models import Profile, Task, LlmApiUsageLog
+
+    db_path = tmp_path / "llm_usage_fallback_test.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+
+    Base.metadata.create_all(bind=engine)
+
+    from sqlalchemy.orm import sessionmaker
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    profile = Profile(profile_name="Test Profile")
+    session.add(profile)
+    session.commit()
+
+    task = Task(url="https://example.com/form", profile_id=profile.id)
+    session.add(task)
+    session.commit()
+
+    usage_log = LlmApiUsageLog(
+        task_id=task.id,
+        provider="openai",
+        model="gpt-4o-mini",
+        prompt_tokens=0,
+        completion_tokens=0,
+        total_tokens=0,
+        cache_hit_tokens=0,
+        cache_miss_tokens=0,
+        cache_hit=False,
+        cache_hit_rate=0.0,
+        latency_ms=5000,
+        error_type="TimeoutError",
+        fallback_used=True,
+        cache_source="no_cache",
+        estimated_cost=0.0,
+    )
+    session.add(usage_log)
+    session.commit()
+
+    session.refresh(usage_log)
+
+    assert usage_log.error_type == "TimeoutError"
+    assert usage_log.fallback_used is True
+    assert usage_log.latency_ms == 5000
+    assert usage_log.cache_source == "no_cache"
+
+    session.close()
+
+
+def test_llm_api_usage_log_default_values_for_existing_rows(tmp_path):
+    """Verify LlmApiUsageLog new fields have safe defaults for existing rows."""
+
+    from app.database import Base
+    from app.models import Profile, Task, LlmApiUsageLog
+
+    db_path = tmp_path / "llm_usage_defaults_test.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+
+    Base.metadata.create_all(bind=engine)
+
+    from sqlalchemy.orm import sessionmaker
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    profile = Profile(profile_name="Test Profile")
+    session.add(profile)
+    session.commit()
+
+    task = Task(url="https://example.com/form", profile_id=profile.id)
+    session.add(task)
+    session.commit()
+
+    usage_log = LlmApiUsageLog(
+        task_id=task.id,
+        provider="deepseek",
+        model="deepseek-v4-flash",
+        prompt_tokens=100,
+        completion_tokens=25,
+        total_tokens=125,
+        cache_hit_tokens=0,
+        cache_miss_tokens=100,
+        cache_hit=False,
+        cache_hit_rate=0.0,
+    )
+    session.add(usage_log)
+    session.commit()
+
+    session.refresh(usage_log)
+
+    assert usage_log.latency_ms == 0
+    assert usage_log.error_type is None
+    assert usage_log.fallback_used is False
+    assert usage_log.cache_source == "no_cache"
+    assert usage_log.estimated_cost == 0.0
+
+    session.close()

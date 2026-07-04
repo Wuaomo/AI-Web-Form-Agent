@@ -1,12 +1,20 @@
 """Helpers for storing and summarizing internal LLM API usage."""
 
 from dataclasses import dataclass
+from typing import Literal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.models import LlmApiUsageLog
+
+CacheSource = Literal[
+    "provider_prompt_cache",
+    "app_mapping_cache",
+    "user_override_cache",
+    "no_cache",
+]
 
 
 @dataclass(frozen=True)
@@ -20,6 +28,11 @@ class LLMUsageData:
     total_tokens: int
     cache_hit_tokens: int = 0
     cache_miss_tokens: int = 0
+    latency_ms: int = 0
+    error_type: str | None = None
+    fallback_used: bool = False
+    cache_source: CacheSource = "no_cache"
+    estimated_cost: float = 0.0
 
     @property
     def cache_hit(self) -> bool:
@@ -67,6 +80,11 @@ def record_llm_api_usage(
         cache_miss_tokens=int(usage["cache_miss_tokens"]),
         cache_hit=bool(usage["cache_hit"]),
         cache_hit_rate=float(usage["cache_hit_rate"]),
+        latency_ms=int(usage.get("latency_ms", 0)),
+        error_type=str(usage["error_type"]) if usage.get("error_type") else None,
+        fallback_used=bool(usage.get("fallback_used", False)),
+        cache_source=str(usage.get("cache_source", "no_cache")),
+        estimated_cost=float(usage.get("estimated_cost", 0.0)),
     )
 
     if db is not None:
@@ -102,6 +120,11 @@ def create_llm_usage_log(
             "cache_miss_tokens": usage.cache_miss_tokens,
             "cache_hit": usage.cache_hit,
             "cache_hit_rate": usage.cache_hit_rate,
+            "latency_ms": usage.latency_ms,
+            "error_type": usage.error_type,
+            "fallback_used": usage.fallback_used,
+            "cache_source": usage.cache_source,
+            "estimated_cost": usage.estimated_cost,
         },
         db=db,
     )
