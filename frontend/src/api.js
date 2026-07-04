@@ -126,6 +126,12 @@ export const api = {
   getTaskLlmUsage: (taskId) => request(`/tasks/${taskId}/llm-usage`),
   listTaskCheckpoints: (taskId) => request(`/tasks/${taskId}/checkpoints`),
   getTaskVerificationResults: (taskId) => request(`/tasks/${taskId}/verification-results`),
+  getTaskAgentReviews: (taskId) => request(`/tasks/${taskId}/agent-reviews`),
+  runTaskAgentReviews: (taskId, roles = []) =>
+    request(`/tasks/${taskId}/agent-reviews`, {
+      method: "POST",
+      body: JSON.stringify({ roles }),
+    }),
 
   listJobs: () => request("/jobs"),
   getJob: (jobId) => request(`/jobs/${jobId}`),
