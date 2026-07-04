@@ -284,7 +284,7 @@ class BenchmarkRun(Base):
     )
 
     @property
-    def summary_metrics(self) -> dict[str, float]:
+    def summary_metrics(self) -> dict[str, float | None]:
         """Return structured aggregate benchmark metrics."""
 
         try:

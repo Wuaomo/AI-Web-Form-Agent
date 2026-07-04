@@ -296,7 +296,7 @@ class BenchmarkRunResponse(BaseModel):
     provider: str | None
     total_cases: int
     average_score: float
-    summary_metrics: dict[str, float]
+    summary_metrics: dict[str, float | None]
     baseline_run_id: int | None
     duration_ms: int
     regression_count: int
