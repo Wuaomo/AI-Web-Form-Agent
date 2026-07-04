@@ -26,6 +26,13 @@ import {
   shouldShowProfileMemoryControl,
   valueControlLabel,
 } from "../reviewMappingPresentation";
+import {
+  decisionLabel,
+  roleLabel,
+  getLatestReview,
+  summarizeReviewItems,
+  groupReviewsByRole,
+} from "../agentReviewPresentation";
 
 const CUSTOM_CHOICE_VALUE = "__custom__";
 
@@ -53,6 +60,8 @@ function ReviewMapping() {
   const [notice, setNotice] = useState("");
   const [customChoiceFields, setCustomChoiceFields] = useState({});
   const [fieldUpdateCount, setFieldUpdateCount] = useState(0);
+  const [agentReviews, setAgentReviews] = useState([]);
+  const [runningReview, setRunningReview] = useState(null);
   const pendingValueUpdateTimers = useRef({});
   const pendingValueUpdates = useRef({});
   const pendingPolicyUpdateTimers = useRef({});
@@ -63,12 +72,14 @@ function ReviewMapping() {
     setLoading(true);
     setError("");
     try {
-      const [fieldItems, providerItems] = await Promise.all([
+      const [fieldItems, providerItems, reviewItems] = await Promise.all([
         api.listTaskFields(taskId),
         api.listLlmProviders(),
+        api.getTaskAgentReviews(taskId).catch(() => []),
       ]);
       setFields(fieldItems);
       setLlmProviders(providerItems);
+      setAgentReviews(reviewItems);
       setSelectedLlmProvider(getSavedLlmProvider(providerItems));
     } catch (requestError) {
       setError(requestError.message);
@@ -76,6 +87,20 @@ function ReviewMapping() {
       setLoading(false);
     }
   }, [taskId]);
+
+  async function runAgentReview(role) {
+    setRunningReview(role);
+    setError("");
+    try {
+      const results = await api.runTaskAgentReviews(taskId, [role]);
+      setAgentReviews(results);
+      setNotice(`${roleLabel(role)} completed.`);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setRunningReview(null);
+    }
+  }
 
   useEffect(() => {
     loadFields();
@@ -491,6 +516,55 @@ function ReviewMapping() {
           Confirm mapping
         </button>
       </div>
+
+      <section className="agent-reviews">
+        <h3>Agent Reviews</h3>
+        <div className="agent-review-actions">
+          <button
+            className="button button-small"
+            type="button"
+            onClick={() => runAgentReview("MAPPING_CRITIC")}
+            disabled={busy || runningReview === "MAPPING_CRITIC"}
+          >
+            {runningReview === "MAPPING_CRITIC" ? "Running..." : "Run mapping review"}
+          </button>
+          <button
+            className="button button-small"
+            type="button"
+            onClick={() => runAgentReview("SAFETY_REVIEW")}
+            disabled={busy || runningReview === "SAFETY_REVIEW"}
+          >
+            {runningReview === "SAFETY_REVIEW" ? "Running..." : "Run safety review"}
+          </button>
+        </div>
+        {agentReviews.length > 0 && (
+          <div className="agent-review-list">
+            {Object.entries(groupReviewsByRole(agentReviews)).map(([role, reviews]) => {
+              const latest = getLatestReview(reviews);
+              const itemsSummary = summarizeReviewItems(latest);
+              return (
+                <article key={role} className="agent-review-card">
+                  <div className="agent-review-header">
+                    <span className="agent-review-role">{roleLabel(role)}</span>
+                    <span className={`agent-review-decision agent-review-decision-${latest.decision.toLowerCase()}`}>
+                      {decisionLabel(latest.decision)}
+                    </span>
+                  </div>
+                  {latest.output?.summary && (
+                    <p className="agent-review-summary">{latest.output.summary}</p>
+                  )}
+                  {itemsSummary.total > 0 && (
+                    <p className="agent-review-item-count">
+                      {itemsSummary.total} item{itemsSummary.total > 1 ? "s" : ""}
+                      {itemsSummary.issues > 0 && ` (${itemsSummary.issues} issue${itemsSummary.issues > 1 ? "s" : ""})`}
+                    </p>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       {loading ? (
         <p>Loading fields...</p>

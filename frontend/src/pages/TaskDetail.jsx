@@ -30,6 +30,13 @@ import {
   summarizeVerificationResults,
   verificationReasonLabel,
 } from "../verificationPresentation";
+import {
+  decisionLabel,
+  roleLabel,
+  getLatestReview,
+  summarizeReviewItems,
+  groupReviewsByRole,
+} from "../agentReviewPresentation";
 
 function TaskDetail() {
   const { taskId } = useParams();
@@ -53,6 +60,8 @@ function TaskDetail() {
   const [taskCheckpoints, setTaskCheckpoints] = useState([]);
   const [taskJobs, setTaskJobs] = useState([]);
   const [verificationResults, setVerificationResults] = useState([]);
+  const [agentReviews, setAgentReviews] = useState([]);
+  const [runningReview, setRunningReview] = useState(null);
 
   useEffect(() => {
     if (
@@ -80,8 +89,9 @@ function TaskDetail() {
       api.listTaskCheckpoints(taskId).catch(() => []),
       api.listTaskJobs(taskId).catch(() => []),
       api.getTaskVerificationResults(taskId).catch(() => []),
+      api.getTaskAgentReviews(taskId).catch(() => []),
     ])
-      .then(([taskResult, screenshotItems, profileItems, providerItems, logItems, usageResult, checkpointItems, jobItems, verificationItems]) => {
+      .then(([taskResult, screenshotItems, profileItems, providerItems, logItems, usageResult, checkpointItems, jobItems, verificationItems, reviewItems]) => {
         setTask(taskResult);
         setScreenshots(screenshotItems);
         setProfiles(profileItems);
@@ -91,6 +101,7 @@ function TaskDetail() {
         setTaskCheckpoints(checkpointItems);
         setTaskJobs(jobItems);
         setVerificationResults(verificationItems);
+        setAgentReviews(reviewItems);
         setSelectedLlmProvider(getSavedLlmProvider(providerItems));
       })
       .catch((requestError) => setError(requestError.message))
@@ -98,7 +109,7 @@ function TaskDetail() {
   }, [taskId]);
 
   async function refreshTaskData(nextTask = null) {
-    const [taskResult, screenshotItems, logItems, usageResult, checkpointItems, jobItems, verificationItems] = await Promise.all([
+    const [taskResult, screenshotItems, logItems, usageResult, checkpointItems, jobItems, verificationItems, reviewItems] = await Promise.all([
       nextTask ? Promise.resolve(nextTask) : api.getTask(taskId),
       api.listTaskScreenshots(taskId),
       api.listTaskLogs(taskId),
@@ -106,6 +117,7 @@ function TaskDetail() {
       api.listTaskCheckpoints(taskId).catch(() => []),
       api.listTaskJobs(taskId).catch(() => []),
       api.getTaskVerificationResults(taskId).catch(() => []),
+      api.getTaskAgentReviews(taskId).catch(() => []),
     ]);
     setTask(taskResult);
     setScreenshots(screenshotItems);
@@ -114,6 +126,21 @@ function TaskDetail() {
     setTaskCheckpoints(checkpointItems);
     setTaskJobs(jobItems);
     setVerificationResults(verificationItems);
+    setAgentReviews(reviewItems);
+  }
+
+  async function runAgentReview(role) {
+    setRunningReview(role);
+    setError("");
+    try {
+      const results = await api.runTaskAgentReviews(taskId, [role]);
+      setAgentReviews(results);
+      setNotice(`${roleLabel(role)} completed.`);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setRunningReview(null);
+    }
   }
 
   async function runAction(actionName, request, successMessage) {
@@ -437,6 +464,63 @@ function TaskDetail() {
               )}
             </div>
           )}
+
+          <div className="card">
+            <h3>Agent Reviews</h3>
+            <div className="agent-review-actions">
+              <button
+                className="button button-small"
+                type="button"
+                onClick={() => runAgentReview("MAPPING_CRITIC")}
+                disabled={isBusy || runningReview === "MAPPING_CRITIC"}
+              >
+                {runningReview === "MAPPING_CRITIC" ? "Running..." : "Run mapping review"}
+              </button>
+              <button
+                className="button button-small"
+                type="button"
+                onClick={() => runAgentReview("SAFETY_REVIEW")}
+                disabled={isBusy || runningReview === "SAFETY_REVIEW"}
+              >
+                {runningReview === "SAFETY_REVIEW" ? "Running..." : "Run safety review"}
+              </button>
+              <button
+                className="button button-small"
+                type="button"
+                onClick={() => runAgentReview("EXECUTION_VERIFICATION")}
+                disabled={isBusy || runningReview === "EXECUTION_VERIFICATION"}
+              >
+                {runningReview === "EXECUTION_VERIFICATION" ? "Running..." : "Run verification review"}
+              </button>
+            </div>
+            {agentReviews.length > 0 && (
+              <div className="agent-review-list">
+                {Object.entries(groupReviewsByRole(agentReviews)).map(([role, reviews]) => {
+                  const latest = getLatestReview(reviews);
+                  const itemsSummary = summarizeReviewItems(latest);
+                  return (
+                    <article key={role} className="agent-review-card">
+                      <div className="agent-review-header">
+                        <span className="agent-review-role">{roleLabel(role)}</span>
+                        <span className={`agent-review-decision agent-review-decision-${latest.decision.toLowerCase()}`}>
+                          {decisionLabel(latest.decision)}
+                        </span>
+                      </div>
+                      {latest.output?.summary && (
+                        <p className="agent-review-summary">{latest.output.summary}</p>
+                      )}
+                      {itemsSummary.total > 0 && (
+                        <p className="agent-review-item-count">
+                          {itemsSummary.total} item{itemsSummary.total > 1 ? "s" : ""}
+                          {itemsSummary.issues > 0 && ` (${itemsSummary.issues} issue${itemsSummary.issues > 1 ? "s" : ""})`}
+                        </p>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
           <div className="page-heading">
             <div>
