@@ -1,10 +1,12 @@
 """Safety Review Agent - Checks for sensitive data handling and security concerns.
 
-This agent analyzes form fields and mappings to identify potential security issues such as:
-- Sensitive field types (password, OTP, credit card)
-- Potential PII exposure
-- Suspicious data patterns
-- Security risks in form submissions
+This agent analyzes form fields and mappings to identify potential security issues.
+
+Blocked Tokens:
+    password, otp, payment, card, billing, delete, purchase, submit -> BLOCK
+    consent, terms, privacy -> REVIEW_REQUIRED
+
+The agent never weakens existing backend safety rules.
 """
 
 import logging
@@ -20,86 +22,106 @@ from app.models import Task
 
 logger = logging.getLogger(__name__)
 
-SENSITIVE_FIELD_PATTERNS = {
-    "password", "passwd", "pwd", "secret", "token", "otp",
-    "credit", "card", "cvv", "ssn", "bank", "account", "routing",
-    "social security", "national id", "tax id", "driver license",
+BLOCKED_TOKENS = {
+    "password", "otp", "payment", "card", "billing", "delete", "purchase", "submit"
 }
 
-SENSITIVE_FIELD_TYPES = {"password", "creditcard", "ssn"}
+REVIEW_REQUIRED_TOKENS = {
+    "consent", "terms", "privacy"
+}
+
+ISSUE_TYPES = {
+    "BLOCKED_FIELD": "BLOCKED_FIELD",
+    "REVIEW_REQUIRED_FIELD": "REVIEW_REQUIRED_FIELD",
+}
 
 
 def run_safety_review(db: Session, task: Task, review_input: dict) -> dict:
-    """Run safety review and return a structured decision."""
+    """Run safety review and return a structured decision.
 
-    issues = []
-    warnings = []
+    Agent Input:
+        - Extracted fields
+        - Mapped values metadata
+        - Field labels, types, selectors, options
+
+    Rules:
+        - Payment/delete/purchase/submit fields produce BLOCK
+        - Password/OTP fields produce BLOCK
+        - Consent/terms/privacy fields produce REVIEW_REQUIRED
+        - Normal profile fields produce PASS
+
+    Agent Output JSON:
+        {
+            "decision": "BLOCK",
+            "summary": "Security risks detected.",
+            "items": [
+                {
+                    "field_id": 1,
+                    "issue": "BLOCKED_FIELD",
+                    "message": "Password field detected."
+                }
+            ]
+        }
+    """
+
     items = []
     fields = review_input.get("form_fields", [])
+    has_blocked_field = False
 
     for field in fields:
+        field_id = field.get("id")
         field_type = (field.get("field_type") or "").lower()
         label = (field.get("label") or "").lower()
         name = (field.get("name") or "").lower()
         placeholder = (field.get("placeholder") or "").lower()
         selector = (field.get("selector") or "").lower()
 
-        all_text = " ".join([label, name, placeholder, selector])
         display_label = field.get("label") or field.get("name") or field.get("selector", "unknown field")
+        all_text = " ".join([label, name, placeholder, selector])
 
-        for pattern in SENSITIVE_FIELD_PATTERNS:
-            if pattern in all_text or pattern.replace(" ", "") in all_text:
-                if field_type in SENSITIVE_FIELD_TYPES or "password" in all_text or "credit" in all_text or "ssn" in all_text:
-                    issue_text = f"Sensitive field detected: {display_label}"
-                    issues.append(issue_text)
-                    items.append({"type": "issue", "message": issue_text, "field_label": display_label, "pattern": pattern})
-                else:
-                    warning_text = f"Potentially sensitive field: {display_label}"
-                    warnings.append(warning_text)
-                    items.append({"type": "warning", "message": warning_text, "field_label": display_label, "pattern": pattern})
+        field_has_blocked_token = False
+        for token in BLOCKED_TOKENS:
+            if token in all_text or token in field_type:
+                items.append({
+                    "field_id": field_id,
+                    "issue": ISSUE_TYPES["BLOCKED_FIELD"],
+                    "message": f"Blocked field detected: '{display_label}' contains sensitive token '{token}'.",
+                    "token": token,
+                })
+                field_has_blocked_token = True
+                has_blocked_field = True
                 break
 
-        mapped_value = field.get("mapped_value")
-        if mapped_value:
-            if len(mapped_value) >= 16 and any(char.isdigit() for char in mapped_value) and any(char.isalpha() for char in mapped_value):
-                if field_type == "password":
-                    issue_text = f"Password value appears to be stored in profile"
-                    issues.append(issue_text)
-                    items.append({"type": "issue", "message": issue_text, "field_label": display_label})
-                else:
-                    warning_text = f"Long complex value mapped to non-password field"
-                    warnings.append(warning_text)
-                    items.append({"type": "warning", "message": warning_text, "field_label": display_label})
+        if not field_has_blocked_token:
+            for token in REVIEW_REQUIRED_TOKENS:
+                if token in all_text or token in field_type:
+                    items.append({
+                        "field_id": field_id,
+                        "issue": ISSUE_TYPES["REVIEW_REQUIRED_FIELD"],
+                        "message": f"Review required: '{display_label}' contains consent-related token '{token}'.",
+                        "token": token,
+                    })
+                    break
 
-        memory_policy = field.get("profile_memory_policy", "auto")
-        if memory_policy == "force_save" and any(pattern in all_text for pattern in SENSITIVE_FIELD_PATTERNS):
-            issue_text = f"Sensitive field has force_save policy enabled"
-            issues.append(issue_text)
-            items.append({"type": "issue", "message": issue_text, "field_label": display_label, "policy": memory_policy})
-
-    if issues:
+    if has_blocked_field:
         decision = AGENT_DECISION_BLOCK
-    elif warnings:
+    elif items:
         decision = AGENT_DECISION_REVIEW_REQUIRED
     else:
         decision = AGENT_DECISION_PASS
 
-    confidence_score = min(1.0, max(0.5, 0.95 - len(issues) * 0.15 - len(warnings) * 0.05))
-
+    item_count = len(items)
     if decision == AGENT_DECISION_PASS:
-        summary = "No security issues detected"
+        summary = "No security issues detected."
     elif decision == AGENT_DECISION_BLOCK:
-        summary = f"Security risks detected: {len(issues)} critical issues"
+        summary = f"Security risks detected: {item_count} blocked field(s)."
     else:
-        summary = f"Security review recommended: {len(warnings)} warnings"
+        summary = f"Security review recommended: {item_count} field(s) need attention."
 
     return {
         "decision": decision,
         "summary": summary,
         "items": items,
-        "issues": issues,
-        "warnings": warnings,
-        "confidence": confidence_score,
         "role": "SAFETY_REVIEW",
         "model": None,
         "provider": None,
