@@ -42,6 +42,7 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     _add_missing_form_field_columns()
     _add_missing_profile_columns()
+    _add_missing_llm_usage_log_columns()
 
 
 def _add_missing_form_field_columns(target_engine=engine) -> None:
@@ -96,6 +97,35 @@ def _add_missing_profile_columns() -> None:
                 connection.execute(
                     text(
                         f"ALTER TABLE profiles "
+                        f"ADD COLUMN {column_name} {column_type}"
+                    )
+                )
+
+
+def _add_missing_llm_usage_log_columns() -> None:
+    """Add new columns when opening an older SQLite database without llm_api_usage_logs fields."""
+
+    inspector = inspect(engine)
+    if "llm_api_usage_logs" not in inspector.get_table_names():
+        return
+
+    existing_columns = {
+        column["name"] for column in inspector.get_columns("llm_api_usage_logs")
+    }
+    missing_columns = {
+        "latency_ms": "INTEGER NOT NULL DEFAULT 0",
+        "error_type": "VARCHAR(100)",
+        "fallback_used": "BOOLEAN NOT NULL DEFAULT 0",
+        "cache_source": "VARCHAR(50) NOT NULL DEFAULT 'no_cache'",
+        "estimated_cost": "FLOAT NOT NULL DEFAULT 0.0",
+    }
+
+    with engine.begin() as connection:
+        for column_name, column_type in missing_columns.items():
+            if column_name not in existing_columns:
+                connection.execute(
+                    text(
+                        f"ALTER TABLE llm_api_usage_logs "
                         f"ADD COLUMN {column_name} {column_type}"
                     )
                 )
