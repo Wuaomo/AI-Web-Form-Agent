@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.models import LlmApiUsageLog
+from app.services.llm_cost_service import estimate_llm_cost
 
 CacheSource = Literal[
     "provider_prompt_cache",
@@ -69,12 +70,24 @@ def record_llm_api_usage(
     if any(key not in usage for key in required_keys):
         return None
 
+    prompt_tokens = int(usage["prompt_tokens"])
+    completion_tokens = int(usage["completion_tokens"])
+
+    estimated_cost = usage.get("estimated_cost")
+    if estimated_cost is None:
+        estimated_cost = estimate_llm_cost(
+            provider=str(usage["provider"]),
+            model=str(usage["model"]),
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+        )
+
     log = LlmApiUsageLog(
         task_id=task_id,
         provider=str(usage["provider"]),
         model=str(usage["model"]),
-        prompt_tokens=int(usage["prompt_tokens"]),
-        completion_tokens=int(usage["completion_tokens"]),
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
         total_tokens=int(usage["total_tokens"]),
         cache_hit_tokens=int(usage["cache_hit_tokens"]),
         cache_miss_tokens=int(usage["cache_miss_tokens"]),
@@ -84,7 +97,7 @@ def record_llm_api_usage(
         error_type=str(usage["error_type"]) if usage.get("error_type") else None,
         fallback_used=bool(usage.get("fallback_used", False)),
         cache_source=str(usage.get("cache_source", "no_cache")),
-        estimated_cost=float(usage.get("estimated_cost", 0.0)),
+        estimated_cost=float(estimated_cost),
     )
 
     if db is not None:
@@ -167,4 +180,5 @@ def summarize_llm_usage(
         "cache_hit_rate": (
             cache_hit_tokens / prompt_tokens if prompt_tokens else 0
         ),
+        "estimated_cost": sum(log.estimated_cost for log in logs),
     }

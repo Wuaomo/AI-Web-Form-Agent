@@ -990,38 +990,6 @@ def _response_covers_fillable_fields(
     return _fillable_field_ids(fields).issubset(mapped_field_ids)
 
 
-def _record_cache_usage(
-    *,
-    task_id: int,
-    db: Session,
-    provider: str,
-    model: str,
-    cache_source: str,
-) -> None:
-    """Record a cache hit usage log without making an API call."""
-
-    record_llm_api_usage(
-        task_id=task_id,
-        usage={
-            "provider": provider,
-            "model": model,
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-            "cache_hit_tokens": 0,
-            "cache_miss_tokens": 0,
-            "cache_hit": True,
-            "cache_hit_rate": 1.0,
-            "latency_ms": 0,
-            "error_type": None,
-            "fallback_used": False,
-            "cache_source": cache_source,
-            "estimated_cost": 0.0,
-        },
-        db=db,
-    )
-
-
 def _map_fields_with_llm_result(
     task_id: int,
     db: Session,
@@ -1069,13 +1037,6 @@ def _map_fields_with_llm_result(
                     fields,
                     override_response,
                 )
-                _record_cache_usage(
-                    task_id=task_id,
-                    db=db,
-                    provider=selected_provider,
-                    model=cache_context.model,
-                    cache_source="user_override_cache",
-                )
             return LlmMappingResult(
                 fields=_apply_llm_mappings(fields, profile, result, db),
                 used_fallback=False,
@@ -1102,13 +1063,6 @@ def _map_fields_with_llm_result(
                     cache_context,
                     fields,
                     merged_cached_response,
-                )
-                _record_cache_usage(
-                    task_id=task_id,
-                    db=db,
-                    provider=selected_provider,
-                    model=cache_context.model,
-                    cache_source="app_mapping_cache",
                 )
             return LlmMappingResult(
                 fields=_apply_llm_mappings(fields, profile, result, db),

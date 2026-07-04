@@ -753,22 +753,37 @@ class LLMFieldMapperTests(unittest.TestCase):
         self.assertTrue(usage_log.fallback_used)
         self.assertEqual(usage_log.error_type, "RuntimeError")
 
-    def test_app_mapping_cache_usage_recorded(self) -> None:
+    def test_app_mapping_cache_hit_does_not_create_provider_usage_log(self) -> None:
         first_field = self._add_field(
             label="Where should we send updates?",
             selector="#contact-destination",
         )
-        first_llm_json = json.dumps(
-            {
-                "mappings": [
-                    {
-                        "field_id": first_field.id,
-                        "mapped_profile_key": "email",
-                        "confidence": 0.93,
+        provider_response = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "mappings": [
+                                    {
+                                        "field_id": first_field.id,
+                                        "mapped_profile_key": "email",
+                                        "confidence": 0.93,
+                                    }
+                                ]
+                            }
+                        )
                     }
-                ]
-            }
-        )
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 25,
+                "total_tokens": 125,
+                "prompt_cache_hit_tokens": 0,
+                "prompt_cache_miss_tokens": 100,
+            },
+        }
 
         second_profile = Profile(
             profile_name="Second profile",
@@ -788,9 +803,12 @@ class LLMFieldMapperTests(unittest.TestCase):
             selector="#contact-destination",
         )
 
-        with patch(
-            "app.services.field_mapper._request_llm_mapping",
-            return_value=first_llm_json,
+        with (
+            patch("app.services.field_mapper.config.DEEPSEEK_API_KEY", "test-key"),
+            patch(
+                "app.services.field_mapper._post_json",
+                return_value=provider_response,
+            ) as mock_post,
         ):
             map_fields_with_llm(
                 self.task_id,
@@ -803,6 +821,8 @@ class LLMFieldMapperTests(unittest.TestCase):
                 provider="deepseek",
             )
 
+            mock_post.assert_called_once()
+
         usage_logs = list(
             self.db.scalars(
                 select(LlmApiUsageLog).where(
@@ -810,9 +830,64 @@ class LLMFieldMapperTests(unittest.TestCase):
                 )
             )
         )
-        self.assertEqual(len(usage_logs), 1)
-        self.assertEqual(usage_logs[0].cache_source, "app_mapping_cache")
-        self.assertTrue(usage_logs[0].cache_hit)
+        self.assertEqual(len(usage_logs), 0)
+
+        first_task_usage_logs = list(
+            self.db.scalars(
+                select(LlmApiUsageLog).where(
+                    LlmApiUsageLog.task_id == self.task_id
+                )
+            )
+        )
+        self.assertEqual(len(first_task_usage_logs), 1)
+
+    def test_provider_prompt_cache_hit_recorded_in_usage_log(self) -> None:
+        response = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "mappings": [
+                                    {
+                                        "field_id": 1,
+                                        "mapped_profile_key": "email",
+                                        "confidence": 0.9,
+                                    }
+                                ]
+                            }
+                        )
+                    }
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 25,
+                "total_tokens": 125,
+                "prompt_cache_hit_tokens": 75,
+                "prompt_cache_miss_tokens": 25,
+            },
+        }
+
+        with (
+            patch("app.services.field_mapper.config.DEEPSEEK_API_KEY", "test-key"),
+            patch("app.services.field_mapper._post_json", return_value=response),
+        ):
+            _request_deepseek_mapping(
+                "Map this field",
+                task_id=self.task_id,
+                db=self.db,
+            )
+
+        usage_log = self.db.scalar(
+            select(LlmApiUsageLog).where(
+                LlmApiUsageLog.task_id == self.task_id
+            )
+        )
+        self.assertIsNotNone(usage_log)
+        self.assertEqual(usage_log.cache_source, "provider_prompt_cache")
+        self.assertTrue(usage_log.cache_hit)
+        self.assertEqual(usage_log.cache_hit_rate, 0.75)
 
 
 if __name__ == "__main__":
