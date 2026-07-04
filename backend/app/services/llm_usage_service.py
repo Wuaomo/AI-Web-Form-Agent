@@ -1,5 +1,7 @@
 """Helpers for storing and summarizing internal LLM API usage."""
 
+import statistics
+
 from dataclasses import dataclass
 from typing import Literal
 
@@ -166,8 +168,18 @@ def summarize_llm_usage(
     """Aggregate token and cache usage across matching records."""
 
     logs = list_llm_usage_logs(db, task_id=task_id)
+    return _calculate_summary(logs, task_id=task_id)
+
+
+def _calculate_summary(
+    logs: list[LlmApiUsageLog],
+    task_id: int | None = None,
+) -> dict[str, int | float | None]:
+    """Calculate summary metrics from a list of usage logs."""
+
     prompt_tokens = sum(log.prompt_tokens for log in logs)
     cache_hit_tokens = sum(log.cache_hit_tokens for log in logs)
+    latency_values = [log.latency_ms for log in logs]
 
     return {
         "task_id": task_id,
@@ -180,5 +192,56 @@ def summarize_llm_usage(
         "cache_hit_rate": (
             cache_hit_tokens / prompt_tokens if prompt_tokens else 0
         ),
+        "average_latency_ms": (
+            int(statistics.mean(latency_values)) if latency_values else 0
+        ),
+        "p95_latency_ms": (
+            int(statistics.quantiles(latency_values, n=100)[94])
+            if len(latency_values) >= 20
+            else (max(latency_values) if latency_values else 0)
+        ),
+        "fallback_count": sum(1 for log in logs if log.fallback_used),
         "estimated_cost": sum(log.estimated_cost for log in logs),
     }
+
+
+def summarize_llm_usage_by_provider(
+    db: Session,
+) -> list[dict[str, str | int | float]]:
+    """Return aggregated LLM usage grouped by provider and model."""
+
+    logs = list_llm_usage_logs(db)
+
+    groups: dict[tuple[str, str], list[LlmApiUsageLog]] = {}
+    for log in logs:
+        key = (log.provider, log.model)
+        if key not in groups:
+            groups[key] = []
+        groups[key].append(log)
+
+    results = []
+    for (provider, model), group_logs in groups.items():
+        prompt_tokens = sum(log.prompt_tokens for log in group_logs)
+        cache_hit_tokens = sum(log.cache_hit_tokens for log in group_logs)
+        latency_values = [log.latency_ms for log in group_logs]
+
+        results.append({
+            "provider": provider,
+            "model": model,
+            "request_count": len(group_logs),
+            "average_latency_ms": (
+                int(statistics.mean(latency_values)) if latency_values else 0
+            ),
+            "p95_latency_ms": (
+                int(statistics.quantiles(latency_values, n=100)[94])
+                if len(latency_values) >= 20
+                else (max(latency_values) if latency_values else 0)
+            ),
+            "cache_hit_rate": (
+                cache_hit_tokens / prompt_tokens if prompt_tokens else 0
+            ),
+            "fallback_count": sum(1 for log in group_logs if log.fallback_used),
+            "estimated_cost": sum(log.estimated_cost for log in group_logs),
+        })
+
+    return sorted(results, key=lambda x: x["provider"])
