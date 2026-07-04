@@ -10,6 +10,11 @@ import {
   getSavedLlmProvider,
   saveLlmProvider,
 } from "../llmProviderPreference";
+import {
+  formatLatency,
+  formatEstimatedCost,
+  formatCacheHitRate,
+} from "../llmUsagePresentation";
 import Message from "../components/Message";
 import {
   getTaskRunState,
@@ -337,28 +342,36 @@ function TaskDetail() {
               <h3>LLM Usage</h3>
               {llmUsage?.summary ? (
                 llmUsage.summary.request_count > 0 ? (
-                  <dl className="detail-list">
-                    <div>
-                      <dt>Requests</dt>
-                      <dd>{llmUsage.summary.request_count}</dd>
+                  <div className="llm-usage-grid">
+                    <div className="llm-usage-card">
+                      <span>Requests</span>
+                      <strong>{llmUsage.summary.request_count}</strong>
                     </div>
-                    <div>
-                      <dt>Total tokens</dt>
-                      <dd>{llmUsage.summary.total_tokens}</dd>
+                    <div className="llm-usage-card">
+                      <span>Total tokens</span>
+                      <strong>{llmUsage.summary.total_tokens?.toLocaleString()}</strong>
                     </div>
-                    <div>
-                      <dt>Cache hit rate</dt>
-                      <dd>{Math.round(llmUsage.summary.cache_hit_rate * 100)}%</dd>
+                    <div className="llm-usage-card">
+                      <span>Prompt cache hit rate</span>
+                      <strong>{formatCacheHitRate(llmUsage.summary.cache_hit_rate)}</strong>
                     </div>
-                    <div>
-                      <dt>Cache hit tokens</dt>
-                      <dd>{llmUsage.summary.cache_hit_tokens}</dd>
+                    <div className="llm-usage-card">
+                      <span>Average latency</span>
+                      <strong>{formatLatency(llmUsage.summary.average_latency_ms)}</strong>
                     </div>
-                    <div>
-                      <dt>Cache miss tokens</dt>
-                      <dd>{llmUsage.summary.cache_miss_tokens}</dd>
+                    <div className="llm-usage-card">
+                      <span>P95 latency</span>
+                      <strong>{formatLatency(llmUsage.summary.p95_latency_ms)}</strong>
                     </div>
-                  </dl>
+                    <div className="llm-usage-card">
+                      <span>Fallback count</span>
+                      <strong>{llmUsage.summary.fallback_count}</strong>
+                    </div>
+                    <div className="llm-usage-card">
+                      <span>Estimated cost</span>
+                      <strong>{formatEstimatedCost(llmUsage.summary.estimated_cost)}</strong>
+                    </div>
+                  </div>
                 ) : (
                   <p>No LLM usage yet.</p>
                 )

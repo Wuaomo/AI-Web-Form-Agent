@@ -463,6 +463,35 @@ dd {
   font-size: 1.7rem;
 }
 
+.llm-usage-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.llm-usage-card {
+  padding: 0.85rem;
+  background: #f7f9fc;
+  border: 1px solid #e1e7f0;
+  border-radius: 0.45rem;
+}
+
+.llm-usage-card span {
+  display: block;
+  color: #687386;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.llm-usage-card strong {
+  display: block;
+  margin-top: 0.3rem;
+  color: #17202a;
+  font-size: 1.25rem;
+}
+
 .benchmark-layout {
   display: grid;
   grid-template-columns: minmax(220px, 0.28fr) minmax(0, 1fr);
@@ -1029,7 +1058,8 @@ th {
   .card-grid,
   .two-column,
   .mapping-controls,
-  .run-summary-grid {
+  .run-summary-grid,
+  .llm-usage-grid {
     grid-template-columns: 1fr;
   }
 
