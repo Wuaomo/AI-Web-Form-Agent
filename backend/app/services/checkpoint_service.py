@@ -1,10 +1,13 @@
-"""Deterministic checkpoint read/write service for task workflow stages."""
+"""Deterministic checkpoint service for task workflow stages."""
+
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.models import TaskCheckpoint
+from app.services.metrics_sidecar_client import emit_metrics_event
 from app.workflow_constants import (
     CHECKPOINT_FAILED,
     CHECKPOINT_SKIPPED,
@@ -55,6 +58,16 @@ def write_checkpoint(
         checkpoint = db.scalar(statement)
         if checkpoint:
             db.refresh(checkpoint)
+
+        emit_metrics_event({
+            "event_type": "checkpoint_written",
+            "task_id": task_id,
+            "job_id": 0,
+            "job_type": stage,
+            "worker_id": "",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+
         return checkpoint
 
     with SessionLocal() as session:
@@ -68,6 +81,16 @@ def write_checkpoint(
         if checkpoint:
             session.refresh(checkpoint)
             session.expunge(checkpoint)
+
+        emit_metrics_event({
+            "event_type": "checkpoint_written",
+            "task_id": task_id,
+            "job_id": 0,
+            "job_type": stage,
+            "worker_id": "",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+
         return checkpoint
 
 

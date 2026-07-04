@@ -17,6 +17,7 @@ from app.job_constants import (
     JOB_STATUS_RETRY_SCHEDULED,
 )
 from app.models import utc_now
+from app.services.metrics_sidecar_client import emit_metrics_event
 
 VALID_JOB_TYPES = {
     JOB_TYPE_ANALYZE_FORM,
@@ -65,6 +66,15 @@ def enqueue_job(
     )
     db.add(job)
     db.flush()
+
+    emit_metrics_event({
+        "event_type": "job_enqueued",
+        "task_id": task_id or 0,
+        "job_id": job.id,
+        "job_type": job_type,
+        "created_at": utc_now().isoformat(),
+    })
+
     return job
 
 

@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 from typing import Any
@@ -9,7 +8,13 @@ logger = logging.getLogger(__name__)
 
 
 def emit_metrics_event(event: dict[str, Any]) -> bool:
-    """Send an operational event to the optional Go metrics sidecar."""
+    """Send an operational event to the optional Go metrics sidecar.
+
+    Returns False without raising when the sidecar is unavailable or the
+    request fails. This function must never propagate exceptions to the
+    caller so that metrics emission cannot fail the main workflow.
+    """
+
     sidecar_url = os.getenv("METRICS_SIDECAR_URL", "").strip()
 
     if not sidecar_url:
@@ -22,6 +27,6 @@ def emit_metrics_event(event: dict[str, Any]) -> bool:
             timeout=0.5,
         )
         return response.status_code == 202
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         logger.warning("Failed to emit metrics event: %s", str(e))
         return False
