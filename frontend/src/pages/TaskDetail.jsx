@@ -26,6 +26,10 @@ import {
   getNewestJob,
   newestJobStatusLine,
 } from "../jobPresentation";
+import {
+  summarizeVerificationResults,
+  verificationReasonLabel,
+} from "../verificationPresentation";
 
 function TaskDetail() {
   const { taskId } = useParams();
@@ -48,6 +52,7 @@ function TaskDetail() {
   const [taskLogs, setTaskLogs] = useState([]);
   const [taskCheckpoints, setTaskCheckpoints] = useState([]);
   const [taskJobs, setTaskJobs] = useState([]);
+  const [verificationResults, setVerificationResults] = useState([]);
 
   useEffect(() => {
     if (
@@ -74,8 +79,9 @@ function TaskDetail() {
       api.getTaskLlmUsage(taskId).catch(() => null),
       api.listTaskCheckpoints(taskId).catch(() => []),
       api.listTaskJobs(taskId).catch(() => []),
+      api.getTaskVerificationResults(taskId).catch(() => []),
     ])
-      .then(([taskResult, screenshotItems, profileItems, providerItems, logItems, usageResult, checkpointItems, jobItems]) => {
+      .then(([taskResult, screenshotItems, profileItems, providerItems, logItems, usageResult, checkpointItems, jobItems, verificationItems]) => {
         setTask(taskResult);
         setScreenshots(screenshotItems);
         setProfiles(profileItems);
@@ -84,6 +90,7 @@ function TaskDetail() {
         setLlmUsage(usageResult);
         setTaskCheckpoints(checkpointItems);
         setTaskJobs(jobItems);
+        setVerificationResults(verificationItems);
         setSelectedLlmProvider(getSavedLlmProvider(providerItems));
       })
       .catch((requestError) => setError(requestError.message))
@@ -91,13 +98,14 @@ function TaskDetail() {
   }, [taskId]);
 
   async function refreshTaskData(nextTask = null) {
-    const [taskResult, screenshotItems, logItems, usageResult, checkpointItems, jobItems] = await Promise.all([
+    const [taskResult, screenshotItems, logItems, usageResult, checkpointItems, jobItems, verificationItems] = await Promise.all([
       nextTask ? Promise.resolve(nextTask) : api.getTask(taskId),
       api.listTaskScreenshots(taskId),
       api.listTaskLogs(taskId),
       api.getTaskLlmUsage(taskId).catch(() => null),
       api.listTaskCheckpoints(taskId).catch(() => []),
       api.listTaskJobs(taskId).catch(() => []),
+      api.getTaskVerificationResults(taskId).catch(() => []),
     ]);
     setTask(taskResult);
     setScreenshots(screenshotItems);
@@ -105,6 +113,7 @@ function TaskDetail() {
     setLlmUsage(usageResult);
     setTaskCheckpoints(checkpointItems);
     setTaskJobs(jobItems);
+    setVerificationResults(verificationItems);
   }
 
   async function runAction(actionName, request, successMessage) {
@@ -175,7 +184,7 @@ function TaskDetail() {
   }
 
   async function copyDebugReport() {
-    const report = generateDebugReport(task, profiles, screenshots, llmUsage, taskLogs, taskCheckpoints);
+    const report = generateDebugReport(task, profiles, screenshots, llmUsage, taskLogs, taskCheckpoints, verificationResults);
     try {
       await navigator.clipboard.writeText(report);
       setNotice("Debug report copied to clipboard.");
@@ -232,6 +241,7 @@ function TaskDetail() {
   const jobStatusText = newestJobStatusLine(taskJobs);
   const showWorkflowTimeline = shouldShowWorkflowTimeline();
   const workflowNodes = showWorkflowTimeline && task ? getWorkflowTimeline(task, taskLogs) : [];
+  const verificationSummary = summarizeVerificationResults(verificationResults);
   const primaryDisabled =
     isBusy ||
     !runState.primaryAction ||
@@ -390,6 +400,43 @@ function TaskDetail() {
               Copy Debug Report
             </button>
           </div>
+
+          {verificationResults.length > 0 && (
+            <div className="card">
+              <h3>Verification Results</h3>
+              <div className="verification-grid">
+                <div className="verification-card verification-verified">
+                  <span>Verified</span>
+                  <strong>{verificationSummary.verified}</strong>
+                </div>
+                <div className="verification-card verification-failed">
+                  <span>Failed</span>
+                  <strong>{verificationSummary.failed}</strong>
+                </div>
+                <div className="verification-card verification-skipped">
+                  <span>Skipped</span>
+                  <strong>{verificationSummary.skipped}</strong>
+                </div>
+              </div>
+              {verificationSummary.failed > 0 && (
+                <div className="verification-failures">
+                  <h4>Failed verifications</h4>
+                  <ul>
+                    {verificationResults
+                      .filter((r) => r.status === "FAILED")
+                      .map((r) => (
+                        <li key={r.id}>
+                          <span className="verification-selector">{r.selector}</span>
+                          <span className="verification-reason">
+                            {verificationReasonLabel(r.reason)}
+                          </span>
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="page-heading">
             <div>

@@ -1,6 +1,6 @@
 import { API_BASE_URL } from "./api.js";
 
-export function generateDebugReport(task, profiles = [], screenshots = [], llmUsage = null, logs = [], checkpoints = []) {
+export function generateDebugReport(task, profiles = [], screenshots = [], llmUsage = null, logs = [], checkpoints = [], verificationResults = []) {
   const profile = profiles.find((p) => p.id === task?.profile_id);
   const profileName = profile?.profile_name || task?.profile_id || "—";
 
@@ -92,6 +92,32 @@ export function generateDebugReport(task, profiles = [], screenshots = [], llmUs
   } else {
     lines.push("");
     lines.push("Recent logs: None");
+  }
+
+  if (verificationResults.length > 0) {
+    const verified = verificationResults.filter((r) => r.status === "VERIFIED").length;
+    const failed = verificationResults.filter((r) => r.status === "FAILED").length;
+    const skipped = verificationResults.filter((r) => r.status === "SKIPPED").length;
+
+    lines.push("");
+    lines.push("Verification results:");
+    lines.push(`  Verified: ${verified}`);
+    lines.push(`  Failed: ${failed}`);
+    lines.push(`  Skipped: ${skipped}`);
+
+    if (failed > 0) {
+      lines.push("");
+      lines.push("Verification failures:");
+      verificationResults
+        .filter((r) => r.status === "FAILED")
+        .forEach((r) => {
+          lines.push(`  Selector: ${r.selector}`);
+          lines.push(`    Reason: ${r.reason || "Unknown"}`);
+          if (r.message) {
+            lines.push(`    Message: ${r.message}`);
+          }
+        });
+    }
   }
 
   lines.push("");

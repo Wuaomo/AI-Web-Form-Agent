@@ -73,3 +73,41 @@ test("generateDebugReport limits checkpoints to 10 entries", () => {
   const stageCount = (report.match(/Stage: STAGE_/g) || []).length;
   assert.equal(stageCount, 10);
 });
+
+test("generateDebugReport includes verification failure reason", () => {
+  const verificationResults = [
+    { id: 1, task_id: 7, field_id: 1, selector: "#email", status: "VERIFIED" },
+    { id: 2, task_id: 7, field_id: 2, selector: "#password", status: "FAILED", reason: "SELECTOR_NOT_FOUND", message: "Could not find field" },
+    { id: 3, task_id: 7, field_id: 3, selector: "#name", status: "SKIPPED", reason: "SENSITIVE_FIELD_SKIPPED" },
+  ];
+
+  const report = generateDebugReport(baseTask, profiles, [], null, [], [], verificationResults);
+
+  assert.ok(report.includes("Verification results:"));
+  assert.ok(report.includes("Verified: 1"));
+  assert.ok(report.includes("Failed: 1"));
+  assert.ok(report.includes("Skipped: 1"));
+  assert.ok(report.includes("Verification failures:"));
+  assert.ok(report.includes("Selector: #password"));
+  assert.ok(report.includes("Reason: SELECTOR_NOT_FOUND"));
+  assert.ok(report.includes("Message: Could not find field"));
+});
+
+test("generateDebugReport does not include raw sensitive values", () => {
+  const verificationResults = [
+    { id: 1, task_id: 7, field_id: 1, selector: "#email", status: "VERIFIED", expected_value_hash: "hash1", actual_value_hash: "hash2" },
+    { id: 2, task_id: 7, field_id: 2, selector: "#password", status: "SKIPPED", reason: "SENSITIVE_FIELD_SKIPPED" },
+  ];
+
+  const report = generateDebugReport(baseTask, profiles, [], null, [], [], verificationResults);
+
+  assert.ok(!report.includes("expected_value"));
+  assert.ok(!report.includes("actual_value"));
+  assert.ok(!report.includes("raw"));
+});
+
+test("generateDebugReport handles empty verification results", () => {
+  const report = generateDebugReport(baseTask, profiles, [], null, [], [], []);
+
+  assert.ok(!report.includes("Verification results:"));
+});
