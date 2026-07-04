@@ -5,6 +5,7 @@ import re
 from typing import Literal, Union
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -372,32 +373,73 @@ def get_task_verification_results(task_id: int, db: Session = Depends(get_db)) -
 
 @router.get("/{task_id}/agent-reviews", response_model=list[AgentReviewResponse])
 def get_task_agent_reviews(task_id: int, db: Session = Depends(get_db)) -> list[AgentReview]:
-    """Return all agent reviews for a task."""
-
-    from app.services.agent_coordinator import get_agent_reviews_for_task
+    """Return all agent reviews for a task, newest first."""
 
     task = get_task_or_404(task_id, db)
-    return get_agent_reviews_for_task(db, task.id)
+
+    statement = (
+        select(AgentReview)
+        .where(AgentReview.task_id == task_id)
+        .order_by(AgentReview.created_at.desc())
+    )
+    return list(db.scalars(statement))
 
 
-@router.post("/{task_id}/run-agent-reviews", response_model=list[AgentReviewResponse])
-def run_task_agent_reviews(task_id: int, db: Session = Depends(get_db)) -> list[AgentReview]:
-    """Run all agent reviews for a task and return results.
+class AgentReviewRequest(BaseModel):
+    """Request body for running agent reviews."""
 
-    Agents are called in sequence:
-    1. Mapping Critic - reviews field-to-profile mappings
-    2. Safety Review - checks for sensitive data handling
-    3. Execution Verification - validates form filling execution
+    roles: list[str] = []
+
+
+@router.post("/{task_id}/agent-reviews", response_model=list[AgentReviewResponse])
+def run_task_agent_reviews(
+    task_id: int,
+    request: AgentReviewRequest = AgentReviewRequest(),
+    db: Session = Depends(get_db),
+) -> list[AgentReview]:
+    """Run specified agent reviews for a task and return results.
+
+    Accepts a list of roles to run. Valid roles are:
+    - MAPPING_CRITIC - reviews field-to-profile mappings
+    - SAFETY_REVIEW - checks for sensitive data handling
+    - EXECUTION_VERIFICATION - validates form filling execution
 
     Each agent returns a structured decision (PASS, REVIEW_REQUIRED, BLOCK).
     """
 
-    from app.services.agent_coordinator import run_agent_reviews, get_agent_reviews_for_task
+    from app.agent_constants import (
+        AGENT_ROLE_MAPPING_CRITIC,
+        AGENT_ROLE_SAFETY_REVIEW,
+        AGENT_ROLE_EXECUTION_VERIFICATION,
+    )
+    from app.services.agent_coordinator import run_agent_review_sequence, get_agent_reviews_for_task
+
+    VALID_ROLES = {
+        AGENT_ROLE_MAPPING_CRITIC,
+        AGENT_ROLE_SAFETY_REVIEW,
+        AGENT_ROLE_EXECUTION_VERIFICATION,
+    }
 
     task = get_task_or_404(task_id, db)
-    run_agent_reviews(db, task)
+
+    roles = request.roles if request.roles else list(VALID_ROLES)
+
+    for role in roles:
+        if role not in VALID_ROLES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid agent role: {role}. Valid roles are: {', '.join(VALID_ROLES)}",
+            )
+
+    run_agent_review_sequence(task.id, db, roles)
     db.commit()
-    return get_agent_reviews_for_task(db, task.id)
+
+    statement = (
+        select(AgentReview)
+        .where(AgentReview.task_id == task_id)
+        .order_by(AgentReview.created_at.desc())
+    )
+    return list(db.scalars(statement))
 
 
 @router.post("/{task_id}/analyze", response_model=Union[TaskResponse, JobResponse])
