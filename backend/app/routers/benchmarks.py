@@ -45,7 +45,7 @@ def run_benchmark_suite(
 
     options = request or BenchmarkRunRequest()
     if options.mode == "rules":
-        run_benchmarks(mode="rules", provider=None, db=db)
+        run_benchmarks(mode="rules", provider=None, db=db, stress_mode=options.stress_mode)
         return _load_latest_benchmark_run(db)
 
     if not options.provider:
@@ -68,7 +68,7 @@ def run_benchmark_suite(
             detail=get_provider_setup_hint(selected_provider),
         )
 
-    run_benchmarks(mode="llm", provider=selected_provider, db=db)
+    run_benchmarks(mode="llm", provider=selected_provider, db=db, stress_mode=options.stress_mode)
     return _load_latest_benchmark_run(db)
 
 

@@ -72,6 +72,11 @@ test("summaryMetricEntries returns all summary metrics in stable order with Engl
     { key: "login_detection_accuracy", label: "Login detection accuracy", value: "N/A" },
     { key: "fill_success_rate", label: "Fill success rate", value: "N/A" },
     { key: "llm_fallback_count", label: "LLM fallback count", value: "2" },
+    { key: "average_case_duration_ms", label: "Average case duration", value: "N/A" },
+    { key: "p95_case_duration_ms", label: "P95 case duration", value: "N/A" },
+    { key: "llm_cache_hit_rate", label: "LLM cache hit rate", value: "N/A" },
+    { key: "retry_success_rate", label: "Retry success rate", value: "N/A" },
+    { key: "failure_rate", label: "Failure rate", value: "N/A" },
   ]);
 });
 
@@ -92,7 +97,7 @@ test("metricEntries keeps known metrics first and appends extra metrics", () => 
 
   assert.equal(entries[0].key, "field_extraction_recall");
   assert.equal(entries[2].key, "mapping_accuracy");
-  assert.equal(entries.at(-2).key, "llm_fallback_count");
+  assert.equal(entries.at(-2).key, "failure_rate");
   assert.deepEqual(entries.at(-1), {
     key: "custom_metric",
     label: "custom metric",

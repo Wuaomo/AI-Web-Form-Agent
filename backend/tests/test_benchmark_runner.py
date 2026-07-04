@@ -1,5 +1,6 @@
 """Tests for benchmark case loading and metric scoring."""
 
+import json
 from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import patch
@@ -10,11 +11,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base
-from app.models import FormField, LlmApiUsageLog, Profile, Task
+from app.models import BenchmarkRun, FormField, LlmApiUsageLog, Profile, Task
 from app.services.field_mapper import LlmMappingResult
 from app.services.benchmark_runner import (
     BenchmarkCase,
     SUMMARY_METRIC_KEYS,
+    VALID_STRESS_MODES,
     load_benchmark_cases,
     run_benchmarks,
     score_case,
@@ -442,4 +444,171 @@ def test_run_case_llm_mode_sets_llm_fallback_count_zero_when_not_used(db_session
         actual = _run_case(case, mode="llm", provider="openai", db=db_session)
 
     assert actual["llm_fallback_count"] == 0
+
+
+def test_run_benchmarks_duration_is_positive() -> None:
+    case = BenchmarkCase(
+        case_id="case_1",
+        title="Case one",
+        html_path=Path("case_1.html"),
+        expected={"login_required": False, "fields": []},
+    )
+
+    raw_fields = [
+        {"selector": "#name", "label": "Name", "field_type": "text", "required": True},
+    ]
+
+    def fake_match(field: FormField):
+        return ("full_name", 1.0)
+
+    with (
+        patch("app.services.benchmark_runner.load_benchmark_cases", return_value=[case]),
+        patch("app.services.benchmark_runner._extract_case_page_state", return_value=(raw_fields, False)),
+        patch("app.services.benchmark_runner._match_profile_key", side_effect=fake_match),
+    ):
+        summary = run_benchmarks(mode="rules")
+
+    assert "average_case_duration_ms" in summary.summary_metrics
+    assert summary.summary_metrics["average_case_duration_ms"] >= 0
+
+
+def test_run_benchmarks_baseline_comparison_counts_regressions_and_improvements(db_session: Session) -> None:
+    baseline_run = BenchmarkRun(
+        mode="rules",
+        provider=None,
+        total_cases=1,
+        average_score=0.9,
+        summary_metrics_json=json.dumps({
+            "field_extraction_recall": 0.9,
+            "mapping_accuracy": 0.85,
+            "llm_fallback_count": 3,
+        }),
+    )
+    db_session.add(baseline_run)
+    db_session.commit()
+
+    case = BenchmarkCase(
+        case_id="case_1",
+        title="Case one",
+        html_path=Path("case_1.html"),
+        expected={
+            "login_required": False,
+            "fields": [
+                {"selector": "#name", "profile_key": "full_name", "required": True},
+            ],
+        },
+    )
+
+    raw_fields = [
+        {"selector": "#name", "label": "Name", "field_type": "text", "required": True},
+    ]
+
+    def fake_match(field: FormField):
+        return ("full_name", 1.0)
+
+    with (
+        patch("app.services.benchmark_runner.load_benchmark_cases", return_value=[case]),
+        patch("app.services.benchmark_runner._extract_case_page_state", return_value=(raw_fields, False)),
+        patch("app.services.benchmark_runner._match_profile_key", side_effect=fake_match),
+    ):
+        summary = run_benchmarks(mode="rules", db=db_session)
+
+    runs = db_session.query(BenchmarkRun).order_by(BenchmarkRun.id.desc()).limit(1).all()
+    assert len(runs) == 1
+    current_run = runs[0]
+
+    assert current_run.baseline_run_id == baseline_run.id
+    assert current_run.regression_count >= 0
+    assert current_run.improvement_count >= 0
+
+
+def test_llm_fallback_count_lower_is_better() -> None:
+    from app.services.benchmark_comparison_service import compare_summary_metrics
+
+    current = {"llm_fallback_count": 2}
+    baseline = {"llm_fallback_count": 5}
+
+    result = compare_summary_metrics(current, baseline)
+
+    assert result["llm_fallback_count"]["classification"] == "improved"
+
+
+def test_llm_fallback_count_higher_is_regressed() -> None:
+    from app.services.benchmark_comparison_service import compare_summary_metrics
+
+    current = {"llm_fallback_count": 5}
+    baseline = {"llm_fallback_count": 2}
+
+    result = compare_summary_metrics(current, baseline)
+
+    assert result["llm_fallback_count"]["classification"] == "regressed"
+
+
+def test_stress_mode_accepts_valid_values() -> None:
+    case = BenchmarkCase(
+        case_id="case_1",
+        title="Case one",
+        html_path=Path("case_1.html"),
+        expected={"login_required": False, "fields": []},
+    )
+
+    raw_fields = [
+        {"selector": "#name", "label": "Name", "field_type": "text", "required": True},
+    ]
+
+    def fake_match(field: FormField):
+        return ("full_name", 1.0)
+
+    for stress_mode in VALID_STRESS_MODES:
+        with (
+            patch("app.services.benchmark_runner.load_benchmark_cases", return_value=[case]),
+            patch("app.services.benchmark_runner._extract_case_page_state", return_value=(raw_fields, False)),
+            patch("app.services.benchmark_runner._match_profile_key", side_effect=fake_match),
+        ):
+            summary = run_benchmarks(mode="rules", stress_mode=stress_mode)
+            assert summary is not None
+
+
+def test_stress_mode_rejects_unknown_value() -> None:
+    case = BenchmarkCase(
+        case_id="case_1",
+        title="Case one",
+        html_path=Path("case_1.html"),
+        expected={"login_required": False, "fields": []},
+    )
+
+    with (
+        patch("app.services.benchmark_runner.load_benchmark_cases", return_value=[case]),
+    ):
+        with pytest.raises(ValueError, match="Unknown stress mode"):
+            run_benchmarks(mode="rules", stress_mode="invalid_mode")
+
+
+def test_summary_metrics_include_performance_metrics() -> None:
+    case = BenchmarkCase(
+        case_id="case_1",
+        title="Case one",
+        html_path=Path("case_1.html"),
+        expected={"login_required": False, "fields": []},
+    )
+
+    raw_fields = [
+        {"selector": "#name", "label": "Name", "field_type": "text", "required": True},
+    ]
+
+    def fake_match(field: FormField):
+        return ("full_name", 1.0)
+
+    with (
+        patch("app.services.benchmark_runner.load_benchmark_cases", return_value=[case]),
+        patch("app.services.benchmark_runner._extract_case_page_state", return_value=(raw_fields, False)),
+        patch("app.services.benchmark_runner._match_profile_key", side_effect=fake_match),
+    ):
+        summary = run_benchmarks(mode="rules")
+
+    assert "average_case_duration_ms" in summary.summary_metrics
+    assert "p95_case_duration_ms" in summary.summary_metrics
+    assert "llm_cache_hit_rate" in summary.summary_metrics
+    assert "retry_success_rate" in summary.summary_metrics
+    assert "failure_rate" in summary.summary_metrics
 

@@ -7,6 +7,11 @@ export const benchmarkMetricOrder = [
   "login_detection_accuracy",
   "fill_success_rate",
   "llm_fallback_count",
+  "average_case_duration_ms",
+  "p95_case_duration_ms",
+  "llm_cache_hit_rate",
+  "retry_success_rate",
+  "failure_rate",
 ];
 
 const metricLabels = {
@@ -18,6 +23,11 @@ const metricLabels = {
   login_detection_accuracy: "Login detection accuracy",
   fill_success_rate: "Fill success rate",
   llm_fallback_count: "LLM fallback count",
+  average_case_duration_ms: "Average case duration",
+  p95_case_duration_ms: "P95 case duration",
+  llm_cache_hit_rate: "LLM cache hit rate",
+  retry_success_rate: "Retry success rate",
+  failure_rate: "Failure rate",
 };
 
 export function formatMetricPercent(value) {
@@ -28,15 +38,25 @@ export function formatMetricPercent(value) {
 }
 
 export function formatMetricValue(key, value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return "N/A";
+  }
+
   if (key === "llm_fallback_count") {
-    if (value === null || value === undefined || Number.isNaN(Number(value))) {
-      return "N/A";
-    }
     const numericValue = Number(value);
     return Number.isInteger(numericValue)
       ? String(numericValue)
       : numericValue.toFixed(2);
   }
+
+  if (key.endsWith("_duration_ms")) {
+    const ms = Number(value);
+    if (ms >= 1000) {
+      return `${(ms / 1000).toFixed(1)}s`;
+    }
+    return `${Math.round(ms)}ms`;
+  }
+
   return formatMetricPercent(value);
 }
 
