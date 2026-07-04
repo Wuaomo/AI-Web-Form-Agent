@@ -19,6 +19,7 @@ from app.job_constants import (
 from app.models import ActionLog, FormField, Job, Profile, Screenshot, Task, TaskCheckpoint
 from app.schemas import (
     ActionLogResponse,
+    FieldVerificationResultResponse,
     FormFieldMappingUpdate,
     FormFieldResponse,
     JobResponse,
@@ -37,6 +38,14 @@ from app.services.browser_executor import (
     fill_form_and_capture_screenshot,
     open_url_and_capture_screenshot,
     submit_form_and_capture_screenshot,
+)
+from app.services.execution_verification_service import (
+    save_verification_result,
+    get_verification_summary_for_task,
+)
+from app.models import (
+    FieldVerificationResult,
+    VERIFICATION_STATUS_FAILED,
 )
 from app.services.field_mapper import (
     CUSTOM_PROFILE_KEY_PREFIX,
@@ -344,6 +353,20 @@ def get_task(task_id: int, db: Session = Depends(get_db)) -> Task:
             detail="Task not found",
         )
     return task
+
+
+@router.get("/{task_id}/verification-results", response_model=list[FieldVerificationResultResponse])
+def get_task_verification_results(task_id: int, db: Session = Depends(get_db)) -> list[FieldVerificationResult]:
+    """Return verification results for a task."""
+
+    task = get_task_or_404(task_id, db)
+
+    statement = (
+        select(FieldVerificationResult)
+        .where(FieldVerificationResult.task_id == task_id)
+        .order_by(FieldVerificationResult.id)
+    )
+    return list(db.scalars(statement))
 
 
 @router.post("/{task_id}/analyze", response_model=Union[TaskResponse, JobResponse])
@@ -970,7 +993,9 @@ async def fill_task_form(
     db.commit()
 
     try:
-        await fill_form_and_capture_screenshot(
+        db.execute(delete(FieldVerificationResult).where(FieldVerificationResult.task_id == task.id))
+
+        screenshot, verification_data = await fill_form_and_capture_screenshot(
             task_id=task.id,
             url=task.url,
             profile_id=task.profile_id,
@@ -978,23 +1003,76 @@ async def fill_task_form(
             stage="filled_form",
             db=db,
         )
-        task.status = "WAITING_APPROVAL"
-        write_checkpoint(
-            task_id=task.id,
-            stage=WORKFLOW_STAGE_FILL,
-            status=CHECKPOINT_SUCCESS,
-            input_hash=f"{task.id}:{len(mapped_fields)}",
-            output={"filled_count": len(mapped_fields)},
-            db=db,
-        )
-        create_log(
-            task_id=task.id,
-            step=step + 1,
-            action="fill_form",
-            message="Filled mapped fields and paused before submission.",
-            status="SUCCESS",
-            db=db,
-        )
+
+        required_field_ids = {f.id for f in fields if f.required and is_fillable_field(f) and f.mapped_value}
+        required_failures = [
+            v for v in verification_data
+            if v.status == VERIFICATION_STATUS_FAILED
+            and v.field_id in required_field_ids
+        ]
+
+        for v in verification_data:
+            save_verification_result(
+                db=db,
+                task_id=task.id,
+                field_id=v.field_id,
+                selector=v.selector,
+                expected_value=v.expected_value,
+                actual_value=v.actual_value,
+                status=v.status,
+                reason=v.reason,
+                message=v.message,
+            )
+
+        summary = get_verification_summary_for_task(db, task.id)
+
+        if required_failures:
+            task.status = "FAILED"
+            failure_details = ", ".join(f"field {v.field_id}" for v in required_failures)
+            write_checkpoint(
+                task_id=task.id,
+                stage=WORKFLOW_STAGE_FILL,
+                status=CHECKPOINT_FAILED,
+                input_hash=f"{task.id}:{len(mapped_fields)}",
+                failure_reason=FAILURE_BROWSER_FILL_FAILED,
+                error_message=f"Verification failed for required fields: {failure_details}",
+                db=db,
+            )
+            create_log(
+                task_id=task.id,
+                step=step + 1,
+                action="fill_form",
+                message=f"Verification failed for required fields: {failure_details}",
+                status="FAILED",
+                db=db,
+            )
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Form filling failed due to verification errors",
+            )
+        else:
+            task.status = "WAITING_APPROVAL"
+            write_checkpoint(
+                task_id=task.id,
+                stage=WORKFLOW_STAGE_FILL,
+                status=CHECKPOINT_SUCCESS,
+                input_hash=f"{task.id}:{len(mapped_fields)}",
+                output={
+                    "filled_count": len(mapped_fields),
+                    "verification_summary": summary,
+                },
+                db=db,
+            )
+            create_log(
+                task_id=task.id,
+                step=step + 1,
+                action="fill_form",
+                message=f"Filled and verified {summary.get('VERIFIED', 0)} fields (skipped {summary.get('SKIPPED', 0)} sensitive fields).",
+                status="SUCCESS",
+                db=db,
+            )
+
         db.commit()
     except Exception as exc:
         db.rollback()

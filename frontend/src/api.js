@@ -125,6 +125,7 @@ export const api = {
     request(`/tasks/${taskId}/confirm-submit`, { method: "POST" }),
   getTaskLlmUsage: (taskId) => request(`/tasks/${taskId}/llm-usage`),
   listTaskCheckpoints: (taskId) => request(`/tasks/${taskId}/checkpoints`),
+  getTaskVerificationResults: (taskId) => request(`/tasks/${taskId}/verification-results`),
 
   listJobs: () => request("/jobs"),
   getJob: (jobId) => request(`/jobs/${jobId}`),
