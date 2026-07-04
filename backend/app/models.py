@@ -91,6 +91,7 @@ class Task(Base):
         back_populates="task"
     )
     checkpoints: Mapped[list["TaskCheckpoint"]] = relationship(back_populates="task")
+    jobs: Mapped[list["Job"]] = relationship(back_populates="task")
 
 
 class FormField(Base):
@@ -378,3 +379,82 @@ class TaskCheckpoint(Base):
         """Persist structured output as JSON."""
 
         self.output_json = json.dumps(value or {}, ensure_ascii=False)
+
+
+class Job(Base):
+    """An asynchronous job for long-running workflow tasks."""
+
+    __tablename__ = "jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    task_id: Mapped[Optional[int]] = mapped_column(ForeignKey("tasks.id"))
+    job_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    payload_json: Mapped[Optional[str]] = mapped_column(Text)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    locked_by: Mapped[Optional[str]] = mapped_column(String(100))
+    locked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    next_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    error_reason: Mapped[Optional[str]] = mapped_column(String(100))
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    task: Mapped[Optional["Task"]] = relationship(back_populates="jobs")
+    attempts_list: Mapped[list["JobAttempt"]] = relationship(back_populates="job")
+
+    @property
+    def payload(self) -> dict[str, object]:
+        """Return structured payload data from JSON."""
+
+        if not self.payload_json:
+            return {}
+        try:
+            parsed = json.loads(self.payload_json)
+        except json.JSONDecodeError:
+            return {}
+        if not isinstance(parsed, dict):
+            return {}
+        return parsed
+
+    @payload.setter
+    def payload(self, value: dict[str, object] | None) -> None:
+        """Persist structured payload as JSON."""
+
+        self.payload_json = json.dumps(value or {}, ensure_ascii=False)
+
+
+class JobAttempt(Base):
+    """Record of one execution attempt for a job."""
+
+    __tablename__ = "job_attempts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"), nullable=False)
+    attempt_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    error_reason: Mapped[Optional[str]] = mapped_column(String(100))
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
+
+    job: Mapped["Job"] = relationship(back_populates="attempts_list")
+
+
+class WorkerHeartbeat(Base):
+    """Heartbeat record tracking a worker's availability and current workload."""
+
+    __tablename__ = "worker_heartbeats"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    worker_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    hostname: Mapped[Optional[str]] = mapped_column(String(200))
+    current_job_id: Mapped[Optional[int]] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(50), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

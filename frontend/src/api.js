@@ -107,4 +107,10 @@ export const api = {
     request(`/tasks/${taskId}/confirm-submit`, { method: "POST" }),
   getTaskLlmUsage: (taskId) => request(`/tasks/${taskId}/llm-usage`),
   listTaskCheckpoints: (taskId) => request(`/tasks/${taskId}/checkpoints`),
+
+  listJobs: () => request("/jobs"),
+  getJob: (jobId) => request(`/jobs/${jobId}`),
+  listTaskJobs: (taskId) => request(`/tasks/${taskId}/jobs`),
+  cancelJob: (jobId) => request(`/jobs/${jobId}/cancel`, { method: "POST" }),
+  listWorkerHeartbeats: () => request("/workers/heartbeats"),
 };

@@ -36,6 +36,11 @@ DEEPSEEK_API_KEY = _getenv_any("DEEPSEEK_API_KEY", "DEEPSEEKAPI")
 DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
 ADMIN_API_TOKEN = os.getenv("ADMIN_API_TOKEN", "")
 
+# When enabled, long-running workflow stages (analyze, map, fill) are enqueued
+# as async jobs instead of running synchronously within the HTTP request.
+# Final approval/submission always remains synchronous regardless of this flag.
+ASYNC_JOBS_ENABLED = os.getenv("ASYNC_JOBS_ENABLED", "").lower() in ("1", "true", "yes")
+
 LLM_PROVIDER_DETAILS = {
     "openai": {
         "display_name": "OpenAI",

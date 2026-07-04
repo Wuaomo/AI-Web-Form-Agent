@@ -17,6 +17,7 @@ from app.database import BACKEND_DIR
 from app.database import init_db
 from app.routers.admin import router as admin_router
 from app.routers.benchmarks import router as benchmarks_router
+from app.routers.jobs import router as jobs_router
 from app.routers.llm_usage import router as llm_usage_router
 from app.routers.profiles import router as profiles_router
 from app.routers.tasks import router as tasks_router
@@ -61,6 +62,7 @@ app.add_middleware(
 
 app.include_router(profiles_router)
 app.include_router(tasks_router)
+app.include_router(jobs_router)
 app.include_router(llm_usage_router)
 app.include_router(benchmarks_router)
 app.include_router(admin_router)

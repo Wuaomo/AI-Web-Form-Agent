@@ -2,19 +2,26 @@
 
 import json
 import re
-from typing import Literal
+from typing import Literal, Union
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app import config
 from app.database import BACKEND_DIR
 from app.database import get_db
-from app.models import ActionLog, FormField, Profile, Screenshot, Task, TaskCheckpoint
+from app.job_constants import (
+    JOB_TYPE_ANALYZE_FORM,
+    JOB_TYPE_FILL_FORM,
+    JOB_TYPE_MAP_FIELDS,
+)
+from app.models import ActionLog, FormField, Job, Profile, Screenshot, Task, TaskCheckpoint
 from app.schemas import (
     ActionLogResponse,
     FormFieldMappingUpdate,
     FormFieldResponse,
+    JobResponse,
     LLMProvider,
     MappingConfirmationResponse,
     ProfileSkipItem,
@@ -50,6 +57,7 @@ from app.services.llm_provider_config import (
 )
 from app.services.llm_usage_service import list_llm_usage_logs, summarize_llm_usage
 from app.services.log_service import create_log
+from app.services.job_queue import enqueue_job
 from app.services.mapping_cache import save_user_mapping_override
 from app.services.checkpoint_service import list_checkpoints, write_checkpoint
 from app.workflow_constants import (
@@ -338,14 +346,28 @@ def get_task(task_id: int, db: Session = Depends(get_db)) -> Task:
     return task
 
 
-@router.post("/{task_id}/analyze", response_model=TaskResponse)
+@router.post("/{task_id}/analyze", response_model=Union[TaskResponse, JobResponse])
 async def analyze_task(
     task_id: int,
     db: Session = Depends(get_db),
-) -> Task:
-    """Open a task URL, extract its fields, and persist the result."""
+) -> Task | Job:
+    """Open a task URL, extract its fields, and persist the result.
+
+    When ASYNC_JOBS_ENABLED is True, enqueues an ANALYZE_FORM job instead of
+    running the analysis synchronously.
+    """
 
     task = get_task_or_404(task_id, db)
+
+    if config.ASYNC_JOBS_ENABLED:
+        job = enqueue_job(
+            db=db,
+            job_type=JOB_TYPE_ANALYZE_FORM,
+            task_id=task.id,
+        )
+        db.commit()
+        return job
+
     step = get_next_log_step(task.id, db)
 
     task.status = "ANALYZING"
@@ -504,17 +526,41 @@ def list_task_checkpoints(
 
 @router.post(
     "/{task_id}/map-fields",
-    response_model=list[FormFieldResponse],
+    response_model=Union[list[FormFieldResponse], JobResponse],
 )
 def map_task_fields(
     task_id: int,
     mode: Literal["rules", "llm"] = "llm",
     provider: LLMProvider | None = None,
     db: Session = Depends(get_db),
-) -> list[FormField]:
-    """Generate and save Agent mappings, with a developer rule-mode override."""
+) -> list[FormField] | Job:
+    """Generate and save Agent mappings, with a developer rule-mode override.
+
+    When ASYNC_JOBS_ENABLED is True, enqueues a MAP_FIELDS job with the
+    mode and provider as payload instead of running synchronously.
+    """
 
     get_task_or_404(task_id, db)
+
+    if config.ASYNC_JOBS_ENABLED:
+        selected_provider = provider
+        if mode == "llm":
+            try:
+                selected_provider = resolve_llm_provider(provider)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=str(exc),
+                ) from exc
+        job = enqueue_job(
+            db=db,
+            job_type=JOB_TYPE_MAP_FIELDS,
+            task_id=task_id,
+            payload={"mode": mode, "provider": selected_provider},
+        )
+        db.commit()
+        return job
+
     try:
         if mode == "llm":
             try:
@@ -862,12 +908,17 @@ def confirm_task_mapping(
     )
 
 
-@router.post("/{task_id}/fill", response_model=TaskResponse)
+@router.post("/{task_id}/fill", response_model=Union[TaskResponse, JobResponse])
 async def fill_task_form(
     task_id: int,
     db: Session = Depends(get_db),
-) -> Task:
-    """Fill mapped fields and pause before any final submission."""
+) -> Task | Job:
+    """Fill mapped fields and pause before any final submission.
+
+    When ASYNC_JOBS_ENABLED is True, enqueues a FILL_FORM job instead of
+    running the fill synchronously. Validation of task status and required
+    fields still runs before enqueueing.
+    """
 
     task = get_task_or_404(task_id, db)
     if task.status != "READY_TO_FILL":
@@ -896,6 +947,15 @@ async def fill_task_form(
             status_code=status.HTTP_409_CONFLICT,
             detail="No mapped fields are ready to fill",
         )
+
+    if config.ASYNC_JOBS_ENABLED:
+        job = enqueue_job(
+            db=db,
+            job_type=JOB_TYPE_FILL_FORM,
+            task_id=task.id,
+        )
+        db.commit()
+        return job
 
     step = get_next_log_step(task.id, db)
     task.status = "FILLING"
