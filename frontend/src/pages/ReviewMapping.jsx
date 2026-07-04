@@ -62,6 +62,7 @@ function ReviewMapping() {
   const [fieldUpdateCount, setFieldUpdateCount] = useState(0);
   const [agentReviews, setAgentReviews] = useState([]);
   const [runningReview, setRunningReview] = useState(null);
+  const agentReviewInFlight = useRef(false);
   const pendingValueUpdateTimers = useRef({});
   const pendingValueUpdates = useRef({});
   const pendingPolicyUpdateTimers = useRef({});
@@ -89,6 +90,8 @@ function ReviewMapping() {
   }, [taskId]);
 
   async function runAgentReview(role) {
+    if (agentReviewInFlight.current) return;
+    agentReviewInFlight.current = true;
     setRunningReview(role);
     setError("");
     try {
@@ -98,6 +101,7 @@ function ReviewMapping() {
     } catch (requestError) {
       setError(requestError.message);
     } finally {
+      agentReviewInFlight.current = false;
       setRunningReview(null);
     }
   }
@@ -524,7 +528,7 @@ function ReviewMapping() {
             className="button button-small"
             type="button"
             onClick={() => runAgentReview("MAPPING_CRITIC")}
-            disabled={busy || runningReview === "MAPPING_CRITIC"}
+            disabled={busy || Boolean(runningReview)}
           >
             {runningReview === "MAPPING_CRITIC" ? "Running..." : "Run mapping review"}
           </button>
@@ -532,7 +536,7 @@ function ReviewMapping() {
             className="button button-small"
             type="button"
             onClick={() => runAgentReview("SAFETY_REVIEW")}
-            disabled={busy || runningReview === "SAFETY_REVIEW"}
+            disabled={busy || Boolean(runningReview)}
           >
             {runningReview === "SAFETY_REVIEW" ? "Running..." : "Run safety review"}
           </button>

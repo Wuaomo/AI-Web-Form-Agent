@@ -43,13 +43,12 @@ export function summarizeReviewItems(review) {
   }
 
   const items = review.output.items;
-  const summary = {
+  const issues = items.filter((item) => item.issue || item.error).length;
+  return {
     total: items.length,
-    issues: items.filter((item) => item.issue && item.issue.includes("FAILED")).length,
-    warnings: items.filter((item) => !item.issue || !item.issue.includes("FAILED")).length,
+    issues,
+    warnings: items.length - issues,
   };
-
-  return summary;
 }
 
 export function groupReviewsByRole(reviews = []) {
@@ -74,12 +73,13 @@ export function getReviewSummary(reviews = []) {
   };
 
   for (const review of reviews) {
-    summary.roles[review.role] = summary.roles[review.role] || {
-      count: 0,
-      latestDecision: null,
-    };
+    if (!summary.roles[review.role]) {
+      summary.roles[review.role] = {
+        count: 0,
+        latestDecision: null,
+      };
+    }
     summary.roles[review.role].count++;
-    summary.roles[review.role].latestDecision = review.decision;
 
     switch (review.decision) {
       case "PASS":
@@ -94,6 +94,10 @@ export function getReviewSummary(reviews = []) {
       default:
         break;
     }
+  }
+
+  for (const role of Object.keys(summary.roles)) {
+    summary.roles[role].latestDecision = getLatestDecision(reviews, role);
   }
 
   return summary;

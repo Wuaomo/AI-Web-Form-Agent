@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { api, API_BASE_URL } from "../api";
@@ -62,6 +62,7 @@ function TaskDetail() {
   const [verificationResults, setVerificationResults] = useState([]);
   const [agentReviews, setAgentReviews] = useState([]);
   const [runningReview, setRunningReview] = useState(null);
+  const agentReviewInFlight = useRef(false);
 
   useEffect(() => {
     if (
@@ -130,6 +131,8 @@ function TaskDetail() {
   }
 
   async function runAgentReview(role) {
+    if (agentReviewInFlight.current) return;
+    agentReviewInFlight.current = true;
     setRunningReview(role);
     setError("");
     try {
@@ -139,6 +142,7 @@ function TaskDetail() {
     } catch (requestError) {
       setError(requestError.message);
     } finally {
+      agentReviewInFlight.current = false;
       setRunningReview(null);
     }
   }
@@ -472,7 +476,7 @@ function TaskDetail() {
                 className="button button-small"
                 type="button"
                 onClick={() => runAgentReview("MAPPING_CRITIC")}
-                disabled={isBusy || runningReview === "MAPPING_CRITIC"}
+                disabled={isBusy || Boolean(runningReview)}
               >
                 {runningReview === "MAPPING_CRITIC" ? "Running..." : "Run mapping review"}
               </button>
@@ -480,7 +484,7 @@ function TaskDetail() {
                 className="button button-small"
                 type="button"
                 onClick={() => runAgentReview("SAFETY_REVIEW")}
-                disabled={isBusy || runningReview === "SAFETY_REVIEW"}
+                disabled={isBusy || Boolean(runningReview)}
               >
                 {runningReview === "SAFETY_REVIEW" ? "Running..." : "Run safety review"}
               </button>
@@ -488,7 +492,7 @@ function TaskDetail() {
                 className="button button-small"
                 type="button"
                 onClick={() => runAgentReview("EXECUTION_VERIFICATION")}
-                disabled={isBusy || runningReview === "EXECUTION_VERIFICATION"}
+                disabled={isBusy || Boolean(runningReview)}
               >
                 {runningReview === "EXECUTION_VERIFICATION" ? "Running..." : "Run verification review"}
               </button>

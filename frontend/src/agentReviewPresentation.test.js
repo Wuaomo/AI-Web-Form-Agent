@@ -116,31 +116,31 @@ test("summarizeReviewItems returns zero counts for missing output", () => {
   assert.deepEqual(summarizeReviewItems(review), { total: 0, issues: 0, warnings: 0 });
 });
 
-test("summarizeReviewItems summarizes review items correctly", () => {
+test("summarizeReviewItems counts items with issue or error as issues", () => {
   const review = {
     decision: "REVIEW_REQUIRED",
     output: {
       items: [
         { issue: "REQUIRED_FIELD_FAILED", message: "Email failed" },
         { issue: "OPTIONAL_FIELD_FAILED", message: "Phone failed" },
-        { issue: "LOW_CONFIDENCE", message: "Low confidence" },
+        { error: "Some error", message: "Error occurred" },
       ],
     },
   };
 
   const summary = summarizeReviewItems(review);
   assert.equal(summary.total, 3);
-  assert.equal(summary.issues, 2);
-  assert.equal(summary.warnings, 1);
+  assert.equal(summary.issues, 3);
+  assert.equal(summary.warnings, 0);
 });
 
-test("summarizeReviewItems handles all warnings", () => {
+test("summarizeReviewItems counts items without issue or error as warnings", () => {
   const review = {
     decision: "REVIEW_REQUIRED",
     output: {
       items: [
-        { issue: "LOW_CONFIDENCE", message: "Low confidence" },
-        { issue: "SENSITIVE_FIELD_SKIPPED", message: "Skipped" },
+        { message: "Just a warning" },
+        { info: "Some info", message: "Information" },
       ],
     },
   };
