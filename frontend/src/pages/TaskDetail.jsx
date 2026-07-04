@@ -16,6 +16,11 @@ import {
   getVisibleRunSummaryItems,
 } from "../taskRunState";
 import { fieldDisplayName, needsRequiredInput } from "../reviewMappingPresentation";
+import {
+  summarizeJob,
+  getNewestJob,
+  newestJobStatusLine,
+} from "../jobPresentation";
 
 function TaskDetail() {
   const { taskId } = useParams();
@@ -37,6 +42,7 @@ function TaskDetail() {
   const [llmUsage, setLlmUsage] = useState(null);
   const [taskLogs, setTaskLogs] = useState([]);
   const [taskCheckpoints, setTaskCheckpoints] = useState([]);
+  const [taskJobs, setTaskJobs] = useState([]);
 
   useEffect(() => {
     if (
@@ -62,8 +68,9 @@ function TaskDetail() {
       api.listTaskLogs(taskId),
       api.getTaskLlmUsage(taskId).catch(() => null),
       api.listTaskCheckpoints(taskId).catch(() => []),
+      api.listTaskJobs(taskId).catch(() => []),
     ])
-      .then(([taskResult, screenshotItems, profileItems, providerItems, logItems, usageResult, checkpointItems]) => {
+      .then(([taskResult, screenshotItems, profileItems, providerItems, logItems, usageResult, checkpointItems, jobItems]) => {
         setTask(taskResult);
         setScreenshots(screenshotItems);
         setProfiles(profileItems);
@@ -71,6 +78,7 @@ function TaskDetail() {
         setTaskLogs(logItems);
         setLlmUsage(usageResult);
         setTaskCheckpoints(checkpointItems);
+        setTaskJobs(jobItems);
         setSelectedLlmProvider(getSavedLlmProvider(providerItems));
       })
       .catch((requestError) => setError(requestError.message))
@@ -78,18 +86,20 @@ function TaskDetail() {
   }, [taskId]);
 
   async function refreshTaskData(nextTask = null) {
-    const [taskResult, screenshotItems, logItems, usageResult, checkpointItems] = await Promise.all([
+    const [taskResult, screenshotItems, logItems, usageResult, checkpointItems, jobItems] = await Promise.all([
       nextTask ? Promise.resolve(nextTask) : api.getTask(taskId),
       api.listTaskScreenshots(taskId),
       api.listTaskLogs(taskId),
       api.getTaskLlmUsage(taskId).catch(() => null),
       api.listTaskCheckpoints(taskId).catch(() => []),
+      api.listTaskJobs(taskId).catch(() => []),
     ]);
     setTask(taskResult);
     setScreenshots(screenshotItems);
     setTaskLogs(logItems);
     setLlmUsage(usageResult);
     setTaskCheckpoints(checkpointItems);
+    setTaskJobs(jobItems);
   }
 
   async function runAction(actionName, request, successMessage) {
@@ -212,6 +222,9 @@ function TaskDetail() {
   const missingRequiredFields = task?.form_fields.filter(needsRequiredInput) || [];
   const runState = getTaskRunState(task, taskCheckpoints);
   const runSummaryItems = getVisibleRunSummaryItems(task);
+  const newestJob = getNewestJob(taskJobs);
+  const newestJobSummary = newestJob ? summarizeJob(newestJob) : null;
+  const jobStatusText = newestJobStatusLine(taskJobs);
   const showWorkflowTimeline = shouldShowWorkflowTimeline();
   const workflowNodes = showWorkflowTimeline && task ? getWorkflowTimeline(task, taskLogs) : [];
   const primaryDisabled =
@@ -457,6 +470,37 @@ function TaskDetail() {
               </Link>
             )}
           </article>
+
+          {taskJobs.length > 0 && newestJobSummary && (
+            <div className="card">
+              <h3>Background job</h3>
+              <dl className="detail-list">
+                <div>
+                  <dt>Job type</dt>
+                  <dd>{newestJobSummary.typeLabel}</dd>
+                </div>
+                <div>
+                  <dt>Status</dt>
+                  <dd>
+                    <span className={`badge badge-${newestJobSummary.statusClass}`}>
+                      {newestJobSummary.statusLabel}
+                    </span>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Attempts</dt>
+                  <dd>{newestJobSummary.attempts} / {newestJobSummary.maxAttempts}</dd>
+                </div>
+                {newestJobSummary.error && (
+                  <div>
+                    <dt>Last error</dt>
+                    <dd>{newestJobSummary.error}</dd>
+                  </div>
+                )}
+              </dl>
+              <p className="break-word">{jobStatusText}</p>
+            </div>
+          )}
 
           <section className="section-block">
             <div className="section-heading">
