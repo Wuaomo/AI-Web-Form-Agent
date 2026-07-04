@@ -483,6 +483,7 @@ def test_run_benchmarks_baseline_comparison_counts_regressions_and_improvements(
             "mapping_accuracy": 0.85,
             "llm_fallback_count": 3,
         }),
+        mode_detail="standard",
     )
     db_session.add(baseline_run)
     db_session.commit()
@@ -559,7 +560,7 @@ def test_stress_mode_accepts_valid_values() -> None:
     def fake_match(field: FormField):
         return ("full_name", 1.0)
 
-    for stress_mode in VALID_STRESS_MODES:
+    for stress_mode in VALID_STRESS_MODES - {"concurrent", "cache_cold"}:
         with (
             patch("app.services.benchmark_runner.load_benchmark_cases", return_value=[case]),
             patch("app.services.benchmark_runner._extract_case_page_state", return_value=(raw_fields, False)),
@@ -567,6 +568,21 @@ def test_stress_mode_accepts_valid_values() -> None:
         ):
             summary = run_benchmarks(mode="rules", stress_mode=stress_mode)
             assert summary is not None
+
+
+def test_concurrent_stress_mode_raises_value_error() -> None:
+    case = BenchmarkCase(
+        case_id="case_1",
+        title="Case one",
+        html_path=Path("case_1.html"),
+        expected={"login_required": False, "fields": []},
+    )
+
+    with (
+        patch("app.services.benchmark_runner.load_benchmark_cases", return_value=[case]),
+    ):
+        with pytest.raises(ValueError, match="concurrent stress mode is not implemented"):
+            run_benchmarks(mode="rules", stress_mode="concurrent")
 
 
 def test_stress_mode_rejects_unknown_value() -> None:
@@ -611,4 +627,142 @@ def test_summary_metrics_include_performance_metrics() -> None:
     assert "llm_cache_hit_rate" in summary.summary_metrics
     assert "retry_success_rate" in summary.summary_metrics
     assert "failure_rate" in summary.summary_metrics
+    assert summary.summary_metrics["llm_cache_hit_rate"] is None
+    assert summary.summary_metrics["retry_success_rate"] is None
+
+
+def test_baseline_isolation_by_stress_mode(db_session: Session) -> None:
+    baseline_standard = BenchmarkRun(
+        mode="rules",
+        provider=None,
+        total_cases=1,
+        average_score=0.9,
+        summary_metrics_json=json.dumps({"field_extraction_recall": 0.9}),
+        mode_detail="standard",
+    )
+    db_session.add(baseline_standard)
+    db_session.commit()
+
+    case = BenchmarkCase(
+        case_id="case_1",
+        title="Case one",
+        html_path=Path("case_1.html"),
+        expected={"login_required": False, "fields": []},
+    )
+
+    raw_fields = [
+        {"selector": "#name", "label": "Name", "field_type": "text", "required": True},
+    ]
+
+    def fake_match(field: FormField):
+        return ("full_name", 1.0)
+
+    with (
+        patch("app.services.benchmark_runner.load_benchmark_cases", return_value=[case]),
+        patch("app.services.benchmark_runner._extract_case_page_state", return_value=(raw_fields, False)),
+        patch("app.services.benchmark_runner._match_profile_key", side_effect=fake_match),
+    ):
+        summary = run_benchmarks(mode="rules", db=db_session, stress_mode="cache_warm")
+
+    runs = db_session.query(BenchmarkRun).order_by(BenchmarkRun.id.desc()).limit(1).all()
+    assert len(runs) == 1
+    current_run = runs[0]
+    assert current_run.baseline_run_id is None
+
+    baseline_cache_warm = BenchmarkRun(
+        mode="rules",
+        provider=None,
+        total_cases=1,
+        average_score=0.8,
+        summary_metrics_json=json.dumps({"field_extraction_recall": 0.8}),
+        mode_detail="cache_warm",
+    )
+    db_session.add(baseline_cache_warm)
+    db_session.commit()
+
+    with (
+        patch("app.services.benchmark_runner.load_benchmark_cases", return_value=[case]),
+        patch("app.services.benchmark_runner._extract_case_page_state", return_value=(raw_fields, False)),
+        patch("app.services.benchmark_runner._match_profile_key", side_effect=fake_match),
+    ):
+        summary = run_benchmarks(mode="rules", db=db_session, stress_mode="cache_warm")
+
+    runs = db_session.query(BenchmarkRun).order_by(BenchmarkRun.id.desc()).limit(1).all()
+    assert len(runs) == 1
+    current_run = runs[0]
+    assert current_run.baseline_run_id == baseline_cache_warm.id
+
+
+def test_cache_warm_calls_run_case_twice() -> None:
+    case = BenchmarkCase(
+        case_id="case_1",
+        title="Case one",
+        html_path=Path("case_1.html"),
+        expected={"login_required": False, "fields": []},
+    )
+
+    raw_fields = [
+        {"selector": "#name", "label": "Name", "field_type": "text", "required": True},
+    ]
+
+    def fake_match(field: FormField):
+        return ("full_name", 1.0)
+
+    with (
+        patch("app.services.benchmark_runner.load_benchmark_cases", return_value=[case]),
+        patch("app.services.benchmark_runner._extract_case_page_state", return_value=(raw_fields, False)),
+        patch("app.services.benchmark_runner._match_profile_key", side_effect=fake_match),
+        patch("app.services.benchmark_runner._run_case") as mock_run_case,
+    ):
+        mock_run_case.return_value = {
+            "login_required": False,
+            "fill_success": True,
+            "llm_fallback_count": 0,
+            "fields": [{"selector": "#name", "profile_key": "full_name", "required": True}],
+            "duration_ms": 100,
+        }
+        run_benchmarks(mode="rules", stress_mode="cache_warm")
+
+    assert mock_run_case.call_count == 2
+
+
+def test_cache_cold_deletes_mapping_cache(db_session: Session) -> None:
+    from app.models import LLMMappingCache
+
+    cache_entry = LLMMappingCache(
+        cache_key="test-key",
+        provider="openai",
+        model="test-model",
+        prompt_version="v1",
+        fields_fingerprint="fp1",
+        profile_keys_signature="sig1",
+        response_json='{}',
+    )
+    db_session.add(cache_entry)
+    db_session.commit()
+
+    assert db_session.query(LLMMappingCache).count() == 1
+
+    case = BenchmarkCase(
+        case_id="case_1",
+        title="Case one",
+        html_path=Path("case_1.html"),
+        expected={"login_required": False, "fields": []},
+    )
+
+    raw_fields = [
+        {"selector": "#name", "label": "Name", "field_type": "text", "required": True},
+    ]
+
+    def fake_match(field: FormField):
+        return ("full_name", 1.0)
+
+    with (
+        patch("app.services.benchmark_runner.load_benchmark_cases", return_value=[case]),
+        patch("app.services.benchmark_runner._extract_case_page_state", return_value=(raw_fields, False)),
+        patch("app.services.benchmark_runner._match_profile_key", side_effect=fake_match),
+    ):
+        run_benchmarks(mode="rules", db=db_session, stress_mode="cache_cold")
+
+    assert db_session.query(LLMMappingCache).count() == 0
 

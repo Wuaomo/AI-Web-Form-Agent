@@ -296,7 +296,7 @@ class BenchmarkRunResponse(BaseModel):
     provider: str | None
     total_cases: int
     average_score: float
-    summary_metrics: dict[str, float]
+    summary_metrics: dict[str, float | None]
     baseline_run_id: int | None
     duration_ms: int
     regression_count: int
@@ -390,3 +390,20 @@ class WorkerHeartbeatResponse(BaseModel):
     current_job_id: int | None
     status: str
     last_seen_at: datetime
+
+
+class FieldVerificationResultResponse(BaseModel):
+    """Post-fill verification result for one form field."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_id: int
+    field_id: int | None
+    selector: str
+    expected_value_hash: str | None
+    actual_value_hash: str | None
+    status: str
+    reason: str | None
+    message: str | None
+    created_at: datetime

@@ -147,3 +147,69 @@ def test_empty_metrics():
 
     result_baseline_only = compare_summary_metrics({}, {"metric": 0.5})
     assert result_baseline_only["metric"]["classification"] == "missing"
+
+
+def test_average_case_duration_ms_higher_is_regressed():
+    """Verify higher average case duration is classified as regressed."""
+
+    current = {"average_case_duration_ms": 200.0}
+    baseline = {"average_case_duration_ms": 100.0}
+
+    result = compare_summary_metrics(current, baseline)
+
+    assert result["average_case_duration_ms"]["classification"] == "regressed"
+
+
+def test_average_case_duration_ms_lower_is_improved():
+    """Verify lower average case duration is classified as improved."""
+
+    current = {"average_case_duration_ms": 100.0}
+    baseline = {"average_case_duration_ms": 200.0}
+
+    result = compare_summary_metrics(current, baseline)
+
+    assert result["average_case_duration_ms"]["classification"] == "improved"
+
+
+def test_p95_case_duration_ms_higher_is_regressed():
+    """Verify higher p95 case duration is classified as regressed."""
+
+    current = {"p95_case_duration_ms": 500.0}
+    baseline = {"p95_case_duration_ms": 300.0}
+
+    result = compare_summary_metrics(current, baseline)
+
+    assert result["p95_case_duration_ms"]["classification"] == "regressed"
+
+
+def test_p95_case_duration_ms_lower_is_improved():
+    """Verify lower p95 case duration is classified as improved."""
+
+    current = {"p95_case_duration_ms": 300.0}
+    baseline = {"p95_case_duration_ms": 500.0}
+
+    result = compare_summary_metrics(current, baseline)
+
+    assert result["p95_case_duration_ms"]["classification"] == "improved"
+
+
+def test_failure_rate_higher_is_regressed():
+    """Verify higher failure rate is classified as regressed."""
+
+    current = {"failure_rate": 0.5}
+    baseline = {"failure_rate": 0.2}
+
+    result = compare_summary_metrics(current, baseline)
+
+    assert result["failure_rate"]["classification"] == "regressed"
+
+
+def test_failure_rate_lower_is_improved():
+    """Verify lower failure rate is classified as improved."""
+
+    current = {"failure_rate": 0.2}
+    baseline = {"failure_rate": 0.5}
+
+    result = compare_summary_metrics(current, baseline)
+
+    assert result["failure_rate"]["classification"] == "improved"

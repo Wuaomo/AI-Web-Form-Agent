@@ -30,7 +30,12 @@ def compare_summary_metrics(
         "login_detection_accuracy",
         "fill_success_rate",
     }
-    lower_is_better = {"llm_fallback_count"}
+    lower_is_better = {
+    "llm_fallback_count",
+    "average_case_duration_ms",
+    "p95_case_duration_ms",
+    "failure_rate",
+}
 
     result: dict[str, dict[str, float | str]] = {}
 

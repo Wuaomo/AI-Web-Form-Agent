@@ -38,11 +38,18 @@ test("summarizeBenchmarkRun exposes score cards and failure counts", () => {
     ],
   };
 
-  assert.deepEqual(summarizeBenchmarkRun(run), {
-    averageScore: "75%",
-    totalCases: 2,
-    totalFailures: 2,
-  });
+  const summary = summarizeBenchmarkRun(run);
+  assert.equal(summary.averageScore, "75%");
+  assert.equal(summary.totalCases, 2);
+  assert.equal(summary.totalFailures, 2);
+  assert.equal(summary.durationMs, 0);
+  assert.equal(summary.regressionCount, 0);
+  assert.equal(summary.improvementCount, 0);
+  assert.equal(summary.mode, "rules");
+  assert.equal(summary.provider, null);
+  assert.equal(summary.stressMode, null);
+  assert.equal(summary.baselineRunId, null);
+
   assert.deepEqual(metricEntries(run.summary_metrics).slice(0, 3), [
     { key: "field_extraction_recall", label: "Field extraction recall", value: "100%" },
     { key: "field_extraction_precision", label: "Field extraction precision", value: "N/A" },

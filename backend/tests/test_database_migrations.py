@@ -612,3 +612,87 @@ def test_add_missing_benchmark_run_columns(tmp_path):
     assert "regression_count" in columns
     assert "improvement_count" in columns
     assert "mode_detail" in columns
+
+
+def test_field_verification_result_model_creates_and_persists(tmp_path):
+    """Verify FieldVerificationResult model creates and loads correctly."""
+
+    from app.database import Base
+    from app.models import Profile, Task, FieldVerificationResult, utc_now
+    from app.models import (
+        VERIFICATION_STATUS_VERIFIED,
+        VERIFICATION_STATUS_FAILED,
+        VERIFICATION_STATUS_SKIPPED,
+        VERIFICATION_REASON_VALUE_MISMATCH,
+        VERIFICATION_REASON_SENSITIVE_FIELD_SKIPPED,
+    )
+
+    db_path = tmp_path / "verification_result_test.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+
+    Base.metadata.create_all(bind=engine)
+
+    from sqlalchemy.orm import sessionmaker
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    profile = Profile(profile_name="Test Profile")
+    session.add(profile)
+    session.commit()
+
+    task = Task(url="https://example.com/form", profile_id=profile.id)
+    session.add(task)
+    session.commit()
+
+    verification = FieldVerificationResult(
+        task_id=task.id,
+        field_id=1,
+        selector="input[name='email']",
+        expected_value_hash="abc123",
+        actual_value_hash="abc123",
+        status=VERIFICATION_STATUS_VERIFIED,
+        reason=None,
+        message=None,
+    )
+    session.add(verification)
+    session.commit()
+
+    session.refresh(task)
+    assert len(task.verification_results) == 1
+    assert task.verification_results[0].status == VERIFICATION_STATUS_VERIFIED
+
+    session.refresh(verification)
+    assert verification.task_id == task.id
+    assert verification.field_id == 1
+    assert verification.selector == "input[name='email']"
+    assert verification.expected_value_hash == "abc123"
+    assert verification.actual_value_hash == "abc123"
+    assert verification.status == VERIFICATION_STATUS_VERIFIED
+    assert verification.reason is None
+    assert verification.message is None
+    assert verification.created_at is not None
+
+    skipped_verification = FieldVerificationResult(
+        task_id=task.id,
+        field_id=2,
+        selector="input[name='password']",
+        expected_value_hash=None,
+        actual_value_hash=None,
+        status=VERIFICATION_STATUS_SKIPPED,
+        reason=VERIFICATION_REASON_SENSITIVE_FIELD_SKIPPED,
+        message="Password field skipped for security",
+    )
+    session.add(skipped_verification)
+    session.commit()
+
+    session.refresh(task)
+    assert len(task.verification_results) == 2
+
+    session.refresh(skipped_verification)
+    assert skipped_verification.status == VERIFICATION_STATUS_SKIPPED
+    assert skipped_verification.reason == VERIFICATION_REASON_SENSITIVE_FIELD_SKIPPED
+    assert skipped_verification.message == "Password field skipped for security"
+    assert skipped_verification.expected_value_hash is None
+    assert skipped_verification.actual_value_hash is None
+
+    session.close()

@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
+from typing import Optional
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page
@@ -10,12 +11,38 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from sqlalchemy.orm import Session
 
 from app.database import BACKEND_DIR, SessionLocal
-from app.models import FormField, Screenshot
+from app.models import (
+    FormField,
+    Screenshot,
+    VERIFICATION_REASON_SELECTOR_NOT_FOUND,
+)
 from app.services.browser_session import run_with_persistent_page
 from app.services.action_trace_service import record_action_trace
 
 SCREENSHOTS_DIR = BACKEND_DIR / "screenshots"
 NON_FILLABLE_FIELD_TYPES = {"button", "file", "submit", "reset", "image"}
+
+
+class FieldVerificationData:
+    """Data collected for post-fill verification of one field."""
+
+    def __init__(
+        self,
+        field_id: Optional[int],
+        selector: str,
+        expected_value: Optional[str],
+        actual_value: Optional[str],
+        status: str,
+        reason: Optional[str] = None,
+        message: Optional[str] = None,
+    ):
+        self.field_id = field_id
+        self.selector = selector
+        self.expected_value = expected_value
+        self.actual_value = actual_value
+        self.status = status
+        self.reason = reason
+        self.message = message
 
 
 def _new_screenshot_path(task_id: int) -> tuple[str, Path]:
@@ -86,6 +113,48 @@ def _radio_selector_for_value(field: FormField) -> str:
     return field.selector
 
 
+def _read_field_value(page: Page, field: FormField) -> str | None:
+    """Read the actual value of a field from the browser."""
+
+    field_type = (field.field_type or "").lower()
+    try:
+        locator = page.locator(field.selector).first
+        if field_type == "checkbox":
+            return str(locator.is_checked(timeout=3_000)).lower()
+        elif field_type == "radio":
+            radio_selector = _radio_selector_for_value(field)
+            return str(page.locator(radio_selector).first.is_checked(timeout=3_000)).lower()
+        elif field_type == "select":
+            selected = locator.evaluate(
+                """(el) => {
+                    if (!el.options || el.selectedIndex < 0) return null;
+                    const opt = el.options[el.selectedIndex];
+                    return opt.value || opt.textContent || null;
+                }""",
+                timeout=3_000,
+            )
+            return selected
+        else:
+            return locator.input_value(timeout=3_000)
+    except (PlaywrightError, PlaywrightTimeoutError) as exc:
+        return None
+
+
+def _values_match(field: FormField, expected: str | None, actual: str | None) -> bool:
+    """Return whether expected and actual values should be considered a match."""
+
+    if expected is None or actual is None:
+        return expected == actual
+
+    field_type = (field.field_type or "").lower()
+    if field_type == "checkbox" or field_type == "radio":
+        expected_bool = _checkbox_should_be_checked(expected)
+        actual_bool = actual == "true"
+        return expected_bool == actual_bool
+
+    return expected == actual
+
+
 def _trace_fill_action(
     db: Session | None,
     task_id: int | None,
@@ -143,8 +212,19 @@ def _fill_fields(
     fields: list[FormField],
     task_id: int | None = None,
     db: Session | None = None,
-) -> None:
-    """Fill mapped fields on the current page."""
+) -> list[FieldVerificationData]:
+    """Fill mapped fields on the current page and return verification data."""
+
+    from app.models import (
+        VERIFICATION_STATUS_VERIFIED,
+        VERIFICATION_STATUS_FAILED,
+        VERIFICATION_STATUS_SKIPPED,
+        VERIFICATION_REASON_VALUE_MISMATCH,
+        VERIFICATION_REASON_SELECTOR_NOT_FOUND,
+    )
+    from app.services.execution_verification_service import should_skip_verification
+
+    verification_data: list[FieldVerificationData] = []
 
     for field in fields:
         if not field.mapped_value:
@@ -180,9 +260,71 @@ def _fill_fields(
             else:
                 locator.fill(field.mapped_value, timeout=5_000)
             _trace_fill_action(db, task_id, field, action, "success")
+
+            if should_skip_verification(field):
+                verification_data.append(
+                    FieldVerificationData(
+                        field_id=field.id,
+                        selector=field.selector,
+                        expected_value=None,
+                        actual_value=None,
+                        status=VERIFICATION_STATUS_SKIPPED,
+                        reason="SENSITIVE_FIELD_SKIPPED",
+                    )
+                )
+                continue
+
+            actual_value = _read_field_value(page, field)
+            if actual_value is None:
+                verification_data.append(
+                    FieldVerificationData(
+                        field_id=field.id,
+                        selector=field.selector,
+                        expected_value=field.mapped_value,
+                        actual_value=None,
+                        status=VERIFICATION_STATUS_FAILED,
+                        reason=VERIFICATION_REASON_SELECTOR_NOT_FOUND,
+                        message="Could not read field value after fill",
+                    )
+                )
+            elif _values_match(field, field.mapped_value, actual_value):
+                verification_data.append(
+                    FieldVerificationData(
+                        field_id=field.id,
+                        selector=field.selector,
+                        expected_value=field.mapped_value,
+                        actual_value=actual_value,
+                        status=VERIFICATION_STATUS_VERIFIED,
+                    )
+                )
+            else:
+                verification_data.append(
+                    FieldVerificationData(
+                        field_id=field.id,
+                        selector=field.selector,
+                        expected_value=field.mapped_value,
+                        actual_value=actual_value,
+                        status=VERIFICATION_STATUS_FAILED,
+                        reason=VERIFICATION_REASON_VALUE_MISMATCH,
+                    )
+                )
+
         except Exception as exc:
             _trace_fill_action(db, task_id, field, "fill", "failed", str(exc))
+            verification_data.append(
+                FieldVerificationData(
+                    field_id=field.id,
+                    selector=field.selector,
+                    expected_value=field.mapped_value,
+                    actual_value=None,
+                    status=VERIFICATION_STATUS_FAILED,
+                    reason=VERIFICATION_REASON_SELECTOR_NOT_FOUND,
+                    message=str(exc),
+                )
+            )
             raise
+
+    return verification_data
 
 
 async def open_url_and_capture_screenshot(
@@ -228,12 +370,14 @@ async def fill_form_and_capture_screenshot(
     fields: list[FormField],
     stage: str = "filled_form",
     db: Session | None = None,
-) -> Screenshot:
+) -> tuple[Screenshot, list[FieldVerificationData]]:
     """Fill mapped input fields, stop before submission, and save a screenshot."""
 
     relative_path, screenshot_path = _new_screenshot_path(task_id)
+    verification_data: list[FieldVerificationData] = []
 
     def fill_form(page: Page) -> None:
+        nonlocal verification_data
         page.goto(url, wait_until="domcontentloaded", timeout=30_000)
         _trace_browser_action(
             db,
@@ -243,7 +387,7 @@ async def fill_form_and_capture_screenshot(
             result="success",
         )
         _wait_for_network_idle(page)
-        _fill_fields(page, fields, task_id=task_id, db=db)
+        verification_data = _fill_fields(page, fields, task_id=task_id, db=db)
         page.screenshot(path=str(screenshot_path), full_page=True)
 
     await run_with_persistent_page(url, profile_id, fill_form)
@@ -256,7 +400,7 @@ async def fill_form_and_capture_screenshot(
         result="success",
         screenshot_id=screenshot.id,
     )
-    return screenshot
+    return screenshot, verification_data
 
 
 async def submit_form_and_capture_screenshot(

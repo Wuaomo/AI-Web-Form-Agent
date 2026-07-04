@@ -54,7 +54,7 @@ class BenchmarkRunSummary:
     provider: str | None
     total_cases: int
     average_score: float
-    summary_metrics: dict[str, float]
+    summary_metrics: dict[str, float | None]
     case_results: list[dict[str, Any]]
     comparison: dict[str, dict[str, float | str]] | None = None
 
@@ -394,15 +394,15 @@ def _run_case(
     }
 
 
-def _calculate_performance_metrics(case_results: list[dict[str, Any]]) -> dict[str, float]:
+def _calculate_performance_metrics(case_results: list[dict[str, Any]]) -> dict[str, float | None]:
     """Calculate performance metrics from case results."""
 
     if not case_results:
         return {
             "average_case_duration_ms": 0.0,
             "p95_case_duration_ms": 0.0,
-            "llm_cache_hit_rate": 0.0,
-            "retry_success_rate": 1.0,
+            "llm_cache_hit_rate": None,
+            "retry_success_rate": None,
             "failure_rate": 0.0,
         }
 
@@ -413,9 +413,17 @@ def _calculate_performance_metrics(case_results: list[dict[str, Any]]) -> dict[s
 
     sorted_durations = sorted(durations)
     n = len(sorted_durations)
-    p95_index = int(0.95 * n)
-    if p95_index >= n:
-        p95_index = n - 1
+    if n > 0:
+        p95_pos = 0.95 * (n - 1)
+        p95_floor = int(p95_pos)
+        p95_ceil = min(p95_floor + 1, n - 1)
+        p95_weight = p95_pos - p95_floor
+        p95_case_duration_ms = (
+            sorted_durations[p95_floor] * (1 - p95_weight)
+            + sorted_durations[p95_ceil] * p95_weight
+        )
+    else:
+        p95_case_duration_ms = 0.0
 
     total_failures = sum(
         len(result.get("failures", []))
@@ -429,20 +437,23 @@ def _calculate_performance_metrics(case_results: list[dict[str, Any]]) -> dict[s
 
     return {
         "average_case_duration_ms": mean(durations) if durations else 0.0,
-        "p95_case_duration_ms": float(sorted_durations[p95_index]) if sorted_durations else 0.0,
-        "llm_cache_hit_rate": 0.0,
-        "retry_success_rate": 1.0,
+        "p95_case_duration_ms": float(p95_case_duration_ms),
+        "llm_cache_hit_rate": None,
+        "retry_success_rate": None,
         "failure_rate": total_failures / max(1, total_possible_fields),
     }
 
 
-def _average_metrics(case_results: list[dict[str, Any]]) -> dict[str, float]:
+def _average_metrics(case_results: list[dict[str, Any]]) -> dict[str, float | None]:
     """Average numeric metrics across all case results."""
 
     if not case_results:
-        return {name: 0.0 for name in SUMMARY_METRIC_KEYS}
+        metrics = {name: 0.0 for name in SUMMARY_METRIC_KEYS}
+        metrics["llm_cache_hit_rate"] = None
+        metrics["retry_success_rate"] = None
+        return metrics
 
-    averaged: dict[str, float] = {}
+    averaged: dict[str, float | None] = {}
     for name in SUMMARY_METRIC_KEYS:
         if name in {"average_case_duration_ms", "p95_case_duration_ms", "llm_cache_hit_rate", "retry_success_rate", "failure_rate"}:
             continue
@@ -460,13 +471,15 @@ def _find_baseline_run(
     db: Session,
     mode: str,
     provider: str | None,
+    stress_mode: str,
 ) -> BenchmarkRun | None:
-    """Find the most recent benchmark run with the same mode and provider to use as baseline."""
+    """Find the most recent benchmark run with the same mode, provider, and stress mode to use as baseline."""
 
     query = (
         select(BenchmarkRun)
         .where(BenchmarkRun.mode == mode)
         .where(BenchmarkRun.provider == provider)
+        .where(BenchmarkRun.mode_detail == stress_mode)
         .order_by(BenchmarkRun.created_at.desc(), BenchmarkRun.id.desc())
         .limit(1)
     )
@@ -487,10 +500,23 @@ def run_benchmarks(
     if stress_mode not in VALID_STRESS_MODES:
         raise ValueError(f"Unknown stress mode: {stress_mode}. Valid modes: {VALID_STRESS_MODES}")
 
+    if stress_mode == "concurrent":
+        raise ValueError("concurrent stress mode is not implemented for sync benchmark runner")
+
+    if stress_mode == "cache_cold":
+        if db is None:
+            raise ValueError("cache_cold stress mode requires a database session")
+        from app.models import LLMMappingCache
+        db.execute(delete(LLMMappingCache))
+        db.flush()
+
     start_time = time.time()
 
     case_results: list[dict[str, Any]] = []
     for case in load_benchmark_cases():
+        if stress_mode == "cache_warm":
+            _run_case(case, mode=mode, provider=provider, db=db)
+
         actual = _run_case(case, mode=mode, provider=provider, db=db)
         scored = score_case(case.expected, actual)
         case_results.append(
@@ -523,7 +549,7 @@ def run_benchmarks(
     if db is not None:
         from app.models import BenchmarkCaseResult
 
-        baseline_run = _find_baseline_run(db, mode, provider)
+        baseline_run = _find_baseline_run(db, mode, provider, stress_mode)
         baseline_run_id = baseline_run.id if baseline_run else None
 
         if baseline_run:
