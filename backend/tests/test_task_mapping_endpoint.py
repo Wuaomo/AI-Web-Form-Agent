@@ -14,7 +14,8 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app import config
-from app.models import ActionLog, FormField, Profile, Screenshot, Task, TaskCheckpoint
+from app.models import ActionLog, ApprovalRequest, FormField, Profile, Screenshot, Task, TaskCheckpoint
+from app.routers.approvals import router as approvals_router
 from app.routers.tasks import router as tasks_router
 from app.services.field_mapper import map_fields_with_llm
 from app.services.form_extractor import ExtractedFormField
@@ -37,6 +38,7 @@ def test_environment() -> Generator[tuple[TestClient, Session], None, None]:
 
     test_app = FastAPI()
     test_app.include_router(tasks_router)
+    test_app.include_router(approvals_router)
     test_app.dependency_overrides[get_db] = override_get_db
 
     with TestClient(test_app) as client:
@@ -89,6 +91,64 @@ def create_task_without_fields(session: Session) -> Task:
     session.add(task)
     session.commit()
     return task
+
+
+def test_create_task_response_includes_workflow_fields(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify POST /tasks returns workflow identity and workflow status."""
+
+    client, session = test_environment
+    profile = Profile(
+        profile_name="Create task profile",
+        full_name="Ada Lovelace",
+        email="ada@example.com",
+    )
+    session.add(profile)
+    session.commit()
+
+    response = client.post(
+        "/tasks",
+        json={
+            "url": "https://example.com/form",
+            "profile_id": profile.id,
+            "description": "Internship application",
+            "workflow_type": "form_fill",
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["status"] == "CREATED"
+    assert payload["workflow_type"] == "form_fill"
+    assert payload["workflow_status"] == "CREATED"
+
+
+def test_create_task_rejects_unsupported_workflow_type(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify POST /tasks rejects workflow types outside the supported set."""
+
+    client, session = test_environment
+    profile = Profile(
+        profile_name="Unsupported workflow profile",
+        full_name="Ada Lovelace",
+        email="ada@example.com",
+    )
+    session.add(profile)
+    session.commit()
+
+    response = client.post(
+        "/tasks",
+        json={
+            "url": "https://example.com/form",
+            "profile_id": profile.id,
+            "workflow_type": "unknown_type",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Unsupported workflow_type: unknown_type"
 
 
 def test_map_fields_requires_llm_provider_when_no_default_is_configured(
@@ -753,6 +813,148 @@ def test_confirm_mapping_force_save_blocks_sensitive_fields(
 
     session.refresh(task.profile)
     assert task.profile.custom_values == {}
+
+
+def test_confirm_mapping_policy_blocks_sensitive_memory_write(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify policy blocks sensitive writes even when value is present."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.label = "API key"
+    field.mapped_profile_key = "custom:api_key"
+    field.mapped_value = "secret-token"
+    session.commit()
+
+    response = client.post(f"/tasks/{task.id}/confirm-mapping")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["profile_updates"] == []
+    assert payload["profile_skipped"] == [
+        {"field_id": field.id, "reason": "policy_blocked", "detail": "Sensitive credentials must not be written to profile memory."}
+    ]
+
+
+def test_fill_returns_409_when_required_field_needs_policy_approval(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify required review-required fields block fill until approved."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.label = "Agree to terms"
+    field.field_type = "checkbox"
+    field.required = True
+    field.mapped_profile_key = "custom:terms"
+    field.mapped_value = "true"
+    field.confidence = 1.0
+    task.status = "READY_TO_FILL"
+    task.workflow_status = "READY_TO_FILL"
+    session.commit()
+
+    response = client.post(f"/tasks/{task.id}/fill")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Required fields require approval before filling: Agree to terms"
+
+
+def test_fill_can_retry_after_required_field_approval(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify fill stays retryable after approving a required field gate."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.label = "Agree to terms"
+    field.field_type = "checkbox"
+    field.required = True
+    field.mapped_profile_key = "custom:terms"
+    field.mapped_value = "true"
+    field.confidence = 1.0
+    task.status = "READY_TO_FILL"
+    task.workflow_status = "READY_TO_FILL"
+    session.commit()
+
+    first_response = client.post(f"/tasks/{task.id}/fill")
+
+    assert first_response.status_code == 409
+    session.refresh(task)
+    assert task.status == "READY_TO_FILL"
+
+    approval = session.scalar(
+        select(ApprovalRequest)
+        .where(ApprovalRequest.task_id == task.id, ApprovalRequest.step_name == f"fill_field:{field.id}")
+        .order_by(ApprovalRequest.id.desc())
+    )
+    assert approval is not None
+
+    approve_response = client.post(f"/approvals/{approval.id}/approve")
+    assert approve_response.status_code == 200
+
+    with patch(
+        "app.routers.tasks.fill_form_and_capture_screenshot",
+        new_callable=AsyncMock,
+    ) as fill_form:
+        fill_form.return_value = (SimpleNamespace(id=1), [])
+        retry_response = client.post(f"/tasks/{task.id}/fill")
+
+    assert retry_response.status_code == 200
+    fill_form.assert_awaited_once()
+
+
+def test_confirm_mapping_requires_new_approval_when_memory_write_value_changes(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify memory-write approvals are tied to the approved mapped value."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.label = "Preference note"
+    field.field_type = "text"
+    field.required = False
+    field.mapped_profile_key = "custom:consent_preference"
+    field.mapped_value = "true"
+    session.commit()
+
+    first_response = client.post(f"/tasks/{task.id}/confirm-mapping")
+    assert first_response.status_code == 200
+    assert first_response.json()["profile_skipped"] == [
+        {"field_id": field.id, "reason": "approval_required", "detail": "Consent-like profile writes require review."}
+    ]
+
+    first_approval = session.scalar(
+        select(ApprovalRequest)
+        .where(ApprovalRequest.task_id == task.id, ApprovalRequest.step_name == f"memory_write:{field.id}")
+        .order_by(ApprovalRequest.id.desc())
+    )
+    assert first_approval is not None
+
+    approve_response = client.post(f"/approvals/{first_approval.id}/approve")
+    assert approve_response.status_code == 200
+
+    field.mapped_value = "false"
+    session.commit()
+
+    second_response = client.post(f"/tasks/{task.id}/confirm-mapping")
+
+    assert second_response.status_code == 200
+    assert second_response.json()["profile_updates"] == []
+    assert second_response.json()["profile_skipped"] == [
+        {"field_id": field.id, "reason": "approval_required", "detail": "Consent-like profile writes require review."}
+    ]
+
+    pending_requests = list(
+        session.scalars(
+            select(ApprovalRequest).where(
+                ApprovalRequest.task_id == task.id,
+                ApprovalRequest.step_name == f"memory_write:{field.id}",
+                ApprovalRequest.status == "PENDING",
+            )
+        )
+    )
+    assert len(pending_requests) == 1
 
 
 def test_update_field_memory_policy_normalizes_none_to_auto(

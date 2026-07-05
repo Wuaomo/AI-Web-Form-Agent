@@ -33,6 +33,28 @@ const baseTask = {
   ],
 };
 
+test("getTaskRunState prefers workflow_status when it is present", () => {
+  const state = getTaskRunState({
+    ...baseTask,
+    status: "FAILED",
+    workflow_status: "READY_TO_FILL",
+  });
+
+  assert.equal(state.statusLabel, "Ready to fill");
+  assert.equal(state.primaryAction, "fill");
+});
+
+test("getTaskRunState falls back to legacy status when workflow_status is absent", () => {
+  const state = getTaskRunState({
+    ...baseTask,
+    workflow_status: undefined,
+    status: "WAITING_APPROVAL",
+  });
+
+  assert.equal(state.statusLabel, "Waiting for approval");
+  assert.equal(state.primaryAction, "approve");
+});
+
 test("isFillableField excludes form controls that should not receive values", () => {
   assert.equal(isFillableField({ field_type: "email" }), true);
   assert.equal(isFillableField({ field_type: "file" }), false);

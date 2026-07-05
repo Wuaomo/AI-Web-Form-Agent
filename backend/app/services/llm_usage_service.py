@@ -161,6 +161,20 @@ def list_llm_usage_logs(
     return list(db.scalars(statement))
 
 
+def get_latest_llm_usage_log(
+    db: Session,
+    task_id: int,
+) -> LlmApiUsageLog | None:
+    """Return the newest LLM usage record for one task."""
+
+    statement = (
+        select(LlmApiUsageLog)
+        .where(LlmApiUsageLog.task_id == task_id)
+        .order_by(LlmApiUsageLog.created_at.desc(), LlmApiUsageLog.id.desc())
+    )
+    return db.scalar(statement)
+
+
 def summarize_llm_usage(
     db: Session,
     task_id: int | None = None,

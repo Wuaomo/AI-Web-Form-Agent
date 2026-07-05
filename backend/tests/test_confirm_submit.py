@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
-from app.models import ActionLog, FormField, Profile, Task
+from app.models import ActionLog, ApprovalRequest, FormField, Profile, Task
+from app.routers.approvals import router as approvals_router
 from app.routers.tasks import router as tasks_router
 
 
@@ -32,6 +33,7 @@ def test_environment() -> Generator[tuple[TestClient, Session], None, None]:
 
     test_app = FastAPI()
     test_app.include_router(tasks_router)
+    test_app.include_router(approvals_router)
     test_app.dependency_overrides[get_db] = override_get_db
 
     with TestClient(test_app) as client:
@@ -71,7 +73,7 @@ def create_task(session: Session, task_status: str) -> Task:
     return task
 
 
-def test_confirm_submit_submits_waiting_task_and_records_logs(
+def test_confirm_submit_first_request_creates_approval_and_returns_409(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     client, session = test_environment
@@ -83,8 +85,35 @@ def test_confirm_submit_submits_waiting_task_and_records_logs(
     ) as submit_form:
         response = client.post(f"/tasks/{task.id}/confirm-submit")
 
+    assert response.status_code == 409
+    assert response.json()["detail"]["message"] == "Final submission requires approval"
+    approval_id = response.json()["detail"]["approval_id"]
+    submit_form.assert_not_awaited()
+
+    approval = session.get(ApprovalRequest, approval_id)
+    assert approval is not None
+    assert approval.status == "PENDING"
+
+
+def test_confirm_submit_second_request_submits_after_approval(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task = create_task(session, "WAITING_APPROVAL")
+
+    first_response = client.post(f"/tasks/{task.id}/confirm-submit")
+    approval_id = first_response.json()["detail"]["approval_id"]
+    approve_response = client.post(f"/approvals/{approval_id}/approve")
+    assert approve_response.status_code == 200
+
+    with patch(
+        "app.routers.tasks.submit_form_and_capture_screenshot",
+        new_callable=AsyncMock,
+    ) as submit_form:
+        response = client.post(f"/tasks/{task.id}/confirm-submit")
+
     assert response.status_code == 200
-    assert response.json() == {"task_id": task.id, "status": "COMPLETED"}
+    assert response.json() == {"task_id": task.id, "status": "COMPLETED", "approval_id": approval_id}
     submit_form.assert_awaited_once()
 
     session.refresh(task)
@@ -129,3 +158,56 @@ def test_confirm_submit_rejects_task_not_waiting_for_approval(
     assert session.scalar(
         select(ActionLog).where(ActionLog.task_id == task.id)
     ) is None
+
+
+def test_confirm_submit_rejected_approval_blocks_submission(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task = create_task(session, "WAITING_APPROVAL")
+
+    first_response = client.post(f"/tasks/{task.id}/confirm-submit")
+    approval_id = first_response.json()["detail"]["approval_id"]
+    approval = session.get(ApprovalRequest, approval_id)
+    approval.status = "REJECTED"
+    session.commit()
+
+    with patch(
+        "app.routers.tasks.submit_form_and_capture_screenshot",
+        new_callable=AsyncMock,
+    ) as submit_form:
+        response = client.post(f"/tasks/{task.id}/confirm-submit")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["message"] == "Final submission approval was rejected"
+    assert response.json()["detail"]["approval_id"] == approval_id
+    submit_form.assert_not_awaited()
+
+
+def test_confirm_submit_requires_new_approval_after_field_snapshot_changes(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify an approved submit gate becomes stale after mapped values change."""
+
+    client, session = test_environment
+    task = create_task(session, "WAITING_APPROVAL")
+
+    first_response = client.post(f"/tasks/{task.id}/confirm-submit")
+    first_approval_id = first_response.json()["detail"]["approval_id"]
+    approve_response = client.post(f"/approvals/{first_approval_id}/approve")
+    assert approve_response.status_code == 200
+
+    field = session.scalar(select(FormField).where(FormField.task_id == task.id))
+    field.mapped_value = "updated@example.com"
+    session.commit()
+
+    with patch(
+        "app.routers.tasks.submit_form_and_capture_screenshot",
+        new_callable=AsyncMock,
+    ) as submit_form:
+        response = client.post(f"/tasks/{task.id}/confirm-submit")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["message"] == "Final submission requires approval"
+    assert response.json()["detail"]["approval_id"] != first_approval_id
+    submit_form.assert_not_awaited()

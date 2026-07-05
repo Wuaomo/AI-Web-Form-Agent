@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
-from app.models import Profile, Task, utc_now
+from app.models import FormField, Job, Profile, Task, utc_now
 from app.job_constants import (
     JOB_TYPE_ANALYZE_FORM,
     JOB_TYPE_MAP_FIELDS,
@@ -235,3 +235,36 @@ def test_run_worker_once_no_job_returns_false(db_session):
     result = run_worker_once(db=db, worker_id="worker-1")
 
     assert result is False
+
+
+def test_execute_fill_stage_blocks_required_policy_review(db_session):
+    """Verify worker fill path refuses required fields that still need approval."""
+
+    from app.services.job_worker import _execute_fill_stage
+
+    db, task_id = db_session
+    task = db.get(Task, task_id)
+    task.status = "READY_TO_FILL"
+    task.workflow_status = "READY_TO_FILL"
+    field = FormField(
+        task_id=task_id,
+        label="Agree to terms",
+        selector="#terms",
+        field_type="checkbox",
+        required=True,
+        mapped_profile_key="custom:terms",
+        mapped_value="true",
+        confidence=1.0,
+    )
+    job = Job(
+        task_id=task_id,
+        job_type=JOB_TYPE_FILL_FORM,
+        status=JOB_STATUS_RUNNING,
+        attempts=1,
+        max_attempts=3,
+    )
+    db.add_all([field, job])
+    db.commit()
+
+    with pytest.raises(ValueError, match="Required fields require approval before filling"):
+        _execute_fill_stage(db, job)

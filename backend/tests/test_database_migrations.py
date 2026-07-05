@@ -72,6 +72,85 @@ def test_init_db_adds_all_missing_columns_to_existing_form_fields_table(tmp_path
     assert "profile_memory_policy" in columns
 
 
+def test_init_db_adds_workflow_columns_to_existing_tasks_table(tmp_path):
+    """Verify that legacy tasks tables receive workflow_type and workflow_status."""
+
+    from app.database import _add_missing_task_workflow_columns
+
+    db_path = tmp_path / "legacy_tasks.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+
+    with engine.begin() as connection:
+        connection.execute(text("""
+            CREATE TABLE tasks (
+                id INTEGER PRIMARY KEY,
+                url VARCHAR(2048) NOT NULL,
+                profile_id INTEGER NOT NULL,
+                status VARCHAR(50) NOT NULL DEFAULT 'CREATED'
+            )
+        """))
+
+    _add_missing_task_workflow_columns(engine)
+
+    columns = {column["name"] for column in inspect(engine).get_columns("tasks")}
+    assert "workflow_type" in columns
+    assert "workflow_status" in columns
+
+
+def test_init_db_adds_missing_workflow_span_columns(tmp_path):
+    """Verify legacy workflow_spans tables receive newly added columns."""
+
+    from app.database import _add_missing_workflow_span_columns
+
+    db_path = tmp_path / "legacy_workflow_spans.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+
+    with engine.begin() as connection:
+        connection.execute(text("""
+            CREATE TABLE workflow_spans (
+                id INTEGER PRIMARY KEY,
+                task_id INTEGER NOT NULL
+            )
+        """))
+
+    _add_missing_workflow_span_columns(engine)
+
+    columns = {column["name"] for column in inspect(engine).get_columns("workflow_spans")}
+    assert "phase" in columns
+    assert "name" in columns
+    assert "status" in columns
+    assert "input_json" in columns
+    assert "output_json" in columns
+    assert "metadata_json" in columns
+
+
+def test_init_db_adds_missing_approval_request_columns(tmp_path):
+    """Verify legacy approval_requests tables receive newly added columns."""
+
+    from app.database import _add_missing_approval_request_columns
+
+    db_path = tmp_path / "legacy_approval_requests.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+
+    with engine.begin() as connection:
+        connection.execute(text("""
+            CREATE TABLE approval_requests (
+                id INTEGER PRIMARY KEY,
+                task_id INTEGER NOT NULL
+            )
+        """))
+
+    _add_missing_approval_request_columns(engine)
+
+    columns = {column["name"] for column in inspect(engine).get_columns("approval_requests")}
+    assert "step_name" in columns
+    assert "risk_type" in columns
+    assert "risk_level" in columns
+    assert "decision" in columns
+    assert "proposed_action_json" in columns
+    assert "status" in columns
+
+
 def test_task_checkpoint_model_creates_profile_task_and_checkpoint(tmp_path):
     """Verify TaskCheckpoint model creates and loads checkpoints with relationship."""
 

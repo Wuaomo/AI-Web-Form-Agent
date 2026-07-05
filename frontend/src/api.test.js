@@ -43,14 +43,51 @@ test("mutations use their configured HTTP method", async () => {
 
   try {
     await api.listTasks();
+    await api.getTaskTrace(7);
+    await api.listApprovals({ taskId: 7, status: "PENDING" });
     await api.createTask({
       url: "https://example.com/form",
       profile_id: 1,
     });
+    await api.approveApproval(9);
+    await api.rejectApproval(9);
 
     assert.deepEqual(
       urls.map((entry) => entry.method),
-      ["GET", "POST"],
+      ["GET", "GET", "GET", "POST", "POST", "POST"],
+    );
+  } finally {
+    clearApiCache();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("structured API errors preserve detail payload", async () => {
+  clearApiCache();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    jsonResponse({
+      detail: { message: "Final submission requires approval", approval_id: 12 },
+    });
+
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        detail: { message: "Final submission requires approval", approval_id: 12 },
+      }),
+      {
+        status: 409,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+
+  try {
+    await assert.rejects(
+      () => api.confirmSubmit(12),
+      (error) =>
+        error.message === "Final submission requires approval" &&
+        error.detail.approval_id === 12 &&
+        error.status === 409,
     );
   } finally {
     clearApiCache();

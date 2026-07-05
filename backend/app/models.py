@@ -8,6 +8,10 @@ from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Te
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.workflow_constants import (
+    WORKFLOW_STATUS_CREATED,
+    WORKFLOW_TYPE_FORM_FILL,
+)
 
 
 def utc_now() -> datetime:
@@ -75,7 +79,17 @@ class Task(Base):
     url: Mapped[str] = mapped_column(String(2048), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text)
     profile_id: Mapped[int] = mapped_column(ForeignKey("profiles.id"), nullable=False)
-    status: Mapped[str] = mapped_column(String(50), default="CREATED", nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default=WORKFLOW_STATUS_CREATED, nullable=False)
+    workflow_type: Mapped[str] = mapped_column(
+        String(50),
+        default=WORKFLOW_TYPE_FORM_FILL,
+        nullable=False,
+    )
+    workflow_status: Mapped[str] = mapped_column(
+        String(50),
+        default=WORKFLOW_STATUS_CREATED,
+        nullable=False,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -91,6 +105,8 @@ class Task(Base):
         back_populates="task"
     )
     checkpoints: Mapped[list["TaskCheckpoint"]] = relationship(back_populates="task")
+    workflow_spans: Mapped[list["WorkflowSpan"]] = relationship(back_populates="task")
+    approval_requests: Mapped[list["ApprovalRequest"]] = relationship(back_populates="task")
     jobs: Mapped[list["Job"]] = relationship(back_populates="task")
     verification_results: Mapped[list["FieldVerificationResult"]] = relationship(back_populates="task")
     agent_reviews: Mapped[list["AgentReview"]] = relationship(back_populates="task")
@@ -348,6 +364,139 @@ class TaskActionTrace(Base):
     error_message: Mapped[Optional[str]] = mapped_column(Text)
     screenshot_id: Mapped[Optional[int]] = mapped_column(ForeignKey("screenshots.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class WorkflowSpan(Base):
+    """A queryable workflow trace span for one task run."""
+
+    __tablename__ = "workflow_spans"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), nullable=False)
+    parent_span_id: Mapped[Optional[int]] = mapped_column(Integer)
+    phase: Mapped[str] = mapped_column(String(100), nullable=False)
+    name: Mapped[str] = mapped_column(String(150), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False)
+    input_json: Mapped[Optional[str]] = mapped_column(Text)
+    output_json: Mapped[Optional[str]] = mapped_column(Text)
+    metadata_json: Mapped[Optional[str]] = mapped_column(Text)
+    provider: Mapped[Optional[str]] = mapped_column(String(50))
+    model: Mapped[Optional[str]] = mapped_column(String(100))
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    estimated_cost: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    screenshot_id: Mapped[Optional[int]] = mapped_column(Integer)
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    task: Mapped["Task"] = relationship(back_populates="workflow_spans")
+
+    @property
+    def input(self) -> dict[str, object]:
+        """Return structured input data from JSON."""
+
+        if not self.input_json:
+            return {}
+        try:
+            parsed = json.loads(self.input_json)
+        except json.JSONDecodeError:
+            return {}
+        if not isinstance(parsed, dict):
+            return {}
+        return parsed
+
+    @input.setter
+    def input(self, value: dict[str, object] | None) -> None:
+        """Persist structured input as JSON."""
+
+        self.input_json = json.dumps(value or {}, ensure_ascii=False)
+
+    @property
+    def output(self) -> dict[str, object]:
+        """Return structured output data from JSON."""
+
+        if not self.output_json:
+            return {}
+        try:
+            parsed = json.loads(self.output_json)
+        except json.JSONDecodeError:
+            return {}
+        if not isinstance(parsed, dict):
+            return {}
+        return parsed
+
+    @output.setter
+    def output(self, value: dict[str, object] | None) -> None:
+        """Persist structured output as JSON."""
+
+        self.output_json = json.dumps(value or {}, ensure_ascii=False)
+
+    @property
+    def span_metadata(self) -> dict[str, object]:
+        """Return structured metadata from JSON."""
+
+        if not self.metadata_json:
+            return {}
+        try:
+            parsed = json.loads(self.metadata_json)
+        except json.JSONDecodeError:
+            return {}
+        if not isinstance(parsed, dict):
+            return {}
+        return parsed
+
+    @span_metadata.setter
+    def span_metadata(self, value: dict[str, object] | None) -> None:
+        """Persist structured metadata as JSON."""
+
+        self.metadata_json = json.dumps(value or {}, ensure_ascii=False)
+
+
+class ApprovalRequest(Base):
+    """A persisted approval gate for risky workflow actions."""
+
+    __tablename__ = "approval_requests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), nullable=False)
+    step_name: Mapped[str] = mapped_column(String(150), nullable=False)
+    risk_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    risk_level: Mapped[str] = mapped_column(String(50), nullable=False)
+    decision: Mapped[str] = mapped_column(String(50), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    proposed_action_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default="PENDING", nullable=False)
+    resolved_by: Mapped[Optional[str]] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    task: Mapped["Task"] = relationship(back_populates="approval_requests")
+
+    @property
+    def proposed_action(self) -> dict[str, object]:
+        """Return structured approval payload from JSON."""
+
+        if not self.proposed_action_json:
+            return {}
+        try:
+            parsed = json.loads(self.proposed_action_json)
+        except json.JSONDecodeError:
+            return {}
+        if not isinstance(parsed, dict):
+            return {}
+        return parsed
+
+    @proposed_action.setter
+    def proposed_action(self, value: dict[str, object] | None) -> None:
+        """Persist proposed action as JSON."""
+
+        self.proposed_action_json = json.dumps(
+            value or {},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
 
 
 class TaskCheckpoint(Base):

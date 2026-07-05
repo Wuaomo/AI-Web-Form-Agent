@@ -8,6 +8,10 @@ function hasMappedValue(field) {
   return field.mapped_value !== null && field.mapped_value !== undefined && field.mapped_value !== "";
 }
 
+function getTaskStatus(task) {
+  return task?.workflow_status || task?.status;
+}
+
 export function getTaskRunSummary(task) {
   const fields = task?.form_fields || [];
   const fillableFields = fields.filter(isFillableField);
@@ -69,6 +73,12 @@ const stateByStatus = {
     primaryLabel: "",
   },
   MAPPING_READY: {
+    statusLabel: "Needs review",
+    description: "Review the mapped values before filling the form.",
+    primaryAction: "review",
+    primaryLabel: "Review mapping",
+  },
+  REVIEWING: {
     statusLabel: "Needs review",
     description: "Review the mapped values before filling the form.",
     primaryAction: "review",
@@ -136,17 +146,18 @@ function getFailedStage(checkpoints) {
 }
 
 export function getTaskRunState(task, checkpoints = []) {
-  const baseState = stateByStatus[task?.status];
+  const taskStatus = getTaskStatus(task);
+  const baseState = stateByStatus[taskStatus];
   if (!baseState) {
     return {
-      statusLabel: task?.status || "Unknown",
+      statusLabel: taskStatus || "Unknown",
       description: "Check the task details before continuing.",
       primaryAction: null,
       primaryLabel: "",
     };
   }
 
-  if (task?.status === "FAILED") {
+  if (taskStatus === "FAILED") {
     const failedStage = getFailedStage(checkpoints);
     if (failedStage && failureStateByStage[failedStage]) {
       return failureStateByStage[failedStage];

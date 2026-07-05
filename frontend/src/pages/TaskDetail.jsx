@@ -37,6 +37,12 @@ import {
   summarizeReviewItems,
   groupReviewsByRole,
 } from "../agentReviewPresentation";
+import {
+  phaseLabel,
+  sortSpans,
+  spanStatusLabel,
+  summarizeSpan,
+} from "../workflowTracePresentation";
 
 function TaskDetail() {
   const { taskId } = useParams();
@@ -61,6 +67,8 @@ function TaskDetail() {
   const [taskJobs, setTaskJobs] = useState([]);
   const [verificationResults, setVerificationResults] = useState([]);
   const [agentReviews, setAgentReviews] = useState([]);
+  const [workflowTrace, setWorkflowTrace] = useState([]);
+  const [approvalRequests, setApprovalRequests] = useState([]);
   const [runningReview, setRunningReview] = useState(null);
   const agentReviewInFlight = useRef(false);
 
@@ -91,8 +99,10 @@ function TaskDetail() {
       api.listTaskJobs(taskId).catch(() => []),
       api.getTaskVerificationResults(taskId).catch(() => []),
       api.getTaskAgentReviews(taskId).catch(() => []),
+      api.getTaskTrace(taskId).catch(() => []),
+      api.listApprovals({ taskId }).catch(() => []),
     ])
-      .then(([taskResult, screenshotItems, profileItems, providerItems, logItems, usageResult, checkpointItems, jobItems, verificationItems, reviewItems]) => {
+      .then(([taskResult, screenshotItems, profileItems, providerItems, logItems, usageResult, checkpointItems, jobItems, verificationItems, reviewItems, traceItems, approvalItems]) => {
         setTask(taskResult);
         setScreenshots(screenshotItems);
         setProfiles(profileItems);
@@ -103,6 +113,8 @@ function TaskDetail() {
         setTaskJobs(jobItems);
         setVerificationResults(verificationItems);
         setAgentReviews(reviewItems);
+        setWorkflowTrace(traceItems);
+        setApprovalRequests(approvalItems);
         setSelectedLlmProvider(getSavedLlmProvider(providerItems));
       })
       .catch((requestError) => setError(requestError.message))
@@ -110,7 +122,7 @@ function TaskDetail() {
   }, [taskId]);
 
   async function refreshTaskData(nextTask = null) {
-    const [taskResult, screenshotItems, logItems, usageResult, checkpointItems, jobItems, verificationItems, reviewItems] = await Promise.all([
+    const [taskResult, screenshotItems, logItems, usageResult, checkpointItems, jobItems, verificationItems, reviewItems, traceItems] = await Promise.all([
       nextTask ? Promise.resolve(nextTask) : api.getTask(taskId),
       api.listTaskScreenshots(taskId),
       api.listTaskLogs(taskId),
@@ -119,6 +131,8 @@ function TaskDetail() {
       api.listTaskJobs(taskId).catch(() => []),
       api.getTaskVerificationResults(taskId).catch(() => []),
       api.getTaskAgentReviews(taskId).catch(() => []),
+      api.getTaskTrace(taskId).catch(() => []),
+      api.listApprovals({ taskId }).catch(() => []),
     ]);
     setTask(taskResult);
     setScreenshots(screenshotItems);
@@ -128,6 +142,8 @@ function TaskDetail() {
     setTaskJobs(jobItems);
     setVerificationResults(verificationItems);
     setAgentReviews(reviewItems);
+    setWorkflowTrace(traceItems);
+    setApprovalRequests(approvalItems);
   }
 
   async function runAgentReview(role) {
@@ -273,6 +289,36 @@ function TaskDetail() {
   const showWorkflowTimeline = shouldShowWorkflowTimeline();
   const workflowNodes = showWorkflowTimeline && task ? getWorkflowTimeline(task, taskLogs) : [];
   const verificationSummary = summarizeVerificationResults(verificationResults);
+  const orderedTrace = sortSpans(workflowTrace);
+  const pendingApprovals = approvalRequests.filter((item) => item.status === "PENDING");
+
+  async function resolveApproval(approval, action) {
+    setBusyAction(`${action}-approval`);
+    setError("");
+    setNotice("");
+    try {
+      if (action === "approve") {
+        await api.approveApproval(approval.id);
+        if (approval.step_name.startsWith("memory_write:")) {
+          setNotice("Approval granted. Re-confirm mapping to apply the approved profile write.");
+        } else if (approval.step_name.startsWith("fill_field:")) {
+          setNotice("Approval granted. Retry fill to continue.");
+        } else if (approval.step_name === "submit_form") {
+          setNotice("Approval granted. Retry submit to continue.");
+        } else {
+          setNotice("Approval granted.");
+        }
+      } else {
+        await api.rejectApproval(approval.id);
+        setNotice("Approval rejected.");
+      }
+      await refreshTaskData();
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setBusyAction("");
+    }
+  }
   const primaryDisabled =
     isBusy ||
     !runState.primaryAction ||
@@ -420,6 +466,78 @@ function TaskDetail() {
                 <p>LLM usage is not available.</p>
               )}
             </div>
+
+          {orderedTrace.length > 0 && (
+            <div className="card">
+              <h3>Workflow Trace</h3>
+              <ul className="job-list">
+                {orderedTrace.map((span) => (
+                  <li key={span.id} className="job-item">
+                    <div className="job-item-header">
+                      <strong>{phaseLabel(span.phase)}</strong>
+                      <span className="badge">{spanStatusLabel(span.status)}</span>
+                    </div>
+                    <div>{span.name}</div>
+                    <div className="muted-text">{summarizeSpan(span) || "No summary"}</div>
+                    <div className="muted-text">
+                      {formatChinaTime(span.created_at)}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="card">
+            <div className="job-item-header">
+              <h3>Approval Requests</h3>
+              <Link to="/approvals">Open Approval Center</Link>
+            </div>
+            {approvalRequests.length === 0 ? (
+              <p>No approval requests yet.</p>
+            ) : (
+              <ul className="job-list">
+                {approvalRequests.map((approval) => (
+                  <li key={approval.id} className="job-item">
+                    <div className="job-item-header">
+                      <strong>{approval.step_name}</strong>
+                      <span className="badge">{approval.status}</span>
+                    </div>
+                    <div className="muted-text">{approval.reason}</div>
+                    <div className="muted-text">
+                      {approval.risk_type} · {approval.risk_level}
+                    </div>
+                    <div className="muted-text">{formatChinaTime(approval.created_at)}</div>
+                    {approval.status === "PENDING" && (
+                      <div className="agent-review-actions">
+                        <button
+                          type="button"
+                          className="button button-small"
+                          onClick={() => resolveApproval(approval, "approve")}
+                          disabled={Boolean(busyAction)}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          className="button button-small button-secondary"
+                          onClick={() => resolveApproval(approval, "reject")}
+                          disabled={Boolean(busyAction)}
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {pendingApprovals.length > 0 && (
+              <p className="muted-text">
+                Resolve pending approvals here or in the Approval Center before retrying risky actions.
+              </p>
+            )}
+          </div>
 
           <div className="card">
             <button

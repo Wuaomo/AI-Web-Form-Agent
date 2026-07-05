@@ -3,7 +3,9 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
+
+from app.workflow_constants import WORKFLOW_TYPE_FORM_FILL
 
 ProfileKey = str
 
@@ -221,7 +223,16 @@ class ProfileSkipItem(BaseModel):
     """One field that was considered but intentionally not persisted."""
 
     field_id: int
-    reason: Literal["empty_value", "non_fillable_type", "one_time_field", "unchanged", "do_not_save", "force_save_blocked"]
+    reason: Literal[
+        "empty_value",
+        "non_fillable_type",
+        "one_time_field",
+        "unchanged",
+        "do_not_save",
+        "force_save_blocked",
+        "policy_blocked",
+        "approval_required",
+    ]
     detail: str | None = None
 
 
@@ -239,6 +250,7 @@ class SubmissionConfirmationResponse(BaseModel):
 
     task_id: int
     status: str
+    approval_id: int | None = None
 
 
 class TaskCreate(BaseModel):
@@ -247,6 +259,7 @@ class TaskCreate(BaseModel):
     url: str
     profile_id: int
     description: str | None = None
+    workflow_type: str = WORKFLOW_TYPE_FORM_FILL
 
 
 class TaskResponse(BaseModel):
@@ -259,9 +272,59 @@ class TaskResponse(BaseModel):
     description: str | None
     profile_id: int
     status: str
+    workflow_type: str = WORKFLOW_TYPE_FORM_FILL
+    workflow_status: str
     created_at: datetime
     updated_at: datetime
     form_fields: list[FormFieldResponse] = Field(default_factory=list)
+
+
+class WorkflowSpanResponse(BaseModel):
+    """One persisted workflow trace span."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_id: int
+    parent_span_id: int | None
+    phase: str
+    name: str
+    status: str
+    input: dict[str, object] = Field(default_factory=dict)
+    output: dict[str, object] = Field(default_factory=dict)
+    metadata: dict[str, object] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("span_metadata", "metadata"),
+    )
+    provider: str | None
+    model: str | None
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    estimated_cost: float
+    latency_ms: int
+    screenshot_id: int | None
+    error_message: str | None
+    created_at: datetime
+
+
+class ApprovalRequestResponse(BaseModel):
+    """One persisted approval request."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_id: int
+    step_name: str
+    risk_type: str
+    risk_level: str
+    decision: str
+    reason: str
+    proposed_action: dict[str, object] = Field(default_factory=dict)
+    status: str
+    resolved_by: str | None
+    created_at: datetime
+    resolved_at: datetime | None
 
 
 class BenchmarkRunRequest(BaseModel):
