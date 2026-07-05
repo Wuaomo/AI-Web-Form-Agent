@@ -12,24 +12,45 @@ function CreateTask() {
   const navigate = useNavigate();
   const [profiles, setProfiles] = useState([]);
   const [llmProviders, setLlmProviders] = useState([]);
+  const [workflowTemplates, setWorkflowTemplates] = useState([]);
   const [selectedLlmProvider, setSelectedLlmProvider] = useState("");
-  const [form, setForm] = useState({ url: "", profile_id: "", description: "" });
+  const [form, setForm] = useState({
+    url: "",
+    profile_id: "",
+    description: "",
+    workflow_type: "form_fill",
+  });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    Promise.all([api.listProfiles(), api.listLlmProviders()])
-      .then(([profileItems, providerItems]) => {
+    Promise.all([
+      api.listProfiles(),
+      api.listLlmProviders(),
+      api.listWorkflowTemplates(),
+    ])
+      .then(([profileItems, providerItems, workflowItems]) => {
         setProfiles(profileItems);
         setLlmProviders(providerItems);
+        setWorkflowTemplates(workflowItems);
         setSelectedLlmProvider(getSavedLlmProvider(providerItems));
+        const defaultWorkflow =
+          workflowItems.find((workflow) => workflow.id === "form_fill" && workflow.enabled) ||
+          workflowItems.find((workflow) => workflow.enabled) ||
+          null;
         if (profileItems.length) {
           setForm((current) => ({
             ...current,
             profile_id: String(profileItems[0].id),
+            workflow_type: defaultWorkflow?.id || current.workflow_type,
           }));
+          return;
         }
+        setForm((current) => ({
+          ...current,
+          workflow_type: defaultWorkflow?.id || current.workflow_type,
+        }));
       })
       .catch((requestError) => setError(requestError.message))
       .finally(() => setLoading(false));
@@ -80,8 +101,12 @@ function CreateTask() {
   const selectedProvider = llmProviders.find(
     (provider) => provider.id === selectedLlmProvider,
   );
+  const selectedWorkflow = workflowTemplates.find(
+    (workflow) => workflow.id === form.workflow_type,
+  );
   const mappingUnavailable =
     !selectedLlmProvider || !selectedProvider?.configured;
+  const workflowUnavailable = !selectedWorkflow?.enabled;
 
   return (
     <section className="narrow-page">
@@ -96,6 +121,36 @@ function CreateTask() {
       <Message type="error">{error}</Message>
 
       <form className="card form-card" onSubmit={submitTask}>
+        <label>
+          Workflow
+          <select
+            value={form.workflow_type}
+            onChange={(event) =>
+              setForm({ ...form, workflow_type: event.target.value })
+            }
+            required
+            disabled={loading || workflowTemplates.length === 0}
+          >
+            {workflowTemplates.length === 0 && (
+              <option value="">No workflows available</option>
+            )}
+            {workflowTemplates.map((workflow) => (
+              <option
+                key={workflow.id}
+                value={workflow.id}
+                disabled={!workflow.enabled}
+              >
+                {workflow.enabled
+                  ? workflow.name
+                  : `${workflow.name} (Coming soon)`}
+              </option>
+            ))}
+          </select>
+        </label>
+        {selectedWorkflow && (
+          <p className="muted">{selectedWorkflow.description}</p>
+        )}
+
         <label>
           Form URL
           <input
@@ -175,7 +230,8 @@ function CreateTask() {
             saving ||
             loading ||
             profiles.length === 0 ||
-            mappingUnavailable
+            mappingUnavailable ||
+            workflowUnavailable
           }
         >
           {saving ? "Creating, analyzing, and mapping..." : "Create task"}

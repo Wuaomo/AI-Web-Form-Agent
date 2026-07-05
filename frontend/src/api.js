@@ -70,6 +70,7 @@ async function request(path, options = {}) {
 export const api = {
   health: () => request("/health"),
   listLlmProviders: () => request("/llm/providers"),
+  listWorkflowTemplates: () => request("/workflows/templates"),
   runBenchmarks: (options = {}) =>
     request("/benchmarks/run", {
       method: "POST",
@@ -100,6 +101,12 @@ export const api = {
     }),
   listTasks: () => request("/tasks"),
   getTask: (taskId) => request(`/tasks/${taskId}`),
+  getTaskPlan: (taskId) => request(`/tasks/${taskId}/plan`),
+  createTaskPlan: (taskId, goal) =>
+    request(`/tasks/${taskId}/plan`, {
+      method: "POST",
+      body: JSON.stringify({ goal }),
+    }),
   listTaskLogs: (taskId) => request(`/tasks/${taskId}/logs`),
   getTaskTrace: (taskId) => request(`/tasks/${taskId}/trace`),
   listTaskScreenshots: (taskId) => request(`/tasks/${taskId}/screenshots`),

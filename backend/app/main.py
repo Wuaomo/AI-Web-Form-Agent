@@ -23,6 +23,7 @@ from app.routers.llm_usage import router as llm_usage_router
 from app.routers.profiles import router as profiles_router
 from app.routers.tasks import router as tasks_router
 from app.routers.traces import router as traces_router
+from app.routers.workflows import router as workflows_router
 from app.schemas import HealthResponse, LLMProviderResponse
 from app.services.llm_provider_config import list_llm_providers
 
@@ -63,6 +64,7 @@ app.add_middleware(
 )
 
 app.include_router(profiles_router)
+app.include_router(workflows_router)
 app.include_router(tasks_router)
 app.include_router(traces_router)
 app.include_router(approvals_router)
