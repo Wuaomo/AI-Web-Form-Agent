@@ -18,13 +18,22 @@ async function performRequest(path, options = {}) {
 
   if (!response.ok) {
     let message = `Request failed with status ${response.status}`;
+    let detail = null;
     try {
       const body = await response.json();
-      message = body.detail || message;
+      detail = body.detail;
+      if (typeof body.detail === "string") {
+        message = body.detail;
+      } else if (body.detail && typeof body.detail === "object") {
+        message = body.detail.message || message;
+      }
     } catch {
       // Keep the status-based message when the response has no JSON body.
     }
-    throw new Error(message);
+    const error = new Error(message);
+    error.detail = detail;
+    error.status = response.status;
+    throw error;
   }
 
   if (response.status === 204) {
@@ -94,6 +103,21 @@ export const api = {
   listTaskLogs: (taskId) => request(`/tasks/${taskId}/logs`),
   getTaskTrace: (taskId) => request(`/tasks/${taskId}/trace`),
   listTaskScreenshots: (taskId) => request(`/tasks/${taskId}/screenshots`),
+  listApprovals: (options = {}) => {
+    const params = new URLSearchParams();
+    if (options.taskId) {
+      params.set("task_id", options.taskId);
+    }
+    if (options.status) {
+      params.set("status", options.status);
+    }
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    return request(`/approvals${suffix}`);
+  },
+  approveApproval: (approvalId) =>
+    request(`/approvals/${approvalId}/approve`, { method: "POST" }),
+  rejectApproval: (approvalId) =>
+    request(`/approvals/${approvalId}/reject`, { method: "POST" }),
   analyzeTask: (taskId) =>
     request(`/tasks/${taskId}/analyze`, { method: "POST" }),
   loginAndAnalyzeTask: (taskId) =>

@@ -223,7 +223,16 @@ class ProfileSkipItem(BaseModel):
     """One field that was considered but intentionally not persisted."""
 
     field_id: int
-    reason: Literal["empty_value", "non_fillable_type", "one_time_field", "unchanged", "do_not_save", "force_save_blocked"]
+    reason: Literal[
+        "empty_value",
+        "non_fillable_type",
+        "one_time_field",
+        "unchanged",
+        "do_not_save",
+        "force_save_blocked",
+        "policy_blocked",
+        "approval_required",
+    ]
     detail: str | None = None
 
 
@@ -241,6 +250,7 @@ class SubmissionConfirmationResponse(BaseModel):
 
     task_id: int
     status: str
+    approval_id: int | None = None
 
 
 class TaskCreate(BaseModel):
@@ -296,6 +306,25 @@ class WorkflowSpanResponse(BaseModel):
     screenshot_id: int | None
     error_message: str | None
     created_at: datetime
+
+
+class ApprovalRequestResponse(BaseModel):
+    """One persisted approval request."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_id: int
+    step_name: str
+    risk_type: str
+    risk_level: str
+    decision: str
+    reason: str
+    proposed_action: dict[str, object] = Field(default_factory=dict)
+    status: str
+    resolved_by: str | None
+    created_at: datetime
+    resolved_at: datetime | None
 
 
 class BenchmarkRunRequest(BaseModel):

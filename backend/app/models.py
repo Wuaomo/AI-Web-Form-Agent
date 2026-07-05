@@ -106,6 +106,7 @@ class Task(Base):
     )
     checkpoints: Mapped[list["TaskCheckpoint"]] = relationship(back_populates="task")
     workflow_spans: Mapped[list["WorkflowSpan"]] = relationship(back_populates="task")
+    approval_requests: Mapped[list["ApprovalRequest"]] = relationship(back_populates="task")
     jobs: Mapped[list["Job"]] = relationship(back_populates="task")
     verification_results: Mapped[list["FieldVerificationResult"]] = relationship(back_populates="task")
     agent_reviews: Mapped[list["AgentReview"]] = relationship(back_populates="task")
@@ -451,6 +452,47 @@ class WorkflowSpan(Base):
         """Persist structured metadata as JSON."""
 
         self.metadata_json = json.dumps(value or {}, ensure_ascii=False)
+
+
+class ApprovalRequest(Base):
+    """A persisted approval gate for risky workflow actions."""
+
+    __tablename__ = "approval_requests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), nullable=False)
+    step_name: Mapped[str] = mapped_column(String(150), nullable=False)
+    risk_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    risk_level: Mapped[str] = mapped_column(String(50), nullable=False)
+    decision: Mapped[str] = mapped_column(String(50), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    proposed_action_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default="PENDING", nullable=False)
+    resolved_by: Mapped[Optional[str]] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    task: Mapped["Task"] = relationship(back_populates="approval_requests")
+
+    @property
+    def proposed_action(self) -> dict[str, object]:
+        """Return structured approval payload from JSON."""
+
+        if not self.proposed_action_json:
+            return {}
+        try:
+            parsed = json.loads(self.proposed_action_json)
+        except json.JSONDecodeError:
+            return {}
+        if not isinstance(parsed, dict):
+            return {}
+        return parsed
+
+    @proposed_action.setter
+    def proposed_action(self, value: dict[str, object] | None) -> None:
+        """Persist proposed action as JSON."""
+
+        self.proposed_action_json = json.dumps(value or {}, ensure_ascii=False)
 
 
 class TaskCheckpoint(Base):

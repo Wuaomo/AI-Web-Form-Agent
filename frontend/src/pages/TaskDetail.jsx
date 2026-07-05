@@ -68,6 +68,7 @@ function TaskDetail() {
   const [verificationResults, setVerificationResults] = useState([]);
   const [agentReviews, setAgentReviews] = useState([]);
   const [workflowTrace, setWorkflowTrace] = useState([]);
+  const [approvalRequests, setApprovalRequests] = useState([]);
   const [runningReview, setRunningReview] = useState(null);
   const agentReviewInFlight = useRef(false);
 
@@ -99,8 +100,9 @@ function TaskDetail() {
       api.getTaskVerificationResults(taskId).catch(() => []),
       api.getTaskAgentReviews(taskId).catch(() => []),
       api.getTaskTrace(taskId).catch(() => []),
+      api.listApprovals({ taskId }).catch(() => []),
     ])
-      .then(([taskResult, screenshotItems, profileItems, providerItems, logItems, usageResult, checkpointItems, jobItems, verificationItems, reviewItems, traceItems]) => {
+      .then(([taskResult, screenshotItems, profileItems, providerItems, logItems, usageResult, checkpointItems, jobItems, verificationItems, reviewItems, traceItems, approvalItems]) => {
         setTask(taskResult);
         setScreenshots(screenshotItems);
         setProfiles(profileItems);
@@ -112,6 +114,7 @@ function TaskDetail() {
         setVerificationResults(verificationItems);
         setAgentReviews(reviewItems);
         setWorkflowTrace(traceItems);
+        setApprovalRequests(approvalItems);
         setSelectedLlmProvider(getSavedLlmProvider(providerItems));
       })
       .catch((requestError) => setError(requestError.message))
@@ -129,6 +132,7 @@ function TaskDetail() {
       api.getTaskVerificationResults(taskId).catch(() => []),
       api.getTaskAgentReviews(taskId).catch(() => []),
       api.getTaskTrace(taskId).catch(() => []),
+      api.listApprovals({ taskId }).catch(() => []),
     ]);
     setTask(taskResult);
     setScreenshots(screenshotItems);
@@ -139,6 +143,7 @@ function TaskDetail() {
     setVerificationResults(verificationItems);
     setAgentReviews(reviewItems);
     setWorkflowTrace(traceItems);
+    setApprovalRequests(approvalItems);
   }
 
   async function runAgentReview(role) {
@@ -285,6 +290,27 @@ function TaskDetail() {
   const workflowNodes = showWorkflowTimeline && task ? getWorkflowTimeline(task, taskLogs) : [];
   const verificationSummary = summarizeVerificationResults(verificationResults);
   const orderedTrace = sortSpans(workflowTrace);
+  const pendingApprovals = approvalRequests.filter((item) => item.status === "PENDING");
+
+  async function resolveApproval(approvalId, action) {
+    setBusyAction(`${action}-approval`);
+    setError("");
+    setNotice("");
+    try {
+      if (action === "approve") {
+        await api.approveApproval(approvalId);
+        setNotice("Approval granted.");
+      } else {
+        await api.rejectApproval(approvalId);
+        setNotice("Approval rejected.");
+      }
+      await refreshTaskData();
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setBusyAction("");
+    }
+  }
   const primaryDisabled =
     isBusy ||
     !runState.primaryAction ||
@@ -453,6 +479,57 @@ function TaskDetail() {
               </ul>
             </div>
           )}
+
+          <div className="card">
+            <div className="job-item-header">
+              <h3>Approval Requests</h3>
+              <Link to="/approvals">Open Approval Center</Link>
+            </div>
+            {approvalRequests.length === 0 ? (
+              <p>No approval requests yet.</p>
+            ) : (
+              <ul className="job-list">
+                {approvalRequests.map((approval) => (
+                  <li key={approval.id} className="job-item">
+                    <div className="job-item-header">
+                      <strong>{approval.step_name}</strong>
+                      <span className="badge">{approval.status}</span>
+                    </div>
+                    <div className="muted-text">{approval.reason}</div>
+                    <div className="muted-text">
+                      {approval.risk_type} · {approval.risk_level}
+                    </div>
+                    <div className="muted-text">{formatChinaTime(approval.created_at)}</div>
+                    {approval.status === "PENDING" && (
+                      <div className="agent-review-actions">
+                        <button
+                          type="button"
+                          className="button button-small"
+                          onClick={() => resolveApproval(approval.id, "approve")}
+                          disabled={Boolean(busyAction)}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          className="button button-small button-secondary"
+                          onClick={() => resolveApproval(approval.id, "reject")}
+                          disabled={Boolean(busyAction)}
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {pendingApprovals.length > 0 && (
+              <p className="muted-text">
+                Resolve pending approvals here or in the Approval Center before retrying risky actions.
+              </p>
+            )}
+          </div>
 
           <div className="card">
             <button

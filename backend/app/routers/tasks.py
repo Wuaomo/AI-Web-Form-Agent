@@ -37,6 +37,12 @@ from app.schemas import (
     TaskLlmUsageResponse,
     TaskResponse,
 )
+from app.services.approval_gate_service import (
+    create_approval_request,
+    has_pending_approval,
+    list_pending_approvals,
+    latest_approved_request,
+)
 from app.services.browser_executor import (
     fill_form_and_capture_screenshot,
     open_url_and_capture_screenshot,
@@ -62,6 +68,11 @@ from app.services.form_analysis_cache import (
     write_form_analysis_cache,
 )
 from app.services.browser_session import prepare_login_session
+from app.services.policy_engine import (
+    evaluate_field_action,
+    evaluate_memory_write,
+    evaluate_submit_action,
+)
 from app.services.llm_provider_config import (
     get_provider_setup_hint,
     is_provider_configured,
@@ -83,11 +94,14 @@ from app.services.workflow_state_service import (
 )
 from app.services.workflow_trace_service import safe_create_span, safe_finish_span
 from app.workflow_constants import (
+    APPROVAL_STATUS_REJECTED,
     CHECKPOINT_FAILED,
     CHECKPOINT_SUCCESS,
     FAILURE_ANALYSIS_FAILED,
     FAILURE_BROWSER_FILL_FAILED,
     FAILURE_LLM_MAPPING_FAILED,
+    POLICY_DECISION_BLOCK,
+    POLICY_DECISION_REVIEW_REQUIRED,
     SPAN_PHASE_APPROVAL,
     SPAN_PHASE_BROWSER,
     SPAN_PHASE_EXTRACTION,
@@ -305,6 +319,72 @@ def trace_usage_fields(task_id: int, db: Session) -> dict[str, object]:
             "cache_source": usage.cache_source,
         },
     }
+
+
+def latest_rejected_request(task_id: int, step_name: str, db: Session):
+    """Return the newest rejected approval for one task step."""
+
+    from app.models import ApprovalRequest
+
+    statement = (
+        select(ApprovalRequest)
+        .where(
+            ApprovalRequest.task_id == task_id,
+            ApprovalRequest.step_name == step_name,
+            ApprovalRequest.status == APPROVAL_STATUS_REJECTED,
+        )
+        .order_by(ApprovalRequest.resolved_at.desc(), ApprovalRequest.id.desc())
+    )
+    return db.scalar(statement)
+
+
+def filter_fillable_fields_by_policy(
+    task: Task,
+    fields: list[FormField],
+    db: Session,
+) -> tuple[list[FormField], list[FormField], list[FormField]]:
+    """Return allowed fields plus blocked and approval-pending required fields."""
+
+    allowed_fields: list[FormField] = []
+    blocked_required_fields: list[FormField] = []
+    pending_required_fields: list[FormField] = []
+
+    for field in fields:
+        if not field.mapped_value:
+            continue
+        policy = evaluate_field_action(
+            label=field.label,
+            name=field.name,
+            field_type=field.field_type,
+            selector=field.selector,
+            confidence=field.confidence,
+        )
+        if policy.decision == POLICY_DECISION_BLOCK:
+            if field.required and is_fillable_field(field):
+                blocked_required_fields.append(field)
+            continue
+        if policy.decision == POLICY_DECISION_REVIEW_REQUIRED:
+            step_name = f"fill_field:{field.id}"
+            if latest_approved_request(db, task_id=task.id, step_name=step_name) is None:
+                if not has_pending_approval(db, task_id=task.id, step_name=step_name):
+                    create_approval_request(
+                        db,
+                        task_id=task.id,
+                        step_name=step_name,
+                        policy_decision=policy,
+                        proposed_action={
+                            "action": "fill_field",
+                            "field_id": field.id,
+                            "field_label": field_display_name(field),
+                            "risk_type": policy.risk_type,
+                        },
+                    )
+                if field.required and is_fillable_field(field):
+                    pending_required_fields.append(field)
+                continue
+        allowed_fields.append(field)
+
+    return allowed_fields, blocked_required_fields, pending_required_fields
 
 
 def get_task_field_or_404(task_id: int, field_id: int, db: Session) -> FormField:
@@ -1044,6 +1124,46 @@ def confirm_task_mapping(
 
         profile_key = field.mapped_profile_key or ""
         mapped_value = str(field.mapped_value)
+        policy = evaluate_memory_write(
+            profile_key=profile_key or field_display_name(field),
+            value=mapped_value,
+            field_label=field_display_name(field),
+        )
+
+        if policy.decision == POLICY_DECISION_BLOCK:
+            profile_skipped.append(
+                ProfileSkipItem(
+                    field_id=field.id,
+                    reason="policy_blocked",
+                    detail=policy.reason,
+                )
+            )
+            continue
+        if policy.decision == POLICY_DECISION_REVIEW_REQUIRED:
+            step_name = f"memory_write:{field.id}"
+            if latest_approved_request(db, task_id=task.id, step_name=step_name) is None:
+                if not has_pending_approval(db, task_id=task.id, step_name=step_name):
+                    create_approval_request(
+                        db,
+                        task_id=task.id,
+                        step_name=step_name,
+                        policy_decision=policy,
+                        proposed_action={
+                            "action": "memory_write",
+                            "field_id": field.id,
+                            "field_label": field_display_name(field),
+                            "profile_key": profile_key,
+                            "risk_type": policy.risk_type,
+                        },
+                    )
+                profile_skipped.append(
+                    ProfileSkipItem(
+                        field_id=field.id,
+                        reason="approval_required",
+                        detail=policy.reason,
+                    )
+                )
+                continue
 
         if profile_key.startswith(CUSTOM_PROFILE_KEY_PREFIX):
             custom_key = profile_key.removeprefix(CUSTOM_PROFILE_KEY_PREFIX)
@@ -1208,6 +1328,11 @@ async def fill_task_form(
         )
     )
     mapped_fields = [field for field in fields if field.mapped_value]
+    filtered_fields, blocked_required_fields, pending_required_fields = filter_fillable_fields_by_policy(
+        task,
+        mapped_fields,
+        db,
+    )
     missing_required_fields = get_missing_required_fields(fields)
     if missing_required_fields:
         raise HTTPException(
@@ -1215,7 +1340,22 @@ async def fill_task_form(
             detail=missing_required_detail(missing_required_fields),
         )
 
-    if not mapped_fields:
+    if blocked_required_fields:
+        blocked_names = ", ".join(field_display_name(field) for field in blocked_required_fields)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Required fields were blocked by policy: {blocked_names}",
+        )
+    if pending_required_fields:
+        pending_names = ", ".join(field_display_name(field) for field in pending_required_fields)
+        apply_workflow_status(task, WORKFLOW_STATUS_REVIEWING, reason="fill_requires_approval")
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Required fields require approval before filling: {pending_names}",
+        )
+
+    if not filtered_fields:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="No mapped fields are ready to fill",
@@ -1235,7 +1375,7 @@ async def fill_task_form(
         task_id=task.id,
         phase=SPAN_PHASE_BROWSER,
         name="fill_form",
-        input={"filled_count": len(mapped_fields)},
+        input={"filled_count": len(filtered_fields)},
     )
     fill_started_at = time.monotonic()
     screenshot = None
@@ -1245,7 +1385,7 @@ async def fill_task_form(
         task_id=task.id,
         step=step,
         action="fill_form",
-        message=f"Filling {len(mapped_fields)} mapped fields.",
+        message=f"Filling {len(filtered_fields)} mapped fields.",
         status="STARTED",
         db=db,
     )
@@ -1258,12 +1398,12 @@ async def fill_task_form(
             task_id=task.id,
             url=task.url,
             profile_id=task.profile_id,
-            fields=mapped_fields,
+            fields=filtered_fields,
             stage="filled_form",
             db=db,
         )
 
-        required_field_ids = {f.id for f in fields if f.required and is_fillable_field(f) and f.mapped_value}
+        required_field_ids = {f.id for f in filtered_fields if f.required and is_fillable_field(f) and f.mapped_value}
         required_failures = [
             v for v in verification_data
             if v.status == VERIFICATION_STATUS_FAILED
@@ -1292,7 +1432,7 @@ async def fill_task_form(
                 task_id=task.id,
                 stage=WORKFLOW_STAGE_FILL,
                 status=CHECKPOINT_FAILED,
-                input_hash=f"{task.id}:{len(mapped_fields)}",
+                input_hash=f"{task.id}:{len(filtered_fields)}",
                 failure_reason=FAILURE_BROWSER_FILL_FAILED,
                 error_message=f"Verification failed for required fields: {failure_details}",
                 db=db,
@@ -1316,9 +1456,9 @@ async def fill_task_form(
                 task_id=task.id,
                 stage=WORKFLOW_STAGE_FILL,
                 status=CHECKPOINT_SUCCESS,
-                input_hash=f"{task.id}:{len(mapped_fields)}",
+                input_hash=f"{task.id}:{len(filtered_fields)}",
                 output={
-                    "filled_count": len(mapped_fields),
+                    "filled_count": len(filtered_fields),
                     "verification_summary": summary,
                 },
                 db=db,
@@ -1337,7 +1477,7 @@ async def fill_task_form(
             fill_span_id,
             status=SPAN_STATUS_SUCCESS,
             output={
-                "filled_count": len(mapped_fields),
+                "filled_count": len(filtered_fields),
                 "verification_summary": summary,
             },
             screenshot_id=screenshot.id if screenshot is not None else None,
@@ -1351,7 +1491,7 @@ async def fill_task_form(
             task_id=task.id,
             stage=WORKFLOW_STAGE_FILL,
             status=CHECKPOINT_FAILED,
-            input_hash=f"{task.id}:{len(mapped_fields)}",
+            input_hash=f"{task.id}:{len(filtered_fields)}",
             failure_reason=FAILURE_BROWSER_FILL_FAILED,
             error_message=str(exc),
             db=db,
@@ -1369,7 +1509,7 @@ async def fill_task_form(
             fill_span_id,
             status=SPAN_STATUS_FAILED,
             output={
-                "filled_count": len(mapped_fields),
+                "filled_count": len(filtered_fields),
                 "verification_summary": summary,
             },
             screenshot_id=screenshot.id if screenshot is not None else None,
@@ -1528,6 +1668,51 @@ async def confirm_task_submission(
             detail="No mapped fields are ready to submit",
         )
 
+    submit_policy = evaluate_submit_action()
+    submit_step_name = "submit_form"
+    approved_submit_request = latest_approved_request(
+        db,
+        task_id=task.id,
+        step_name=submit_step_name,
+    )
+    rejected_submit_request = latest_rejected_request(task.id, submit_step_name, db)
+    if approved_submit_request is None:
+        if rejected_submit_request is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": "Final submission approval was rejected",
+                    "approval_id": rejected_submit_request.id,
+                },
+            )
+        pending_submit_request = None
+
+        pending_requests = list_pending_approvals(db, task_id=task.id, status="PENDING")
+        for request in pending_requests:
+            if request.step_name == submit_step_name:
+                pending_submit_request = request
+                break
+        if pending_submit_request is None:
+            pending_submit_request = create_approval_request(
+                db,
+                task_id=task.id,
+                step_name=submit_step_name,
+                policy_decision=submit_policy,
+                proposed_action={
+                    "action": "submit_form",
+                    "field_count": len(mapped_fields),
+                },
+            )
+            apply_workflow_status(task, WORKFLOW_STATUS_WAITING_APPROVAL, reason="submit_approval_created")
+            db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "Final submission requires approval",
+                "approval_id": pending_submit_request.id,
+            },
+        )
+
     step = get_next_log_step(task.id, db)
     submit_span_id = safe_create_span(
         task_id=task.id,
@@ -1597,4 +1782,8 @@ async def confirm_task_submission(
             detail="Form submission failed",
         ) from exc
 
-    return SubmissionConfirmationResponse(task_id=task.id, status=task.status)
+    return SubmissionConfirmationResponse(
+        task_id=task.id,
+        status=task.status,
+        approval_id=approved_submit_request.id,
+    )

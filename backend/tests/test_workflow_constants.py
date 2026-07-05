@@ -108,6 +108,35 @@ def test_span_constants_exist_and_are_unique():
     assert len(phases) == len(set(phases))
 
 
+def test_policy_and_approval_constants_exist_and_are_unique():
+    """Verify policy and approval constants are present and stable."""
+
+    from app.workflow_constants import (
+        APPROVAL_STATUS_APPROVED,
+        APPROVAL_STATUS_EXPIRED,
+        APPROVAL_STATUS_PENDING,
+        APPROVAL_STATUS_REJECTED,
+        POLICY_DECISION_ALLOW,
+        POLICY_DECISION_BLOCK,
+        POLICY_DECISION_REVIEW_REQUIRED,
+    )
+
+    decisions = [
+        POLICY_DECISION_ALLOW,
+        POLICY_DECISION_REVIEW_REQUIRED,
+        POLICY_DECISION_BLOCK,
+    ]
+    approval_statuses = [
+        APPROVAL_STATUS_PENDING,
+        APPROVAL_STATUS_APPROVED,
+        APPROVAL_STATUS_REJECTED,
+        APPROVAL_STATUS_EXPIRED,
+    ]
+
+    assert len(decisions) == len(set(decisions))
+    assert len(approval_statuses) == len(set(approval_statuses))
+
+
 def test_workflow_stage_constants_exist_and_uppercase():
     """Verify all workflow stage constants exist and are uppercase."""
     from app.workflow_constants import (

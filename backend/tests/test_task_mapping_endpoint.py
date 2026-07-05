@@ -813,6 +813,51 @@ def test_confirm_mapping_force_save_blocks_sensitive_fields(
     assert task.profile.custom_values == {}
 
 
+def test_confirm_mapping_policy_blocks_sensitive_memory_write(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify policy blocks sensitive writes even when value is present."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.label = "API key"
+    field.mapped_profile_key = "custom:api_key"
+    field.mapped_value = "secret-token"
+    session.commit()
+
+    response = client.post(f"/tasks/{task.id}/confirm-mapping")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["profile_updates"] == []
+    assert payload["profile_skipped"] == [
+        {"field_id": field.id, "reason": "policy_blocked", "detail": "Sensitive credentials must not be written to profile memory."}
+    ]
+
+
+def test_fill_returns_409_when_required_field_needs_policy_approval(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify required review-required fields block fill until approved."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.label = "Agree to terms"
+    field.field_type = "checkbox"
+    field.required = True
+    field.mapped_profile_key = "custom:terms"
+    field.mapped_value = "true"
+    field.confidence = 1.0
+    task.status = "READY_TO_FILL"
+    task.workflow_status = "READY_TO_FILL"
+    session.commit()
+
+    response = client.post(f"/tasks/{task.id}/fill")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Required fields require approval before filling: Agree to terms"
+
+
 def test_update_field_memory_policy_normalizes_none_to_auto(
     test_environment: tuple[TestClient, Session],
 ) -> None:

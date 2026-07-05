@@ -42,6 +42,7 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     _add_missing_task_workflow_columns()
     _add_missing_workflow_span_columns()
+    _add_missing_approval_request_columns()
     _add_missing_form_field_columns()
     _add_missing_profile_columns()
     _add_missing_llm_usage_log_columns()
@@ -110,6 +111,40 @@ def _add_missing_workflow_span_columns(target_engine=engine) -> None:
                 connection.execute(
                     text(
                         f"ALTER TABLE workflow_spans "
+                        f"ADD COLUMN {column_name} {column_type}"
+                    )
+                )
+
+
+def _add_missing_approval_request_columns(target_engine=engine) -> None:
+    """Add approval request columns for older SQLite databases."""
+
+    inspector = inspect(target_engine)
+    if "approval_requests" not in inspector.get_table_names():
+        return
+
+    existing_columns = {
+        column["name"] for column in inspector.get_columns("approval_requests")
+    }
+    missing_columns = {
+        "step_name": "VARCHAR(150) NOT NULL DEFAULT 'unknown_step'",
+        "risk_type": "VARCHAR(100) NOT NULL DEFAULT 'UNKNOWN'",
+        "risk_level": "VARCHAR(50) NOT NULL DEFAULT 'LOW'",
+        "decision": "VARCHAR(50) NOT NULL DEFAULT 'REVIEW_REQUIRED'",
+        "reason": "TEXT NOT NULL DEFAULT ''",
+        "proposed_action_json": "TEXT NOT NULL DEFAULT '{}'",
+        "status": "VARCHAR(50) NOT NULL DEFAULT 'PENDING'",
+        "resolved_by": "VARCHAR(100)",
+        "created_at": "DATETIME",
+        "resolved_at": "DATETIME",
+    }
+
+    with target_engine.begin() as connection:
+        for column_name, column_type in missing_columns.items():
+            if column_name not in existing_columns:
+                connection.execute(
+                    text(
+                        f"ALTER TABLE approval_requests "
                         f"ADD COLUMN {column_name} {column_type}"
                     )
                 )

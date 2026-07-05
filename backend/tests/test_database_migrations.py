@@ -124,6 +124,33 @@ def test_init_db_adds_missing_workflow_span_columns(tmp_path):
     assert "metadata_json" in columns
 
 
+def test_init_db_adds_missing_approval_request_columns(tmp_path):
+    """Verify legacy approval_requests tables receive newly added columns."""
+
+    from app.database import _add_missing_approval_request_columns
+
+    db_path = tmp_path / "legacy_approval_requests.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+
+    with engine.begin() as connection:
+        connection.execute(text("""
+            CREATE TABLE approval_requests (
+                id INTEGER PRIMARY KEY,
+                task_id INTEGER NOT NULL
+            )
+        """))
+
+    _add_missing_approval_request_columns(engine)
+
+    columns = {column["name"] for column in inspect(engine).get_columns("approval_requests")}
+    assert "step_name" in columns
+    assert "risk_type" in columns
+    assert "risk_level" in columns
+    assert "decision" in columns
+    assert "proposed_action_json" in columns
+    assert "status" in columns
+
+
 def test_task_checkpoint_model_creates_profile_task_and_checkpoint(tmp_path):
     """Verify TaskCheckpoint model creates and loads checkpoints with relationship."""
 

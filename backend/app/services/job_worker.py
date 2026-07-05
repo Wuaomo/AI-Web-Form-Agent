@@ -392,6 +392,7 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
     from app.models import FormField
     from app.routers.tasks import (
         create_log,
+        filter_fillable_fields_by_policy,
         get_next_log_step,
         get_missing_required_fields,
         missing_required_detail,
@@ -410,12 +411,27 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
         )
     )
     mapped_fields = [field for field in fields if field.mapped_value]
+    filtered_fields, blocked_required_fields, pending_required_fields = filter_fillable_fields_by_policy(
+        task,
+        mapped_fields,
+        db,
+    )
     missing_required_fields = get_missing_required_fields(fields)
 
     if missing_required_fields:
         raise ValueError(missing_required_detail(missing_required_fields))
+    if blocked_required_fields:
+        blocked_names = ", ".join(
+            field.label or field.name or field.selector for field in blocked_required_fields
+        )
+        raise ValueError(f"Required fields were blocked by policy: {blocked_names}")
+    if pending_required_fields:
+        pending_names = ", ".join(
+            field.label or field.name or field.selector for field in pending_required_fields
+        )
+        raise ValueError(f"Required fields require approval before filling: {pending_names}")
 
-    if not mapped_fields:
+    if not filtered_fields:
         raise ValueError("No mapped fields are ready to fill")
 
     step = get_next_log_step(task.id, db)
@@ -423,7 +439,7 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
         task_id=task.id,
         phase=SPAN_PHASE_BROWSER,
         name="fill_form",
-        input={"filled_count": len(mapped_fields)},
+        input={"filled_count": len(filtered_fields)},
     )
     fill_started_at = time.monotonic()
     screenshot = None
@@ -432,7 +448,7 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
         task_id=task.id,
         step=step,
         action="fill_form",
-        message=f"Filling {len(mapped_fields)} mapped fields.",
+        message=f"Filling {len(filtered_fields)} mapped fields.",
         status="STARTED",
         db=db,
     )
@@ -444,7 +460,7 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
                 task_id=task.id,
                 url=task.url,
                 profile_id=task.profile_id,
-                fields=mapped_fields,
+                fields=filtered_fields,
                 stage="filled_form",
                 db=db,
             )
@@ -454,8 +470,8 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
             task_id=task.id,
             stage=WORKFLOW_STAGE_FILL,
             status=CHECKPOINT_SUCCESS,
-            input_hash=f"{task.id}:{len(mapped_fields)}",
-            output={"filled_count": len(mapped_fields)},
+            input_hash=f"{task.id}:{len(filtered_fields)}",
+            output={"filled_count": len(filtered_fields)},
             db=db,
         )
         create_log(
@@ -469,7 +485,7 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
         safe_finish_span(
             fill_span_id,
             status=SPAN_STATUS_SUCCESS,
-            output={"filled_count": len(mapped_fields)},
+            output={"filled_count": len(filtered_fields)},
             screenshot_id=screenshot.id if screenshot is not None else None,
             latency_ms=int((time.monotonic() - fill_started_at) * 1000),
         )
@@ -478,7 +494,7 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
             task_id=task.id,
             stage=WORKFLOW_STAGE_FILL,
             status=CHECKPOINT_FAILED,
-            input_hash=f"{task.id}:{len(mapped_fields)}",
+            input_hash=f"{task.id}:{len(filtered_fields)}",
             failure_reason=FAILURE_BROWSER_FILL_FAILED,
             error_message=str(exc),
             db=db,
@@ -495,7 +511,7 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
         safe_finish_span(
             fill_span_id,
             status=SPAN_STATUS_FAILED,
-            output={"filled_count": len(mapped_fields)},
+            output={"filled_count": len(filtered_fields)},
             screenshot_id=screenshot.id if screenshot is not None else None,
             error_message=str(exc),
             latency_ms=int((time.monotonic() - fill_started_at) * 1000),

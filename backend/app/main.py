@@ -16,6 +16,7 @@ from app.config import APP_TITLE, APP_VERSION, CORS_ORIGINS
 from app.database import BACKEND_DIR
 from app.database import init_db
 from app.routers.admin import router as admin_router
+from app.routers.approvals import router as approvals_router
 from app.routers.benchmarks import router as benchmarks_router
 from app.routers.jobs import router as jobs_router
 from app.routers.llm_usage import router as llm_usage_router
@@ -64,6 +65,7 @@ app.add_middleware(
 app.include_router(profiles_router)
 app.include_router(tasks_router)
 app.include_router(traces_router)
+app.include_router(approvals_router)
 app.include_router(jobs_router)
 app.include_router(llm_usage_router)
 app.include_router(benchmarks_router)
