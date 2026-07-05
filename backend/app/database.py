@@ -62,6 +62,7 @@ def _add_missing_task_workflow_columns(target_engine=engine) -> None:
     missing_columns = {
         "workflow_type": "VARCHAR(50) NOT NULL DEFAULT 'form_fill'",
         "workflow_status": "VARCHAR(50) NOT NULL DEFAULT 'CREATED'",
+        "workflow_plan_json": "TEXT",
     }
 
     with target_engine.begin() as connection:

@@ -279,6 +279,30 @@ class TaskResponse(BaseModel):
     form_fields: list[FormFieldResponse] = Field(default_factory=list)
 
 
+class PlannedStepResponse(BaseModel):
+    """One persisted workflow plan step."""
+
+    step_id: str
+    tool: str
+    reason: str
+    requires_approval: bool
+    status: str
+
+
+class WorkflowPlanRequest(BaseModel):
+    """Request payload for rebuilding a saved workflow plan."""
+
+    goal: str = Field(min_length=1)
+
+
+class WorkflowPlanResponse(BaseModel):
+    """One persisted workflow plan."""
+
+    workflow_type: str
+    goal: str
+    steps: list[PlannedStepResponse] = Field(default_factory=list)
+
+
 class WorkflowTemplateResponse(BaseModel):
     """One static workflow template exposed for task creation."""
 

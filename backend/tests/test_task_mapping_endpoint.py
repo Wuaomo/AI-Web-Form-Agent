@@ -96,7 +96,7 @@ def create_task_without_fields(session: Session) -> Task:
 def test_create_task_response_includes_workflow_fields(
     test_environment: tuple[TestClient, Session],
 ) -> None:
-    """Verify POST /tasks returns workflow identity and workflow status."""
+    """Verify POST /tasks returns workflow identity and saves a default plan."""
 
     client, session = test_environment
     profile = Profile(
@@ -107,21 +107,28 @@ def test_create_task_response_includes_workflow_fields(
     session.add(profile)
     session.commit()
 
-    response = client.post(
-        "/tasks",
-        json={
-            "url": "https://example.com/form",
-            "profile_id": profile.id,
-            "description": "Internship application",
-            "workflow_type": "form_fill",
-        },
-    )
+    with patch("app.routers.tasks.safe_create_span", return_value=None), patch(
+        "app.routers.tasks.safe_finish_span",
+    ):
+        response = client.post(
+            "/tasks",
+            json={
+                "url": "https://example.com/form",
+                "profile_id": profile.id,
+                "description": "Internship application",
+                "workflow_type": "form_fill",
+            },
+        )
 
     assert response.status_code == 201
     payload = response.json()
     assert payload["status"] == "CREATED"
     assert payload["workflow_type"] == "form_fill"
     assert payload["workflow_status"] == "CREATED"
+    saved_task = session.get(Task, payload["id"])
+    assert saved_task is not None
+    assert saved_task.workflow_plan["goal"] == "Internship application"
+    assert saved_task.workflow_plan["steps"][0]["step_id"] == "open_url"
 
 
 def test_create_task_rejects_unsupported_workflow_type(

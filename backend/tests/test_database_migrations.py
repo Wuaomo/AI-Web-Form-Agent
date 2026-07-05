@@ -73,7 +73,7 @@ def test_init_db_adds_all_missing_columns_to_existing_form_fields_table(tmp_path
 
 
 def test_init_db_adds_workflow_columns_to_existing_tasks_table(tmp_path):
-    """Verify that legacy tasks tables receive workflow_type and workflow_status."""
+    """Verify that legacy tasks tables receive workflow_type, status, and plan columns."""
 
     from app.database import _add_missing_task_workflow_columns
 
@@ -95,6 +95,7 @@ def test_init_db_adds_workflow_columns_to_existing_tasks_table(tmp_path):
     columns = {column["name"] for column in inspect(engine).get_columns("tasks")}
     assert "workflow_type" in columns
     assert "workflow_status" in columns
+    assert "workflow_plan_json" in columns
 
 
 def test_init_db_adds_missing_workflow_span_columns(tmp_path):

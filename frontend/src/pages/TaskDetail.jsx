@@ -43,6 +43,10 @@ import {
   spanStatusLabel,
   summarizeSpan,
 } from "../workflowTracePresentation";
+import {
+  getWorkflowPlanSteps,
+  workflowPlanApprovalLabel,
+} from "../workflowPlanPresentation";
 
 function TaskDetail() {
   const { taskId } = useParams();
@@ -68,9 +72,21 @@ function TaskDetail() {
   const [verificationResults, setVerificationResults] = useState([]);
   const [agentReviews, setAgentReviews] = useState([]);
   const [workflowTrace, setWorkflowTrace] = useState([]);
+  const [taskPlan, setTaskPlan] = useState(null);
   const [approvalRequests, setApprovalRequests] = useState([]);
   const [runningReview, setRunningReview] = useState(null);
   const agentReviewInFlight = useRef(false);
+
+  async function getTaskPlanOrNull(currentTaskId) {
+    try {
+      return await api.getTaskPlan(currentTaskId);
+    } catch (requestError) {
+      if (requestError.status === 404) {
+        return null;
+      }
+      throw requestError;
+    }
+  }
 
   useEffect(() => {
     if (
@@ -100,9 +116,10 @@ function TaskDetail() {
       api.getTaskVerificationResults(taskId).catch(() => []),
       api.getTaskAgentReviews(taskId).catch(() => []),
       api.getTaskTrace(taskId).catch(() => []),
+      getTaskPlanOrNull(taskId),
       api.listApprovals({ taskId }).catch(() => []),
     ])
-      .then(([taskResult, screenshotItems, profileItems, providerItems, logItems, usageResult, checkpointItems, jobItems, verificationItems, reviewItems, traceItems, approvalItems]) => {
+      .then(([taskResult, screenshotItems, profileItems, providerItems, logItems, usageResult, checkpointItems, jobItems, verificationItems, reviewItems, traceItems, planResult, approvalItems]) => {
         setTask(taskResult);
         setScreenshots(screenshotItems);
         setProfiles(profileItems);
@@ -114,6 +131,7 @@ function TaskDetail() {
         setVerificationResults(verificationItems);
         setAgentReviews(reviewItems);
         setWorkflowTrace(traceItems);
+        setTaskPlan(planResult);
         setApprovalRequests(approvalItems);
         setSelectedLlmProvider(getSavedLlmProvider(providerItems));
       })
@@ -122,7 +140,7 @@ function TaskDetail() {
   }, [taskId]);
 
   async function refreshTaskData(nextTask = null) {
-    const [taskResult, screenshotItems, logItems, usageResult, checkpointItems, jobItems, verificationItems, reviewItems, traceItems] = await Promise.all([
+    const [taskResult, screenshotItems, logItems, usageResult, checkpointItems, jobItems, verificationItems, reviewItems, traceItems, planResult, approvalItems] = await Promise.all([
       nextTask ? Promise.resolve(nextTask) : api.getTask(taskId),
       api.listTaskScreenshots(taskId),
       api.listTaskLogs(taskId),
@@ -132,6 +150,7 @@ function TaskDetail() {
       api.getTaskVerificationResults(taskId).catch(() => []),
       api.getTaskAgentReviews(taskId).catch(() => []),
       api.getTaskTrace(taskId).catch(() => []),
+      getTaskPlanOrNull(taskId),
       api.listApprovals({ taskId }).catch(() => []),
     ]);
     setTask(taskResult);
@@ -143,6 +162,7 @@ function TaskDetail() {
     setVerificationResults(verificationItems);
     setAgentReviews(reviewItems);
     setWorkflowTrace(traceItems);
+    setTaskPlan(planResult);
     setApprovalRequests(approvalItems);
   }
 
@@ -290,6 +310,7 @@ function TaskDetail() {
   const workflowNodes = showWorkflowTimeline && task ? getWorkflowTimeline(task, taskLogs) : [];
   const verificationSummary = summarizeVerificationResults(verificationResults);
   const orderedTrace = sortSpans(workflowTrace);
+  const plannedSteps = getWorkflowPlanSteps(taskPlan);
   const pendingApprovals = approvalRequests.filter((item) => item.status === "PENDING");
 
   async function resolveApproval(approval, action) {
@@ -482,6 +503,27 @@ function TaskDetail() {
                     <div className="muted-text">
                       {formatChinaTime(span.created_at)}
                     </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {taskPlan && (
+            <div className="card">
+              <h3>Workflow Plan</h3>
+              <p className="muted-text">{taskPlan.goal}</p>
+              <ul className="job-list">
+                {plannedSteps.map((step) => (
+                  <li key={step.step_id} className="job-item">
+                    <div className="job-item-header">
+                      <strong>{step.step_id}</strong>
+                      {workflowPlanApprovalLabel(step) && (
+                        <span className="badge">{workflowPlanApprovalLabel(step)}</span>
+                      )}
+                    </div>
+                    <div>{step.tool}</div>
+                    <div className="muted-text">{step.reason}</div>
                   </li>
                 ))}
               </ul>

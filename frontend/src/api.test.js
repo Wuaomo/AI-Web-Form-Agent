@@ -44,17 +44,19 @@ test("mutations use their configured HTTP method", async () => {
   try {
     await api.listTasks();
     await api.getTaskTrace(7);
+    await api.getTaskPlan(7);
     await api.listApprovals({ taskId: 7, status: "PENDING" });
     await api.createTask({
       url: "https://example.com/form",
       profile_id: 1,
     });
+    await api.createTaskPlan(7, "Fill this internship application.");
     await api.approveApproval(9);
     await api.rejectApproval(9);
 
     assert.deepEqual(
       urls.map((entry) => entry.method),
-      ["GET", "GET", "GET", "POST", "POST", "POST"],
+      ["GET", "GET", "GET", "GET", "POST", "POST", "POST", "POST"],
     );
   } finally {
     clearApiCache();

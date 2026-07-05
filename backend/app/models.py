@@ -90,6 +90,7 @@ class Task(Base):
         default=WORKFLOW_STATUS_CREATED,
         nullable=False,
     )
+    workflow_plan_json: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -110,6 +111,30 @@ class Task(Base):
     jobs: Mapped[list["Job"]] = relationship(back_populates="task")
     verification_results: Mapped[list["FieldVerificationResult"]] = relationship(back_populates="task")
     agent_reviews: Mapped[list["AgentReview"]] = relationship(back_populates="task")
+
+    @property
+    def workflow_plan(self) -> dict[str, object]:
+        """Return the saved workflow plan JSON, raising on malformed content."""
+
+        if not self.workflow_plan_json:
+            return {}
+        try:
+            parsed = json.loads(self.workflow_plan_json)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Invalid workflow plan JSON") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("Invalid workflow plan JSON")
+        return parsed
+
+    @workflow_plan.setter
+    def workflow_plan(self, value: dict[str, object] | None) -> None:
+        """Persist the saved workflow plan as stable JSON."""
+
+        self.workflow_plan_json = json.dumps(
+            value or {},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
 
 
 class FormField(Base):

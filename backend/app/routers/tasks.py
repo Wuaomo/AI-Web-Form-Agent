@@ -35,6 +35,8 @@ from app.schemas import (
     TaskCheckpointResponse,
     TaskCreate,
     TaskLlmUsageResponse,
+    WorkflowPlanRequest,
+    WorkflowPlanResponse,
     TaskResponse,
 )
 from app.services.approval_gate_service import (
@@ -87,7 +89,14 @@ from app.services.llm_usage_service import (
 from app.services.log_service import create_log
 from app.services.job_queue import enqueue_job
 from app.services.mapping_cache import save_user_mapping_override
+from app.services.planner_service import (
+    build_plan,
+    plan_to_dict,
+    resolve_plan_goal,
+    save_plan,
+)
 from app.services.checkpoint_service import list_checkpoints, write_checkpoint
+from app.services.tool_registry import require_tool
 from app.services.workflow_state_service import (
     InvalidWorkflowTransition,
     set_workflow_status,
@@ -108,6 +117,7 @@ from app.workflow_constants import (
     SPAN_PHASE_BROWSER,
     SPAN_PHASE_EXTRACTION,
     SPAN_PHASE_MAPPING,
+    SPAN_PHASE_PLANNING,
     SPAN_STATUS_FAILED,
     SPAN_STATUS_SUCCESS,
     WORKFLOW_STATUS_ANALYZING,
@@ -277,6 +287,58 @@ def get_task_workflow_status(task: Task) -> str:
     if task.status and task.workflow_status and task.status != task.workflow_status:
         return task.status
     return task.workflow_status or task.status or WORKFLOW_STATUS_CREATED
+
+
+def get_saved_task_plan(task: Task) -> dict[str, object]:
+    """Return the saved task plan or convert malformed JSON into an API error."""
+
+    try:
+        return task.workflow_plan
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+
+
+def build_and_save_task_plan(db: Session, task: Task, *, goal: str) -> dict[str, object]:
+    """Build and persist a deterministic workflow plan for one task."""
+
+    planning_span_id = safe_create_span(
+        task_id=task.id,
+        phase=SPAN_PHASE_PLANNING,
+        name="planning.build_plan",
+        input={
+            "workflow_type": task.workflow_type,
+            "goal": goal,
+        },
+    )
+    try:
+        plan = build_plan(
+            workflow_type=task.workflow_type,
+            goal=goal,
+        )
+        for step in plan.steps:
+            require_tool(step.tool)
+        plan_payload = plan_to_dict(plan)
+        save_plan(db, task, plan)
+    except ValueError as exc:
+        safe_finish_span(
+            planning_span_id,
+            status=SPAN_STATUS_FAILED,
+            error_message=str(exc),
+        )
+        raise
+
+    safe_finish_span(
+        planning_span_id,
+        status=SPAN_STATUS_SUCCESS,
+        output={
+            "step_count": len(plan_payload["steps"]),
+            "step_ids": [step["step_id"] for step in plan_payload["steps"]],
+        },
+    )
+    return plan_payload
 
 
 def ensure_form_fill_workflow(task: Task) -> None:
@@ -503,6 +565,22 @@ def create_task(task_data: TaskCreate, db: Session = Depends(get_db)) -> Task:
     )
     sync_legacy_status(task)
     db.add(task)
+    db.flush()
+    try:
+        build_and_save_task_plan(
+            db,
+            task,
+            goal=resolve_plan_goal(
+                description=task.description,
+                url=task.url,
+            ),
+        )
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     db.commit()
     db.refresh(task)
     return task
@@ -536,6 +614,42 @@ def get_task(task_id: int, db: Session = Depends(get_db)) -> Task:
             detail="Task not found",
         )
     return task
+
+
+@router.get("/{task_id}/plan", response_model=WorkflowPlanResponse)
+def get_task_plan(task_id: int, db: Session = Depends(get_db)) -> dict[str, object]:
+    """Return the saved workflow plan for one task."""
+
+    task = get_task_or_404(task_id, db)
+    plan = get_saved_task_plan(task)
+    if not plan:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow plan not found",
+        )
+    return plan
+
+
+@router.post("/{task_id}/plan", response_model=WorkflowPlanResponse)
+def rebuild_task_plan(
+    task_id: int,
+    request: WorkflowPlanRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    """Rebuild and overwrite the saved workflow plan for one task."""
+
+    task = get_task_or_404(task_id, db)
+    try:
+        plan = build_and_save_task_plan(db, task, goal=request.goal.strip())
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    db.commit()
+    db.refresh(task)
+    return plan
 
 
 @router.get("/{task_id}/verification-results", response_model=list[FieldVerificationResultResponse])
