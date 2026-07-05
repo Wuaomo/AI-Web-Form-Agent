@@ -43,6 +43,7 @@ test("mutations use their configured HTTP method", async () => {
 
   try {
     await api.listTasks();
+    await api.getTaskTrace(7);
     await api.createTask({
       url: "https://example.com/form",
       profile_id: 1,
@@ -50,7 +51,7 @@ test("mutations use their configured HTTP method", async () => {
 
     assert.deepEqual(
       urls.map((entry) => entry.method),
-      ["GET", "POST"],
+      ["GET", "GET", "POST"],
     );
   } finally {
     clearApiCache();

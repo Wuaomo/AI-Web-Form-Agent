@@ -92,6 +92,7 @@ export const api = {
   listTasks: () => request("/tasks"),
   getTask: (taskId) => request(`/tasks/${taskId}`),
   listTaskLogs: (taskId) => request(`/tasks/${taskId}/logs`),
+  getTaskTrace: (taskId) => request(`/tasks/${taskId}/trace`),
   listTaskScreenshots: (taskId) => request(`/tasks/${taskId}/screenshots`),
   analyzeTask: (taskId) =>
     request(`/tasks/${taskId}/analyze`, { method: "POST" }),

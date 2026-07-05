@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 from app.workflow_constants import WORKFLOW_TYPE_FORM_FILL
 
@@ -267,6 +267,35 @@ class TaskResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     form_fields: list[FormFieldResponse] = Field(default_factory=list)
+
+
+class WorkflowSpanResponse(BaseModel):
+    """One persisted workflow trace span."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_id: int
+    parent_span_id: int | None
+    phase: str
+    name: str
+    status: str
+    input: dict[str, object] = Field(default_factory=dict)
+    output: dict[str, object] = Field(default_factory=dict)
+    metadata: dict[str, object] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("span_metadata", "metadata"),
+    )
+    provider: str | None
+    model: str | None
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    estimated_cost: float
+    latency_ms: int
+    screenshot_id: int | None
+    error_message: str | None
+    created_at: datetime
 
 
 class BenchmarkRunRequest(BaseModel):

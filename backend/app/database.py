@@ -41,6 +41,7 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
     _add_missing_task_workflow_columns()
+    _add_missing_workflow_span_columns()
     _add_missing_form_field_columns()
     _add_missing_profile_columns()
     _add_missing_llm_usage_log_columns()
@@ -68,6 +69,47 @@ def _add_missing_task_workflow_columns(target_engine=engine) -> None:
                 connection.execute(
                     text(
                         f"ALTER TABLE tasks "
+                        f"ADD COLUMN {column_name} {column_type}"
+                    )
+                )
+
+
+def _add_missing_workflow_span_columns(target_engine=engine) -> None:
+    """Add new trace span columns for older SQLite databases."""
+
+    inspector = inspect(target_engine)
+    if "workflow_spans" not in inspector.get_table_names():
+        return
+
+    existing_columns = {
+        column["name"] for column in inspector.get_columns("workflow_spans")
+    }
+    missing_columns = {
+        "parent_span_id": "INTEGER",
+        "phase": "VARCHAR(100) NOT NULL DEFAULT 'extraction'",
+        "name": "VARCHAR(150) NOT NULL DEFAULT 'unknown'",
+        "status": "VARCHAR(50) NOT NULL DEFAULT 'STARTED'",
+        "input_json": "TEXT",
+        "output_json": "TEXT",
+        "metadata_json": "TEXT",
+        "provider": "VARCHAR(50)",
+        "model": "VARCHAR(100)",
+        "prompt_tokens": "INTEGER NOT NULL DEFAULT 0",
+        "completion_tokens": "INTEGER NOT NULL DEFAULT 0",
+        "total_tokens": "INTEGER NOT NULL DEFAULT 0",
+        "estimated_cost": "FLOAT NOT NULL DEFAULT 0.0",
+        "latency_ms": "INTEGER NOT NULL DEFAULT 0",
+        "screenshot_id": "INTEGER",
+        "error_message": "TEXT",
+        "created_at": "DATETIME",
+    }
+
+    with target_engine.begin() as connection:
+        for column_name, column_type in missing_columns.items():
+            if column_name not in existing_columns:
+                connection.execute(
+                    text(
+                        f"ALTER TABLE workflow_spans "
                         f"ADD COLUMN {column_name} {column_type}"
                     )
                 )

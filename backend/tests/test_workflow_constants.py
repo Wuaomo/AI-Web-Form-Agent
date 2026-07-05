@@ -67,6 +67,47 @@ def test_workflow_status_constants_exist_and_are_unique():
         assert status.isupper(), f"Workflow status {status} is not uppercase"
 
 
+def test_span_constants_exist_and_are_unique():
+    """Verify workflow span constants are present and stable."""
+
+    from app.workflow_constants import (
+        SPAN_PHASE_APPROVAL,
+        SPAN_PHASE_BROWSER,
+        SPAN_PHASE_EVALUATION,
+        SPAN_PHASE_EXTRACTION,
+        SPAN_PHASE_MAPPING,
+        SPAN_PHASE_MEMORY,
+        SPAN_PHASE_PLANNING,
+        SPAN_PHASE_POLICY,
+        SPAN_PHASE_VERIFICATION,
+        SPAN_STATUS_FAILED,
+        SPAN_STATUS_SKIPPED,
+        SPAN_STATUS_STARTED,
+        SPAN_STATUS_SUCCESS,
+    )
+
+    statuses = [
+        SPAN_STATUS_STARTED,
+        SPAN_STATUS_SUCCESS,
+        SPAN_STATUS_FAILED,
+        SPAN_STATUS_SKIPPED,
+    ]
+    phases = [
+        SPAN_PHASE_PLANNING,
+        SPAN_PHASE_POLICY,
+        SPAN_PHASE_APPROVAL,
+        SPAN_PHASE_BROWSER,
+        SPAN_PHASE_EXTRACTION,
+        SPAN_PHASE_MAPPING,
+        SPAN_PHASE_VERIFICATION,
+        SPAN_PHASE_EVALUATION,
+        SPAN_PHASE_MEMORY,
+    ]
+
+    assert len(statuses) == len(set(statuses))
+    assert len(phases) == len(set(phases))
+
+
 def test_workflow_stage_constants_exist_and_uppercase():
     """Verify all workflow stage constants exist and are uppercase."""
     from app.workflow_constants import (

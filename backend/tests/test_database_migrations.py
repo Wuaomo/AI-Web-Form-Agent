@@ -97,6 +97,33 @@ def test_init_db_adds_workflow_columns_to_existing_tasks_table(tmp_path):
     assert "workflow_status" in columns
 
 
+def test_init_db_adds_missing_workflow_span_columns(tmp_path):
+    """Verify legacy workflow_spans tables receive newly added columns."""
+
+    from app.database import _add_missing_workflow_span_columns
+
+    db_path = tmp_path / "legacy_workflow_spans.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+
+    with engine.begin() as connection:
+        connection.execute(text("""
+            CREATE TABLE workflow_spans (
+                id INTEGER PRIMARY KEY,
+                task_id INTEGER NOT NULL
+            )
+        """))
+
+    _add_missing_workflow_span_columns(engine)
+
+    columns = {column["name"] for column in inspect(engine).get_columns("workflow_spans")}
+    assert "phase" in columns
+    assert "name" in columns
+    assert "status" in columns
+    assert "input_json" in columns
+    assert "output_json" in columns
+    assert "metadata_json" in columns
+
+
 def test_task_checkpoint_model_creates_profile_task_and_checkpoint(tmp_path):
     """Verify TaskCheckpoint model creates and loads checkpoints with relationship."""
 

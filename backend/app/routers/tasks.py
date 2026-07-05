@@ -2,6 +2,7 @@
 
 import json
 import re
+import time
 from typing import Literal, Union
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -66,7 +67,11 @@ from app.services.llm_provider_config import (
     is_provider_configured,
     resolve_llm_provider,
 )
-from app.services.llm_usage_service import list_llm_usage_logs, summarize_llm_usage
+from app.services.llm_usage_service import (
+    get_latest_llm_usage_log,
+    list_llm_usage_logs,
+    summarize_llm_usage,
+)
 from app.services.log_service import create_log
 from app.services.job_queue import enqueue_job
 from app.services.mapping_cache import save_user_mapping_override
@@ -76,12 +81,19 @@ from app.services.workflow_state_service import (
     set_workflow_status,
     sync_legacy_status,
 )
+from app.services.workflow_trace_service import safe_create_span, safe_finish_span
 from app.workflow_constants import (
     CHECKPOINT_FAILED,
     CHECKPOINT_SUCCESS,
     FAILURE_ANALYSIS_FAILED,
     FAILURE_BROWSER_FILL_FAILED,
     FAILURE_LLM_MAPPING_FAILED,
+    SPAN_PHASE_APPROVAL,
+    SPAN_PHASE_BROWSER,
+    SPAN_PHASE_EXTRACTION,
+    SPAN_PHASE_MAPPING,
+    SPAN_STATUS_FAILED,
+    SPAN_STATUS_SUCCESS,
     WORKFLOW_STATUS_ANALYZING,
     WORKFLOW_STATUS_COMPLETED,
     WORKFLOW_STATUS_CREATED,
@@ -272,6 +284,27 @@ def apply_workflow_status(task: Task, next_status: str, *, reason: str | None = 
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
         ) from exc
+
+
+def trace_usage_fields(task_id: int, db: Session) -> dict[str, object]:
+    """Return the latest LLM usage summary suitable for workflow spans."""
+
+    usage = get_latest_llm_usage_log(db, task_id)
+    if usage is None:
+        return {}
+    return {
+        "provider": usage.provider,
+        "model": usage.model,
+        "prompt_tokens": usage.prompt_tokens,
+        "completion_tokens": usage.completion_tokens,
+        "total_tokens": usage.total_tokens,
+        "estimated_cost": usage.estimated_cost,
+        "metadata": {
+            "fallback_used": usage.fallback_used,
+            "cache_hit": usage.cache_hit,
+            "cache_source": usage.cache_source,
+        },
+    }
 
 
 def get_task_field_or_404(task_id: int, field_id: int, db: Session) -> FormField:
@@ -524,6 +557,13 @@ async def analyze_task(
         return job
 
     step = get_next_log_step(task.id, db)
+    span_started_at = time.monotonic()
+    analysis_span_id = safe_create_span(
+        task_id=task.id,
+        phase=SPAN_PHASE_EXTRACTION,
+        name="extract_form",
+        input={"url": task.url},
+    )
 
     apply_workflow_status(task, WORKFLOW_STATUS_ANALYZING, reason="analyze_started")
     create_log(
@@ -538,6 +578,7 @@ async def analyze_task(
 
     try:
         analysis = read_form_analysis_cache(db, task.url)
+        cache_hit = analysis is not None
         if analysis is None:
             analysis = await extract_form_analysis(task.url, task.profile_id)
             write_form_analysis_cache(db, task.url, analysis)
@@ -554,6 +595,16 @@ async def analyze_task(
             db=db,
         )
         db.commit()
+        safe_finish_span(
+            analysis_span_id,
+            status=SPAN_STATUS_SUCCESS,
+            output={
+                "field_count": len(analysis.fields),
+                "login_required": analysis.login_required,
+                "cache_hit": cache_hit,
+            },
+            latency_ms=int((time.monotonic() - span_started_at) * 1000),
+        )
     except Exception as exc:
         db.rollback()
         task = get_task_or_404(task_id, db)
@@ -576,10 +627,17 @@ async def analyze_task(
             db=db,
         )
         db.commit()
+        safe_finish_span(
+            analysis_span_id,
+            status=SPAN_STATUS_FAILED,
+            error_message=str(exc),
+            latency_ms=int((time.monotonic() - span_started_at) * 1000),
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Form analysis failed",
         ) from exc
+
 
     statement = (
         select(Task)
@@ -717,6 +775,15 @@ def map_task_fields(
         db.commit()
         return job
 
+    map_span_id = safe_create_span(
+        task_id=task.id,
+        phase=SPAN_PHASE_MAPPING,
+        name="map_fields_llm" if mode == "llm" else "map_fields_rules",
+        input={"mode": mode, "provider": provider},
+    )
+    map_started_at = time.monotonic()
+    selected_provider = provider
+
     try:
         if mode == "llm":
             try:
@@ -737,6 +804,7 @@ def map_task_fields(
 
         apply_workflow_status(task, WORKFLOW_STATUS_MAPPING_READY, reason="mapping_completed")
         mapped_count = sum(1 for f in fields if f.mapped_profile_key)
+        usage_fields = trace_usage_fields(task_id, db) if mode == "llm" else {}
         write_checkpoint(
             task_id=task_id,
             stage=WORKFLOW_STAGE_MAPPING,
@@ -746,8 +814,32 @@ def map_task_fields(
             db=db,
         )
         db.commit()
+        safe_finish_span(
+            map_span_id,
+            status=SPAN_STATUS_SUCCESS,
+            output={
+                "field_count": len(fields),
+                "mapped_count": mapped_count,
+                "mode": mode,
+                "provider": selected_provider if mode == "llm" else None,
+            },
+            metadata=usage_fields.get("metadata") if usage_fields else None,
+            provider=usage_fields.get("provider") if usage_fields else None,
+            model=usage_fields.get("model") if usage_fields else None,
+            prompt_tokens=usage_fields.get("prompt_tokens") if usage_fields else None,
+            completion_tokens=usage_fields.get("completion_tokens") if usage_fields else None,
+            total_tokens=usage_fields.get("total_tokens") if usage_fields else None,
+            estimated_cost=usage_fields.get("estimated_cost") if usage_fields else None,
+            latency_ms=int((time.monotonic() - map_started_at) * 1000),
+        )
         return fields
     except HTTPException:
+        safe_finish_span(
+            map_span_id,
+            status=SPAN_STATUS_FAILED,
+            error_message="Mapping request rejected",
+            latency_ms=int((time.monotonic() - map_started_at) * 1000),
+        )
         raise
     except Exception as exc:
         db.rollback()
@@ -763,6 +855,12 @@ def map_task_fields(
             db=db,
         )
         db.commit()
+        safe_finish_span(
+            map_span_id,
+            status=SPAN_STATUS_FAILED,
+            error_message=str(exc),
+            latency_ms=int((time.monotonic() - map_started_at) * 1000),
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Field mapping failed",
@@ -881,6 +979,13 @@ def confirm_task_mapping(
     profile_updates: list[ProfileUpdateItem] = []
     profile_skipped: list[ProfileSkipItem] = []
     custom_values = task.profile.custom_values
+    confirm_span_id = safe_create_span(
+        task_id=task.id,
+        phase=SPAN_PHASE_APPROVAL,
+        name="confirm_mapping",
+        input={"field_count": len(fields)},
+    )
+    confirm_started_at = time.monotonic()
 
     updated_first, updated_last = None, None
     name_field_ids: list[int] = []
@@ -1058,6 +1163,15 @@ def confirm_task_mapping(
 
     apply_workflow_status(task, WORKFLOW_STATUS_READY_TO_FILL, reason="mapping_confirmed")
     db.commit()
+    safe_finish_span(
+        confirm_span_id,
+        status=SPAN_STATUS_SUCCESS,
+        output={
+            "profile_update_count": len(profile_updates),
+            "skipped_count": len(profile_skipped),
+        },
+        latency_ms=int((time.monotonic() - confirm_started_at) * 1000),
+    )
     return MappingConfirmationResponse(
         task_id=task.id,
         status=task.status,
@@ -1117,6 +1231,15 @@ async def fill_task_form(
         return job
 
     step = get_next_log_step(task.id, db)
+    fill_span_id = safe_create_span(
+        task_id=task.id,
+        phase=SPAN_PHASE_BROWSER,
+        name="fill_form",
+        input={"filled_count": len(mapped_fields)},
+    )
+    fill_started_at = time.monotonic()
+    screenshot = None
+    summary: dict[str, int] = {}
     apply_workflow_status(task, WORKFLOW_STATUS_FILLING, reason="fill_started")
     create_log(
         task_id=task.id,
@@ -1210,6 +1333,16 @@ async def fill_task_form(
             )
 
         db.commit()
+        safe_finish_span(
+            fill_span_id,
+            status=SPAN_STATUS_SUCCESS,
+            output={
+                "filled_count": len(mapped_fields),
+                "verification_summary": summary,
+            },
+            screenshot_id=screenshot.id if screenshot is not None else None,
+            latency_ms=int((time.monotonic() - fill_started_at) * 1000),
+        )
     except Exception as exc:
         db.rollback()
         task = get_task_or_404(task_id, db)
@@ -1232,6 +1365,17 @@ async def fill_task_form(
             db=db,
         )
         db.commit()
+        safe_finish_span(
+            fill_span_id,
+            status=SPAN_STATUS_FAILED,
+            output={
+                "filled_count": len(mapped_fields),
+                "verification_summary": summary,
+            },
+            screenshot_id=screenshot.id if screenshot is not None else None,
+            error_message=str(exc),
+            latency_ms=int((time.monotonic() - fill_started_at) * 1000),
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Form filling failed",
@@ -1385,6 +1529,13 @@ async def confirm_task_submission(
         )
 
     step = get_next_log_step(task.id, db)
+    submit_span_id = safe_create_span(
+        task_id=task.id,
+        phase=SPAN_PHASE_BROWSER,
+        name="submit_form",
+        input={"field_count": len(mapped_fields)},
+    )
+    submit_started_at = time.monotonic()
     create_log(
         task_id=task.id,
         step=step,
@@ -1396,7 +1547,7 @@ async def confirm_task_submission(
     db.commit()
 
     try:
-        await submit_form_and_capture_screenshot(
+        screenshot = await submit_form_and_capture_screenshot(
             task_id=task.id,
             url=task.url,
             profile_id=task.profile_id,
@@ -1414,6 +1565,13 @@ async def confirm_task_submission(
             db=db,
         )
         db.commit()
+        safe_finish_span(
+            submit_span_id,
+            status=SPAN_STATUS_SUCCESS,
+            output={"final_status": task.status},
+            screenshot_id=screenshot.id,
+            latency_ms=int((time.monotonic() - submit_started_at) * 1000),
+        )
     except Exception as exc:
         db.rollback()
         task = get_task_or_404(task_id, db)
@@ -1427,6 +1585,13 @@ async def confirm_task_submission(
             db=db,
         )
         db.commit()
+        safe_finish_span(
+            submit_span_id,
+            status=SPAN_STATUS_FAILED,
+            output={"final_status": task.status},
+            error_message=str(exc),
+            latency_ms=int((time.monotonic() - submit_started_at) * 1000),
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Form submission failed",
