@@ -40,10 +40,37 @@ def init_db() -> None:
     from app import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+    _add_missing_task_workflow_columns()
     _add_missing_form_field_columns()
     _add_missing_profile_columns()
     _add_missing_llm_usage_log_columns()
     _add_missing_benchmark_run_columns()
+
+
+def _add_missing_task_workflow_columns(target_engine=engine) -> None:
+    """Add workflow columns when opening an older SQLite database."""
+
+    inspector = inspect(target_engine)
+    if "tasks" not in inspector.get_table_names():
+        return
+
+    existing_columns = {
+        column["name"] for column in inspector.get_columns("tasks")
+    }
+    missing_columns = {
+        "workflow_type": "VARCHAR(50) NOT NULL DEFAULT 'form_fill'",
+        "workflow_status": "VARCHAR(50) NOT NULL DEFAULT 'CREATED'",
+    }
+
+    with target_engine.begin() as connection:
+        for column_name, column_type in missing_columns.items():
+            if column_name not in existing_columns:
+                connection.execute(
+                    text(
+                        f"ALTER TABLE tasks "
+                        f"ADD COLUMN {column_name} {column_type}"
+                    )
+                )
 
 
 def _add_missing_form_field_columns(target_engine=engine) -> None:

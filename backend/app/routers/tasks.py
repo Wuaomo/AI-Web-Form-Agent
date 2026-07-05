@@ -71,15 +71,33 @@ from app.services.log_service import create_log
 from app.services.job_queue import enqueue_job
 from app.services.mapping_cache import save_user_mapping_override
 from app.services.checkpoint_service import list_checkpoints, write_checkpoint
+from app.services.workflow_state_service import (
+    InvalidWorkflowTransition,
+    set_workflow_status,
+    sync_legacy_status,
+)
 from app.workflow_constants import (
     CHECKPOINT_FAILED,
     CHECKPOINT_SUCCESS,
     FAILURE_ANALYSIS_FAILED,
     FAILURE_BROWSER_FILL_FAILED,
     FAILURE_LLM_MAPPING_FAILED,
+    WORKFLOW_STATUS_ANALYZING,
+    WORKFLOW_STATUS_COMPLETED,
+    WORKFLOW_STATUS_CREATED,
+    WORKFLOW_STATUS_FAILED,
+    WORKFLOW_STATUS_FILLING,
+    WORKFLOW_STATUS_LOGIN_IN_PROGRESS,
+    WORKFLOW_STATUS_LOGIN_REQUIRED,
+    WORKFLOW_STATUS_MAPPING_READY,
+    WORKFLOW_STATUS_READY_TO_FILL,
+    WORKFLOW_STATUS_REVIEWING,
+    WORKFLOW_STATUS_WAITING_APPROVAL,
     WORKFLOW_STAGE_ANALYSIS,
     WORKFLOW_STAGE_FILL,
     WORKFLOW_STAGE_MAPPING,
+    WORKFLOW_TYPE_FORM_FILL,
+    WORKFLOW_TYPES,
 )
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -226,6 +244,36 @@ def get_task_or_404(task_id: int, db: Session) -> Task:
     return task
 
 
+def get_task_workflow_status(task: Task) -> str:
+    """Return the workflow status while tolerating legacy rows."""
+
+    if task.status and task.workflow_status and task.status != task.workflow_status:
+        return task.status
+    return task.workflow_status or task.status or WORKFLOW_STATUS_CREATED
+
+
+def ensure_form_fill_workflow(task: Task) -> None:
+    """Reject execution for workflow types that are not implemented yet."""
+
+    if task.workflow_type != WORKFLOW_TYPE_FORM_FILL:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Workflow type not executable yet: {task.workflow_type}",
+        )
+
+
+def apply_workflow_status(task: Task, next_status: str, *, reason: str | None = None) -> None:
+    """Apply a workflow transition and convert validation errors into API errors."""
+
+    try:
+        set_workflow_status(task, next_status, reason=reason)
+    except InvalidWorkflowTransition as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+
 def get_task_field_or_404(task_id: int, field_id: int, db: Session) -> FormField:
     """Return a form field only when it belongs to the requested task."""
 
@@ -254,7 +302,7 @@ def get_next_log_step(task_id: int, db: Session) -> int:
 def mark_login_required(task: Task, db: Session) -> None:
     """Pause analysis until the user explicitly starts manual login."""
 
-    task.status = "LOGIN_REQUIRED"
+    set_workflow_status(task, WORKFLOW_STATUS_LOGIN_REQUIRED, reason="analysis_requires_login")
     create_log(
         task_id=task.id,
         step=get_next_log_step(task.id, db),
@@ -295,7 +343,7 @@ def save_extracted_fields(
             )
         )
 
-    task.status = "MAPPING_READY"
+    set_workflow_status(task, WORKFLOW_STATUS_MAPPING_READY, reason="analysis_completed")
     create_log(
         task_id=task.id,
         step=get_next_log_step(task.id, db),
@@ -320,7 +368,17 @@ def create_task(task_data: TaskCreate, db: Session = Depends(get_db)) -> Task:
             detail="Profile not found",
         )
 
-    task = Task(**task_data.model_dump(), status="CREATED")
+    if task_data.workflow_type not in WORKFLOW_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported workflow_type: {task_data.workflow_type}",
+        )
+
+    task = Task(
+        **task_data.model_dump(),
+        workflow_status=WORKFLOW_STATUS_CREATED,
+    )
+    sync_legacy_status(task)
     db.add(task)
     db.commit()
     db.refresh(task)
@@ -454,6 +512,7 @@ async def analyze_task(
     """
 
     task = get_task_or_404(task_id, db)
+    ensure_form_fill_workflow(task)
 
     if config.ASYNC_JOBS_ENABLED:
         job = enqueue_job(
@@ -466,7 +525,7 @@ async def analyze_task(
 
     step = get_next_log_step(task.id, db)
 
-    task.status = "ANALYZING"
+    apply_workflow_status(task, WORKFLOW_STATUS_ANALYZING, reason="analyze_started")
     create_log(
         task_id=task.id,
         step=step,
@@ -498,7 +557,7 @@ async def analyze_task(
     except Exception as exc:
         db.rollback()
         task = get_task_or_404(task_id, db)
-        task.status = "FAILED"
+        apply_workflow_status(task, WORKFLOW_STATUS_FAILED, reason="analyze_failed")
         write_checkpoint(
             task_id=task.id,
             stage=WORKFLOW_STAGE_ANALYSIS,
@@ -636,7 +695,8 @@ def map_task_fields(
     mode and provider as payload instead of running synchronously.
     """
 
-    get_task_or_404(task_id, db)
+    task = get_task_or_404(task_id, db)
+    ensure_form_fill_workflow(task)
 
     if config.ASYNC_JOBS_ENABLED:
         selected_provider = provider
@@ -675,6 +735,7 @@ def map_task_fields(
         else:
             fields = map_fields_by_rules(task_id, db)
 
+        apply_workflow_status(task, WORKFLOW_STATUS_MAPPING_READY, reason="mapping_completed")
         mapped_count = sum(1 for f in fields if f.mapped_profile_key)
         write_checkpoint(
             task_id=task_id,
@@ -691,7 +752,7 @@ def map_task_fields(
     except Exception as exc:
         db.rollback()
         task = get_task_or_404(task_id, db)
-        task.status = "FAILED"
+        apply_workflow_status(task, WORKFLOW_STATUS_FAILED, reason="mapping_failed")
         write_checkpoint(
             task_id=task.id,
             stage=WORKFLOW_STAGE_MAPPING,
@@ -802,6 +863,7 @@ def confirm_task_mapping(
     """Mark the task's reviewed field mapping as ready for filling."""
 
     task = get_task_or_404(task_id, db)
+    ensure_form_fill_workflow(task)
     fields = list(
         db.scalars(
             select(FormField)
@@ -994,7 +1056,7 @@ def confirm_task_mapping(
                 )
             )
 
-    task.status = "READY_TO_FILL"
+    apply_workflow_status(task, WORKFLOW_STATUS_READY_TO_FILL, reason="mapping_confirmed")
     db.commit()
     return MappingConfirmationResponse(
         task_id=task.id,
@@ -1017,7 +1079,8 @@ async def fill_task_form(
     """
 
     task = get_task_or_404(task_id, db)
-    if task.status != "READY_TO_FILL":
+    ensure_form_fill_workflow(task)
+    if get_task_workflow_status(task) != WORKFLOW_STATUS_READY_TO_FILL:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Review and confirm mapping before filling",
@@ -1054,7 +1117,7 @@ async def fill_task_form(
         return job
 
     step = get_next_log_step(task.id, db)
-    task.status = "FILLING"
+    apply_workflow_status(task, WORKFLOW_STATUS_FILLING, reason="fill_started")
     create_log(
         task_id=task.id,
         step=step,
@@ -1100,7 +1163,7 @@ async def fill_task_form(
         summary = get_verification_summary_for_task(db, task.id)
 
         if required_failures:
-            task.status = "FAILED"
+            apply_workflow_status(task, WORKFLOW_STATUS_FAILED, reason="fill_verification_failed")
             failure_details = ", ".join(f"field {v.field_id}" for v in required_failures)
             write_checkpoint(
                 task_id=task.id,
@@ -1125,7 +1188,7 @@ async def fill_task_form(
                 detail="Form filling failed due to verification errors",
             )
         else:
-            task.status = "WAITING_APPROVAL"
+            apply_workflow_status(task, WORKFLOW_STATUS_WAITING_APPROVAL, reason="fill_completed")
             write_checkpoint(
                 task_id=task.id,
                 stage=WORKFLOW_STAGE_FILL,
@@ -1150,7 +1213,7 @@ async def fill_task_form(
     except Exception as exc:
         db.rollback()
         task = get_task_or_404(task_id, db)
-        task.status = "FAILED"
+        apply_workflow_status(task, WORKFLOW_STATUS_FAILED, reason="fill_failed")
         write_checkpoint(
             task_id=task.id,
             stage=WORKFLOW_STAGE_FILL,
@@ -1190,8 +1253,13 @@ async def login_and_analyze_task(
     """Let the user log in, then retry extracting the original target form."""
 
     task = get_task_or_404(task_id, db)
+    ensure_form_fill_workflow(task)
     step = get_next_log_step(task.id, db)
-    task.status = "LOGIN_IN_PROGRESS"
+    apply_workflow_status(
+        task,
+        WORKFLOW_STATUS_LOGIN_IN_PROGRESS,
+        reason="manual_login_started",
+    )
     create_log(
         task_id=task.id,
         step=step,
@@ -1208,7 +1276,11 @@ async def login_and_analyze_task(
             profile_id=task.profile_id,
         )
         if timed_out:
-            task.status = "LOGIN_REQUIRED"
+            apply_workflow_status(
+                task,
+                WORKFLOW_STATUS_LOGIN_REQUIRED,
+                reason="manual_login_timed_out",
+            )
             create_log(
                 task_id=task.id,
                 step=get_next_log_step(task.id, db),
@@ -1223,7 +1295,7 @@ async def login_and_analyze_task(
                 detail="Login browser timed out. Try logging in again.",
             )
 
-        task.status = "ANALYZING"
+        apply_workflow_status(task, WORKFLOW_STATUS_ANALYZING, reason="manual_login_completed")
         create_log(
             task_id=task.id,
             step=get_next_log_step(task.id, db),
@@ -1250,7 +1322,7 @@ async def login_and_analyze_task(
     except Exception as exc:
         db.rollback()
         task = get_task_or_404(task_id, db)
-        task.status = "FAILED"
+        apply_workflow_status(task, WORKFLOW_STATUS_FAILED, reason="manual_login_failed")
         create_log(
             task_id=task.id,
             step=get_next_log_step(task.id, db),
@@ -1284,7 +1356,8 @@ async def confirm_task_submission(
     """Submit the reviewed browser form after explicit user approval."""
 
     task = get_task_or_404(task_id, db)
-    if task.status != "WAITING_APPROVAL":
+    ensure_form_fill_workflow(task)
+    if get_task_workflow_status(task) != WORKFLOW_STATUS_WAITING_APPROVAL:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Task is not waiting for approval",
@@ -1331,7 +1404,7 @@ async def confirm_task_submission(
             stage="submitted_form",
             db=db,
         )
-        task.status = "COMPLETED"
+        apply_workflow_status(task, WORKFLOW_STATUS_COMPLETED, reason="submit_completed")
         create_log(
             task_id=task.id,
             step=step + 1,
@@ -1344,7 +1417,7 @@ async def confirm_task_submission(
     except Exception as exc:
         db.rollback()
         task = get_task_or_404(task_id, db)
-        task.status = "FAILED"
+        apply_workflow_status(task, WORKFLOW_STATUS_FAILED, reason="submit_failed")
         create_log(
             task_id=task.id,
             step=get_next_log_step(task.id, db),

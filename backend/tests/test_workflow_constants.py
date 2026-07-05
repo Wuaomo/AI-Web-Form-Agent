@@ -3,6 +3,70 @@
 import pytest
 
 
+def test_workflow_type_constants_exist_and_are_unique():
+    """Verify workflow type constants exist and have unique stable values."""
+
+    from app.workflow_constants import (
+        WORKFLOW_TYPE_DATA_ENTRY,
+        WORKFLOW_TYPE_FORM_FILL,
+        WORKFLOW_TYPE_JOB_APPLICATION,
+        WORKFLOW_TYPE_WEB_DATA_EXTRACT,
+        WORKFLOW_TYPES,
+    )
+
+    workflow_types = {
+        WORKFLOW_TYPE_FORM_FILL,
+        WORKFLOW_TYPE_WEB_DATA_EXTRACT,
+        WORKFLOW_TYPE_DATA_ENTRY,
+        WORKFLOW_TYPE_JOB_APPLICATION,
+    }
+
+    assert WORKFLOW_TYPES == workflow_types
+    assert len(workflow_types) == 4
+
+
+def test_workflow_status_constants_exist_and_are_unique():
+    """Verify workflow status constants are uppercase and unique."""
+
+    from app.workflow_constants import (
+        WORKFLOW_STATUS_ANALYZING,
+        WORKFLOW_STATUS_BLOCKED,
+        WORKFLOW_STATUS_COMPLETED,
+        WORKFLOW_STATUS_CREATED,
+        WORKFLOW_STATUS_FAILED,
+        WORKFLOW_STATUS_FILLING,
+        WORKFLOW_STATUS_LOGIN_IN_PROGRESS,
+        WORKFLOW_STATUS_LOGIN_REQUIRED,
+        WORKFLOW_STATUS_MAPPING_READY,
+        WORKFLOW_STATUS_PLANNED,
+        WORKFLOW_STATUS_READY_TO_FILL,
+        WORKFLOW_STATUS_REVIEWING,
+        WORKFLOW_STATUS_VERIFYING,
+        WORKFLOW_STATUS_WAITING_APPROVAL,
+    )
+
+    statuses = [
+        WORKFLOW_STATUS_CREATED,
+        WORKFLOW_STATUS_PLANNED,
+        WORKFLOW_STATUS_ANALYZING,
+        WORKFLOW_STATUS_MAPPING_READY,
+        WORKFLOW_STATUS_REVIEWING,
+        WORKFLOW_STATUS_READY_TO_FILL,
+        WORKFLOW_STATUS_FILLING,
+        WORKFLOW_STATUS_VERIFYING,
+        WORKFLOW_STATUS_WAITING_APPROVAL,
+        WORKFLOW_STATUS_COMPLETED,
+        WORKFLOW_STATUS_FAILED,
+        WORKFLOW_STATUS_BLOCKED,
+        WORKFLOW_STATUS_LOGIN_REQUIRED,
+        WORKFLOW_STATUS_LOGIN_IN_PROGRESS,
+    ]
+
+    assert len(statuses) == len(set(statuses))
+    for status in statuses:
+        assert status.isupper(), f"Workflow status {status} is not uppercase"
+
+
 def test_workflow_stage_constants_exist_and_uppercase():
     """Verify all workflow stage constants exist and are uppercase."""
     from app.workflow_constants import (

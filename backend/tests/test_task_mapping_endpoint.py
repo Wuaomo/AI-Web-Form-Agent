@@ -91,6 +91,64 @@ def create_task_without_fields(session: Session) -> Task:
     return task
 
 
+def test_create_task_response_includes_workflow_fields(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify POST /tasks returns workflow identity and workflow status."""
+
+    client, session = test_environment
+    profile = Profile(
+        profile_name="Create task profile",
+        full_name="Ada Lovelace",
+        email="ada@example.com",
+    )
+    session.add(profile)
+    session.commit()
+
+    response = client.post(
+        "/tasks",
+        json={
+            "url": "https://example.com/form",
+            "profile_id": profile.id,
+            "description": "Internship application",
+            "workflow_type": "form_fill",
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["status"] == "CREATED"
+    assert payload["workflow_type"] == "form_fill"
+    assert payload["workflow_status"] == "CREATED"
+
+
+def test_create_task_rejects_unsupported_workflow_type(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify POST /tasks rejects workflow types outside the supported set."""
+
+    client, session = test_environment
+    profile = Profile(
+        profile_name="Unsupported workflow profile",
+        full_name="Ada Lovelace",
+        email="ada@example.com",
+    )
+    session.add(profile)
+    session.commit()
+
+    response = client.post(
+        "/tasks",
+        json={
+            "url": "https://example.com/form",
+            "profile_id": profile.id,
+            "workflow_type": "unknown_type",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Unsupported workflow_type: unknown_type"
+
+
 def test_map_fields_requires_llm_provider_when_no_default_is_configured(
     test_environment: tuple[TestClient, Session],
     monkeypatch: pytest.MonkeyPatch,

@@ -20,10 +20,16 @@ from app.services.job_queue import (
     record_worker_heartbeat,
 )
 from app.services.metrics_sidecar_client import emit_metrics_event
+from app.services.workflow_state_service import set_workflow_status
 from app.workflow_constants import (
     FAILURE_ANALYSIS_FAILED,
     FAILURE_LLM_MAPPING_FAILED,
     FAILURE_BROWSER_FILL_FAILED,
+    WORKFLOW_STATUS_ANALYZING,
+    WORKFLOW_STATUS_FAILED,
+    WORKFLOW_STATUS_FILLING,
+    WORKFLOW_STATUS_MAPPING_READY,
+    WORKFLOW_STATUS_WAITING_APPROVAL,
 )
 
 
@@ -182,7 +188,7 @@ def _execute_analyze_stage(db: Session, job: Job) -> None:
     import asyncio
 
     step = get_next_log_step(task.id, db)
-    task.status = "ANALYZING"
+    set_workflow_status(task, WORKFLOW_STATUS_ANALYZING, reason="analyze_started")
     create_log(
         task_id=task.id,
         step=step,
@@ -220,7 +226,7 @@ def _execute_analyze_stage(db: Session, job: Job) -> None:
             error_message=str(exc),
             db=db,
         )
-        task.status = "FAILED"
+        set_workflow_status(task, WORKFLOW_STATUS_FAILED, reason="analyze_failed")
         create_log(
             task_id=task.id,
             step=get_next_log_step(task.id, db),
@@ -261,6 +267,7 @@ def _execute_map_stage(db: Session, job: Job) -> None:
         else:
             fields = map_fields_by_rules(job.task_id, db)
 
+        set_workflow_status(task, WORKFLOW_STATUS_MAPPING_READY, reason="mapping_completed")
         mapped_count = sum(1 for f in fields if f.mapped_profile_key)
         write_checkpoint(
             task_id=job.task_id,
@@ -280,7 +287,7 @@ def _execute_map_stage(db: Session, job: Job) -> None:
             error_message=str(exc),
             db=db,
         )
-        task.status = "FAILED"
+        set_workflow_status(task, WORKFLOW_STATUS_FAILED, reason="mapping_failed")
         raise
 
 
@@ -327,7 +334,7 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
         raise ValueError("No mapped fields are ready to fill")
 
     step = get_next_log_step(task.id, db)
-    task.status = "FILLING"
+    set_workflow_status(task, WORKFLOW_STATUS_FILLING, reason="fill_started")
     create_log(
         task_id=task.id,
         step=step,
@@ -349,7 +356,7 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
                 db=db,
             )
         )
-        task.status = "WAITING_APPROVAL"
+        set_workflow_status(task, WORKFLOW_STATUS_WAITING_APPROVAL, reason="fill_completed")
         write_checkpoint(
             task_id=task.id,
             stage=WORKFLOW_STAGE_FILL,
@@ -376,7 +383,7 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
             error_message=str(exc),
             db=db,
         )
-        task.status = "FAILED"
+        set_workflow_status(task, WORKFLOW_STATUS_FAILED, reason="fill_failed")
         create_log(
             task_id=task.id,
             step=get_next_log_step(task.id, db),

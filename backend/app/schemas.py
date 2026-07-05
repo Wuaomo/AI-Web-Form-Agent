@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.workflow_constants import WORKFLOW_TYPE_FORM_FILL
+
 ProfileKey = str
 
 
@@ -247,6 +249,7 @@ class TaskCreate(BaseModel):
     url: str
     profile_id: int
     description: str | None = None
+    workflow_type: str = WORKFLOW_TYPE_FORM_FILL
 
 
 class TaskResponse(BaseModel):
@@ -259,6 +262,8 @@ class TaskResponse(BaseModel):
     description: str | None
     profile_id: int
     status: str
+    workflow_type: str = WORKFLOW_TYPE_FORM_FILL
+    workflow_status: str
     created_at: datetime
     updated_at: datetime
     form_fields: list[FormFieldResponse] = Field(default_factory=list)

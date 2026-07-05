@@ -8,6 +8,10 @@ from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Te
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.workflow_constants import (
+    WORKFLOW_STATUS_CREATED,
+    WORKFLOW_TYPE_FORM_FILL,
+)
 
 
 def utc_now() -> datetime:
@@ -75,7 +79,17 @@ class Task(Base):
     url: Mapped[str] = mapped_column(String(2048), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text)
     profile_id: Mapped[int] = mapped_column(ForeignKey("profiles.id"), nullable=False)
-    status: Mapped[str] = mapped_column(String(50), default="CREATED", nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default=WORKFLOW_STATUS_CREATED, nullable=False)
+    workflow_type: Mapped[str] = mapped_column(
+        String(50),
+        default=WORKFLOW_TYPE_FORM_FILL,
+        nullable=False,
+    )
+    workflow_status: Mapped[str] = mapped_column(
+        String(50),
+        default=WORKFLOW_STATUS_CREATED,
+        nullable=False,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

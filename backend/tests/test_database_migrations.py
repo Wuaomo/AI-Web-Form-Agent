@@ -72,6 +72,31 @@ def test_init_db_adds_all_missing_columns_to_existing_form_fields_table(tmp_path
     assert "profile_memory_policy" in columns
 
 
+def test_init_db_adds_workflow_columns_to_existing_tasks_table(tmp_path):
+    """Verify that legacy tasks tables receive workflow_type and workflow_status."""
+
+    from app.database import _add_missing_task_workflow_columns
+
+    db_path = tmp_path / "legacy_tasks.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+
+    with engine.begin() as connection:
+        connection.execute(text("""
+            CREATE TABLE tasks (
+                id INTEGER PRIMARY KEY,
+                url VARCHAR(2048) NOT NULL,
+                profile_id INTEGER NOT NULL,
+                status VARCHAR(50) NOT NULL DEFAULT 'CREATED'
+            )
+        """))
+
+    _add_missing_task_workflow_columns(engine)
+
+    columns = {column["name"] for column in inspect(engine).get_columns("tasks")}
+    assert "workflow_type" in columns
+    assert "workflow_status" in columns
+
+
 def test_task_checkpoint_model_creates_profile_task_and_checkpoint(tmp_path):
     """Verify TaskCheckpoint model creates and loads checkpoints with relationship."""
 
