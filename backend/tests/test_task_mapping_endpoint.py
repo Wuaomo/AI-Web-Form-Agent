@@ -127,7 +127,7 @@ def test_create_task_response_includes_workflow_fields(
 def test_create_task_rejects_unsupported_workflow_type(
     test_environment: tuple[TestClient, Session],
 ) -> None:
-    """Verify POST /tasks rejects workflow types outside the supported set."""
+    """Verify POST /tasks rejects workflow types missing from the template registry."""
 
     client, session = test_environment
     profile = Profile(
@@ -148,7 +148,7 @@ def test_create_task_rejects_unsupported_workflow_type(
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Unsupported workflow_type: unknown_type"
+    assert response.json()["detail"] == "Workflow template not found: unknown_type"
 
 
 def test_map_fields_requires_llm_provider_when_no_default_is_configured(

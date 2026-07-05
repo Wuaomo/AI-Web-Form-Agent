@@ -94,6 +94,7 @@ from app.services.workflow_state_service import (
     sync_legacy_status,
 )
 from app.services.workflow_trace_service import safe_create_span, safe_finish_span
+from app.workflow_templates import require_enabled_template
 from app.workflow_constants import (
     APPROVAL_STATUS_REJECTED,
     CHECKPOINT_FAILED,
@@ -124,7 +125,6 @@ from app.workflow_constants import (
     WORKFLOW_STAGE_FILL,
     WORKFLOW_STAGE_MAPPING,
     WORKFLOW_TYPE_FORM_FILL,
-    WORKFLOW_TYPES,
 )
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -489,11 +489,13 @@ def create_task(task_data: TaskCreate, db: Session = Depends(get_db)) -> Task:
             detail="Profile not found",
         )
 
-    if task_data.workflow_type not in WORKFLOW_TYPES:
+    try:
+        require_enabled_template(task_data.workflow_type)
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported workflow_type: {task_data.workflow_type}",
-        )
+            detail=str(exc),
+        ) from exc
 
     task = Task(
         **task_data.model_dump(),

@@ -70,6 +70,7 @@ async function request(path, options = {}) {
 export const api = {
   health: () => request("/health"),
   listLlmProviders: () => request("/llm/providers"),
+  listWorkflowTemplates: () => request("/workflows/templates"),
   runBenchmarks: (options = {}) =>
     request("/benchmarks/run", {
       method: "POST",

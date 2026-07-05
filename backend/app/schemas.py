@@ -279,6 +279,17 @@ class TaskResponse(BaseModel):
     form_fields: list[FormFieldResponse] = Field(default_factory=list)
 
 
+class WorkflowTemplateResponse(BaseModel):
+    """One static workflow template exposed for task creation."""
+
+    id: str
+    name: str
+    description: str
+    enabled: bool
+    steps: list[str]
+    approval_policy: dict[str, str] = Field(default_factory=dict)
+
+
 class WorkflowSpanResponse(BaseModel):
     """One persisted workflow trace span."""
 
