@@ -292,16 +292,24 @@ function TaskDetail() {
   const orderedTrace = sortSpans(workflowTrace);
   const pendingApprovals = approvalRequests.filter((item) => item.status === "PENDING");
 
-  async function resolveApproval(approvalId, action) {
+  async function resolveApproval(approval, action) {
     setBusyAction(`${action}-approval`);
     setError("");
     setNotice("");
     try {
       if (action === "approve") {
-        await api.approveApproval(approvalId);
-        setNotice("Approval granted.");
+        await api.approveApproval(approval.id);
+        if (approval.step_name.startsWith("memory_write:")) {
+          setNotice("Approval granted. Re-confirm mapping to apply the approved profile write.");
+        } else if (approval.step_name.startsWith("fill_field:")) {
+          setNotice("Approval granted. Retry fill to continue.");
+        } else if (approval.step_name === "submit_form") {
+          setNotice("Approval granted. Retry submit to continue.");
+        } else {
+          setNotice("Approval granted.");
+        }
       } else {
-        await api.rejectApproval(approvalId);
+        await api.rejectApproval(approval.id);
         setNotice("Approval rejected.");
       }
       await refreshTaskData();
@@ -505,7 +513,7 @@ function TaskDetail() {
                         <button
                           type="button"
                           className="button button-small"
-                          onClick={() => resolveApproval(approval.id, "approve")}
+                          onClick={() => resolveApproval(approval, "approve")}
                           disabled={Boolean(busyAction)}
                         >
                           Approve
@@ -513,7 +521,7 @@ function TaskDetail() {
                         <button
                           type="button"
                           className="button button-small button-secondary"
-                          onClick={() => resolveApproval(approval.id, "reject")}
+                          onClick={() => resolveApproval(approval, "reject")}
                           disabled={Boolean(busyAction)}
                         >
                           Reject

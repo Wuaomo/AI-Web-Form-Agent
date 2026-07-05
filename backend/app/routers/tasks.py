@@ -41,6 +41,7 @@ from app.services.approval_gate_service import (
     create_approval_request,
     has_pending_approval,
     list_pending_approvals,
+    latest_approved_request_for_action,
     latest_approved_request,
 )
 from app.services.browser_executor import (
@@ -365,19 +366,26 @@ def filter_fillable_fields_by_policy(
             continue
         if policy.decision == POLICY_DECISION_REVIEW_REQUIRED:
             step_name = f"fill_field:{field.id}"
-            if latest_approved_request(db, task_id=task.id, step_name=step_name) is None:
+            proposed_action = {
+                "action": "fill_field",
+                "field_id": field.id,
+                "field_label": field_display_name(field),
+                "mapped_value": str(field.mapped_value),
+                "risk_type": policy.risk_type,
+            }
+            if latest_approved_request_for_action(
+                db,
+                task_id=task.id,
+                step_name=step_name,
+                proposed_action=proposed_action,
+            ) is None:
                 if not has_pending_approval(db, task_id=task.id, step_name=step_name):
                     create_approval_request(
                         db,
                         task_id=task.id,
                         step_name=step_name,
                         policy_decision=policy,
-                        proposed_action={
-                            "action": "fill_field",
-                            "field_id": field.id,
-                            "field_label": field_display_name(field),
-                            "risk_type": policy.risk_type,
-                        },
+                        proposed_action=proposed_action,
                     )
                 if field.required and is_fillable_field(field):
                     pending_required_fields.append(field)
@@ -1141,20 +1149,27 @@ def confirm_task_mapping(
             continue
         if policy.decision == POLICY_DECISION_REVIEW_REQUIRED:
             step_name = f"memory_write:{field.id}"
-            if latest_approved_request(db, task_id=task.id, step_name=step_name) is None:
+            proposed_action = {
+                "action": "memory_write",
+                "field_id": field.id,
+                "field_label": field_display_name(field),
+                "profile_key": profile_key,
+                "mapped_value": mapped_value,
+                "risk_type": policy.risk_type,
+            }
+            if latest_approved_request_for_action(
+                db,
+                task_id=task.id,
+                step_name=step_name,
+                proposed_action=proposed_action,
+            ) is None:
                 if not has_pending_approval(db, task_id=task.id, step_name=step_name):
                     create_approval_request(
                         db,
                         task_id=task.id,
                         step_name=step_name,
                         policy_decision=policy,
-                        proposed_action={
-                            "action": "memory_write",
-                            "field_id": field.id,
-                            "field_label": field_display_name(field),
-                            "profile_key": profile_key,
-                            "risk_type": policy.risk_type,
-                        },
+                        proposed_action=proposed_action,
                     )
                 profile_skipped.append(
                     ProfileSkipItem(
@@ -1348,8 +1363,6 @@ async def fill_task_form(
         )
     if pending_required_fields:
         pending_names = ", ".join(field_display_name(field) for field in pending_required_fields)
-        apply_workflow_status(task, WORKFLOW_STATUS_REVIEWING, reason="fill_requires_approval")
-        db.commit()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Required fields require approval before filling: {pending_names}",
@@ -1670,10 +1683,21 @@ async def confirm_task_submission(
 
     submit_policy = evaluate_submit_action()
     submit_step_name = "submit_form"
-    approved_submit_request = latest_approved_request(
+    submit_proposed_action = {
+        "action": "submit_form",
+        "fields": [
+            {
+                "field_id": field.id,
+                "mapped_value": str(field.mapped_value),
+            }
+            for field in mapped_fields
+        ],
+    }
+    approved_submit_request = latest_approved_request_for_action(
         db,
         task_id=task.id,
         step_name=submit_step_name,
+        proposed_action=submit_proposed_action,
     )
     rejected_submit_request = latest_rejected_request(task.id, submit_step_name, db)
     if approved_submit_request is None:
@@ -1698,10 +1722,7 @@ async def confirm_task_submission(
                 task_id=task.id,
                 step_name=submit_step_name,
                 policy_decision=submit_policy,
-                proposed_action={
-                    "action": "submit_form",
-                    "field_count": len(mapped_fields),
-                },
+                proposed_action=submit_proposed_action,
             )
             apply_workflow_status(task, WORKFLOW_STATUS_WAITING_APPROVAL, reason="submit_approval_created")
             db.commit()

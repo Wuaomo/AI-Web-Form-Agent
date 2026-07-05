@@ -182,3 +182,32 @@ def test_confirm_submit_rejected_approval_blocks_submission(
     assert response.json()["detail"]["message"] == "Final submission approval was rejected"
     assert response.json()["detail"]["approval_id"] == approval_id
     submit_form.assert_not_awaited()
+
+
+def test_confirm_submit_requires_new_approval_after_field_snapshot_changes(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify an approved submit gate becomes stale after mapped values change."""
+
+    client, session = test_environment
+    task = create_task(session, "WAITING_APPROVAL")
+
+    first_response = client.post(f"/tasks/{task.id}/confirm-submit")
+    first_approval_id = first_response.json()["detail"]["approval_id"]
+    approve_response = client.post(f"/approvals/{first_approval_id}/approve")
+    assert approve_response.status_code == 200
+
+    field = session.scalar(select(FormField).where(FormField.task_id == task.id))
+    field.mapped_value = "updated@example.com"
+    session.commit()
+
+    with patch(
+        "app.routers.tasks.submit_form_and_capture_screenshot",
+        new_callable=AsyncMock,
+    ) as submit_form:
+        response = client.post(f"/tasks/{task.id}/confirm-submit")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["message"] == "Final submission requires approval"
+    assert response.json()["detail"]["approval_id"] != first_approval_id
+    submit_form.assert_not_awaited()

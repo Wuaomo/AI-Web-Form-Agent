@@ -492,7 +492,11 @@ class ApprovalRequest(Base):
     def proposed_action(self, value: dict[str, object] | None) -> None:
         """Persist proposed action as JSON."""
 
-        self.proposed_action_json = json.dumps(value or {}, ensure_ascii=False)
+        self.proposed_action_json = json.dumps(
+            value or {},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
 
 
 class TaskCheckpoint(Base):

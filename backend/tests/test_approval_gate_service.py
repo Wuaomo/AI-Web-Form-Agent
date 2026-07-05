@@ -10,6 +10,7 @@ from app.services.approval_gate_service import (
     approve_request,
     create_approval_request,
     has_pending_approval,
+    latest_approved_request_for_action,
     latest_approved_request,
     reject_request,
 )
@@ -80,3 +81,37 @@ def test_reject_request_marks_request_rejected() -> None:
 
     session.refresh(request)
     assert request.status == "REJECTED"
+
+
+def test_latest_approved_request_for_action_requires_exact_payload_match() -> None:
+    """Verify approved requests only match the exact proposed action snapshot."""
+
+    session = make_session()
+    task = create_task(session)
+    request = create_approval_request(
+        session,
+        task_id=task.id,
+        step_name="submit_form",
+        policy_decision=evaluate_submit_action(),
+        proposed_action={"action": "submit_form", "fields": [{"field_id": 1, "mapped_value": "a"}]},
+    )
+    session.commit()
+    approve_request(session, request.id)
+    session.commit()
+
+    matched = latest_approved_request_for_action(
+        session,
+        task_id=task.id,
+        step_name="submit_form",
+        proposed_action={"action": "submit_form", "fields": [{"field_id": 1, "mapped_value": "a"}]},
+    )
+    not_matched = latest_approved_request_for_action(
+        session,
+        task_id=task.id,
+        step_name="submit_form",
+        proposed_action={"action": "submit_form", "fields": [{"field_id": 1, "mapped_value": "b"}]},
+    )
+
+    assert matched is not None
+    assert matched.id == request.id
+    assert not_matched is None

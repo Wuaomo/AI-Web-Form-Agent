@@ -14,7 +14,8 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app import config
-from app.models import ActionLog, FormField, Profile, Screenshot, Task, TaskCheckpoint
+from app.models import ActionLog, ApprovalRequest, FormField, Profile, Screenshot, Task, TaskCheckpoint
+from app.routers.approvals import router as approvals_router
 from app.routers.tasks import router as tasks_router
 from app.services.field_mapper import map_fields_with_llm
 from app.services.form_extractor import ExtractedFormField
@@ -37,6 +38,7 @@ def test_environment() -> Generator[tuple[TestClient, Session], None, None]:
 
     test_app = FastAPI()
     test_app.include_router(tasks_router)
+    test_app.include_router(approvals_router)
     test_app.dependency_overrides[get_db] = override_get_db
 
     with TestClient(test_app) as client:
@@ -856,6 +858,103 @@ def test_fill_returns_409_when_required_field_needs_policy_approval(
 
     assert response.status_code == 409
     assert response.json()["detail"] == "Required fields require approval before filling: Agree to terms"
+
+
+def test_fill_can_retry_after_required_field_approval(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify fill stays retryable after approving a required field gate."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.label = "Agree to terms"
+    field.field_type = "checkbox"
+    field.required = True
+    field.mapped_profile_key = "custom:terms"
+    field.mapped_value = "true"
+    field.confidence = 1.0
+    task.status = "READY_TO_FILL"
+    task.workflow_status = "READY_TO_FILL"
+    session.commit()
+
+    first_response = client.post(f"/tasks/{task.id}/fill")
+
+    assert first_response.status_code == 409
+    session.refresh(task)
+    assert task.status == "READY_TO_FILL"
+
+    approval = session.scalar(
+        select(ApprovalRequest)
+        .where(ApprovalRequest.task_id == task.id, ApprovalRequest.step_name == f"fill_field:{field.id}")
+        .order_by(ApprovalRequest.id.desc())
+    )
+    assert approval is not None
+
+    approve_response = client.post(f"/approvals/{approval.id}/approve")
+    assert approve_response.status_code == 200
+
+    with patch(
+        "app.routers.tasks.fill_form_and_capture_screenshot",
+        new_callable=AsyncMock,
+    ) as fill_form:
+        fill_form.return_value = (SimpleNamespace(id=1), [])
+        retry_response = client.post(f"/tasks/{task.id}/fill")
+
+    assert retry_response.status_code == 200
+    fill_form.assert_awaited_once()
+
+
+def test_confirm_mapping_requires_new_approval_when_memory_write_value_changes(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify memory-write approvals are tied to the approved mapped value."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.label = "Preference note"
+    field.field_type = "text"
+    field.required = False
+    field.mapped_profile_key = "custom:consent_preference"
+    field.mapped_value = "true"
+    session.commit()
+
+    first_response = client.post(f"/tasks/{task.id}/confirm-mapping")
+    assert first_response.status_code == 200
+    assert first_response.json()["profile_skipped"] == [
+        {"field_id": field.id, "reason": "approval_required", "detail": "Consent-like profile writes require review."}
+    ]
+
+    first_approval = session.scalar(
+        select(ApprovalRequest)
+        .where(ApprovalRequest.task_id == task.id, ApprovalRequest.step_name == f"memory_write:{field.id}")
+        .order_by(ApprovalRequest.id.desc())
+    )
+    assert first_approval is not None
+
+    approve_response = client.post(f"/approvals/{first_approval.id}/approve")
+    assert approve_response.status_code == 200
+
+    field.mapped_value = "false"
+    session.commit()
+
+    second_response = client.post(f"/tasks/{task.id}/confirm-mapping")
+
+    assert second_response.status_code == 200
+    assert second_response.json()["profile_updates"] == []
+    assert second_response.json()["profile_skipped"] == [
+        {"field_id": field.id, "reason": "approval_required", "detail": "Consent-like profile writes require review."}
+    ]
+
+    pending_requests = list(
+        session.scalars(
+            select(ApprovalRequest).where(
+                ApprovalRequest.task_id == task.id,
+                ApprovalRequest.step_name == f"memory_write:{field.id}",
+                ApprovalRequest.status == "PENDING",
+            )
+        )
+    )
+    assert len(pending_requests) == 1
 
 
 def test_update_field_memory_policy_normalizes_none_to_auto(

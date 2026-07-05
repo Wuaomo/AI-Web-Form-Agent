@@ -167,3 +167,27 @@ def latest_approved_request(
         .order_by(ApprovalRequest.resolved_at.desc(), ApprovalRequest.id.desc())
     )
     return db.scalar(statement)
+
+
+def latest_approved_request_for_action(
+    db: Session,
+    *,
+    task_id: int,
+    step_name: str,
+    proposed_action: dict[str, object],
+) -> ApprovalRequest | None:
+    """Return the newest approved request that matches the exact action payload."""
+
+    statement = (
+        select(ApprovalRequest)
+        .where(
+            ApprovalRequest.task_id == task_id,
+            ApprovalRequest.step_name == step_name,
+            ApprovalRequest.status == APPROVAL_STATUS_APPROVED,
+        )
+        .order_by(ApprovalRequest.resolved_at.desc(), ApprovalRequest.id.desc())
+    )
+    for request in db.scalars(statement):
+        if request.proposed_action == (proposed_action or {}):
+            return request
+    return None
