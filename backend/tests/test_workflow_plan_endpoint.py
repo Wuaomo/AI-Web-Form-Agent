@@ -173,3 +173,36 @@ def test_post_task_plan_rebuilds_and_replaces_saved_plan() -> None:
         "submit_form",
     ]
     session.close()
+
+
+def test_post_task_plan_rejects_whitespace_only_goal_without_overwriting() -> None:
+    """Verify whitespace-only goals return 400 and keep the previous saved plan."""
+
+    client, session = build_environment()
+    task = create_task(session)
+    task.workflow_plan = {
+        "workflow_type": "form_fill",
+        "goal": "Existing plan goal",
+        "steps": [
+            {
+                "step_id": "open_url",
+                "tool": "open_url",
+                "reason": "Open the target page.",
+                "requires_approval": False,
+                "status": "PENDING",
+            }
+        ],
+    }
+    session.add(task)
+    session.commit()
+
+    response = client.post(
+        f"/tasks/{task.id}/plan",
+        json={"goal": "   "},
+    )
+
+    assert response.status_code == 400
+    session.refresh(task)
+    assert task.workflow_plan["goal"] == "Existing plan goal"
+    assert task.workflow_plan["steps"][0]["step_id"] == "open_url"
+    session.close()

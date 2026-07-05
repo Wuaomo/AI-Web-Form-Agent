@@ -11,6 +11,8 @@ from app.database import Base, get_db
 from app import config
 from app.models import FormField, Job, Profile, Task
 from app.routers.tasks import router as tasks_router
+from app.services.approval_gate_service import approve_request, create_approval_request
+from app.services.policy_engine import evaluate_submit_action
 from app.job_constants import (
     JOB_TYPE_ANALYZE_FORM,
     JOB_TYPE_MAP_FIELDS,
@@ -177,6 +179,23 @@ def test_confirm_submit_remains_synchronous(async_env):
     )
     session.add(field)
     task.status = "WAITING_APPROVAL"
+    task.workflow_status = "WAITING_APPROVAL"
+    submit_approval = create_approval_request(
+        session,
+        task_id=task.id,
+        step_name="submit_form",
+        policy_decision=evaluate_submit_action(),
+        proposed_action={
+            "action": "submit_form",
+            "fields": [
+                {
+                    "field_id": field.id,
+                    "mapped_value": "ada@example.com",
+                }
+            ],
+        },
+    )
+    approve_request(session, submit_approval.id)
     session.commit()
 
     from unittest.mock import AsyncMock, patch

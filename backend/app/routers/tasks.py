@@ -639,8 +639,14 @@ def rebuild_task_plan(
     """Rebuild and overwrite the saved workflow plan for one task."""
 
     task = get_task_or_404(task_id, db)
+    goal = request.goal.strip()
+    if not goal:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provide a non-empty goal",
+        )
     try:
-        plan = build_and_save_task_plan(db, task, goal=request.goal.strip())
+        plan = build_and_save_task_plan(db, task, goal=goal)
     except ValueError as exc:
         db.rollback()
         raise HTTPException(

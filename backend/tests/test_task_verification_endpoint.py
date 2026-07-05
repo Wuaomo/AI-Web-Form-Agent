@@ -251,42 +251,20 @@ def test_fill_creates_failed_result_for_missing_selector(
 def test_fill_skips_sensitive_password_field(
     test_environment: tuple[TestClient, Session],
 ) -> None:
-    """Verify sensitive password fields are skipped in verification."""
+    """Verify sensitive password fields are blocked before fill execution."""
 
     client, session = test_environment
     task, fields = create_task_with_sensitive_field(session)
-
-    from app.services.browser_executor import FieldVerificationData
-    from app.models import VERIFICATION_STATUS_VERIFIED, VERIFICATION_STATUS_SKIPPED
-
-    mock_verification_data = [
-        FieldVerificationData(
-            field_id=fields[0].id,
-            selector="#email",
-            expected_value="test@example.com",
-            actual_value="test@example.com",
-            status=VERIFICATION_STATUS_VERIFIED,
-        ),
-        FieldVerificationData(
-            field_id=fields[1].id,
-            selector="#password",
-            expected_value=None,
-            actual_value=None,
-            status=VERIFICATION_STATUS_SKIPPED,
-            reason="SENSITIVE_FIELD_SKIPPED",
-        ),
-    ]
 
     with patch(
         "app.routers.tasks.fill_form_and_capture_screenshot",
         new_callable=AsyncMock,
     ) as mock_fill:
-        mock_fill.return_value = (AsyncMock(), mock_verification_data)
         response = client.post(f"/tasks/{task.id}/fill")
 
-    assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "WAITING_APPROVAL"
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Required fields were blocked by policy: Password"
+    mock_fill.assert_not_awaited()
 
     verification_results = list(
         session.scalars(
@@ -295,14 +273,7 @@ def test_fill_skips_sensitive_password_field(
             .order_by(FieldVerificationResult.id)
         )
     )
-    assert len(verification_results) == 2
-
-    assert verification_results[0].status == VERIFICATION_STATUS_VERIFIED
-    assert verification_results[0].expected_value_hash is not None
-
-    assert verification_results[1].status == VERIFICATION_STATUS_SKIPPED
-    assert verification_results[1].expected_value_hash is None
-    assert verification_results[1].actual_value_hash is None
+    assert verification_results == []
 
 
 def test_fill_deletes_previous_verification_results(
