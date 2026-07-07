@@ -502,6 +502,7 @@ def _find_baseline_run(
 
 VALID_STRESS_MODES = {"standard", "cache_cold", "cache_warm", "concurrent"}
 VALID_MEMORY_MODES = {"off", "on"}
+VALID_EVALUATION_MODES = {"rules", "llm", "rag_llm", "full_workflow"}
 
 
 def run_benchmarks(
@@ -514,6 +515,15 @@ def run_benchmarks(
 ) -> BenchmarkRunSummary:
     """Run all benchmark cases and optionally persist the results."""
 
+    if mode not in VALID_EVALUATION_MODES:
+        raise ValueError(f"Unknown benchmark mode: {mode}")
+    if mode == "full_workflow":
+        raise ValueError("full_workflow evaluation is not implemented yet")
+    if mode in {"llm", "rag_llm"} and not provider:
+        raise ValueError("LLM benchmarks require a provider")
+    if mode == "rules" and provider is not None:
+        raise ValueError("Rules benchmarks require provider to be None")
+
     if stress_mode not in VALID_STRESS_MODES:
         raise ValueError(f"Unknown stress mode: {stress_mode}. Valid modes: {VALID_STRESS_MODES}")
     if memory_mode not in VALID_MEMORY_MODES:
@@ -521,6 +531,25 @@ def run_benchmarks(
 
     if stress_mode == "concurrent":
         raise ValueError("concurrent stress mode is not implemented for sync benchmark runner")
+
+    mode_detail = build_mode_detail(stress_mode=stress_mode, memory_mode=memory_mode)
+
+    explicit_baseline: BenchmarkRun | None = None
+    if baseline_run_id is not None:
+        if db is None:
+            raise ValueError("baseline_run_id requires a database session")
+        explicit_baseline = db.get(BenchmarkRun, baseline_run_id)
+        if explicit_baseline is None:
+            raise ValueError("Baseline benchmark run not found")
+        if (
+            explicit_baseline.mode != mode
+            or explicit_baseline.provider != provider
+            or explicit_baseline.mode_detail != mode_detail
+        ):
+            raise ValueError(
+                "Baseline run is not compatible with this configuration. "
+                "Use mode comparison to compare across modes or settings."
+            )
 
     if stress_mode == "cache_cold":
         if db is None:
@@ -576,18 +605,12 @@ def run_benchmarks(
     regression_count = 0
     improvement_count = 0
     selected_baseline_run_id: int | None = None
-    mode_detail = build_mode_detail(stress_mode=stress_mode, memory_mode=memory_mode)
 
     if db is not None:
         from app.models import BenchmarkCaseResult
 
-        baseline_run: BenchmarkRun | None = None
-        if baseline_run_id is not None:
-            baseline_run = db.get(BenchmarkRun, baseline_run_id)
-            selected_baseline_run_id = baseline_run.id if baseline_run else None
-        else:
-            baseline_run = _find_baseline_run(db, mode, provider, mode_detail)
-            selected_baseline_run_id = baseline_run.id if baseline_run else None
+        baseline_run = explicit_baseline or _find_baseline_run(db, mode, provider, mode_detail)
+        selected_baseline_run_id = baseline_run.id if baseline_run else None
 
         if baseline_run:
             comparison = compare_summary_metrics(

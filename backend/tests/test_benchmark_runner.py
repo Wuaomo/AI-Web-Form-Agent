@@ -791,3 +791,57 @@ def test_cache_cold_deletes_mapping_cache(db_session: Session) -> None:
 
     assert db_session.query(LLMMappingCache).count() == 0
 
+
+def test_run_benchmarks_rejects_full_workflow_mode() -> None:
+    with pytest.raises(ValueError, match="full_workflow evaluation is not implemented yet"):
+        run_benchmarks(mode="full_workflow")
+
+
+def test_run_benchmarks_rejects_unknown_mode() -> None:
+    with pytest.raises(ValueError, match="Unknown benchmark mode: not_real"):
+        run_benchmarks(mode="not_real")
+
+
+def test_run_benchmarks_llm_requires_provider(db_session: Session) -> None:
+    with pytest.raises(ValueError, match="LLM benchmarks require a provider"):
+        run_benchmarks(mode="llm", provider=None, db=db_session)
+
+
+def test_run_benchmarks_missing_baseline_raises_before_case_execution(db_session: Session) -> None:
+    with patch("app.services.benchmark_runner._run_case") as mock_run_case:
+        with pytest.raises(ValueError, match="Baseline benchmark run not found"):
+            run_benchmarks(
+                mode="rules",
+                provider=None,
+                db=db_session,
+                stress_mode="standard",
+                memory_mode="off",
+                baseline_run_id=999,
+            )
+    mock_run_case.assert_not_called()
+
+
+def test_run_benchmarks_incompatible_baseline_raises_before_case_execution(db_session: Session) -> None:
+    baseline = BenchmarkRun(
+        mode="rules",
+        provider=None,
+        total_cases=1,
+        average_score=0.9,
+        summary_metrics_json=json.dumps({"field_extraction_recall": 0.9}),
+        mode_detail="stress_mode=standard;memory_mode=off",
+    )
+    db_session.add(baseline)
+    db_session.commit()
+
+    with patch("app.services.benchmark_runner._run_case") as mock_run_case:
+        with pytest.raises(ValueError, match="Baseline run is not compatible with this configuration"):
+            run_benchmarks(
+                mode="llm",
+                provider="openai",
+                db=db_session,
+                stress_mode="standard",
+                memory_mode="off",
+                baseline_run_id=baseline.id,
+            )
+    mock_run_case.assert_not_called()
+

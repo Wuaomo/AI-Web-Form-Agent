@@ -321,44 +321,54 @@ def test_run_benchmark_full_workflow_returns_400_without_executing(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     client, _ = test_environment
-    with patch("app.routers.benchmarks.run_benchmarks") as mocked_runner:
+    with patch(
+        "app.routers.benchmarks.run_benchmarks",
+        side_effect=ValueError("full_workflow evaluation is not implemented yet"),
+    ) as mocked_runner:
         response = client.post("/benchmarks/run", json={"mode": "full_workflow"})
 
     assert response.status_code == 400
-    mocked_runner.assert_not_called()
+    mocked_runner.assert_called_once()
 
 
 def test_run_benchmark_rejects_incompatible_baseline_before_execution(
     test_environment: tuple[TestClient, Session],
 ) -> None:
-    client, session = test_environment
-    baseline = BenchmarkRun(
-        mode="rules",
-        provider=None,
-        total_cases=0,
-        average_score=1.0,
-        summary_metrics_json=json.dumps({}),
-        mode_detail="stress_mode=standard;memory_mode=off",
-    )
-    session.add(baseline)
-    session.commit()
-
     with (
         patch("app.services.benchmark_request_service.resolve_llm_provider", return_value="openai"),
         patch("app.routers.benchmarks.is_provider_configured", return_value=True),
-        patch("app.routers.benchmarks.run_benchmarks") as mocked_runner,
+        patch(
+            "app.routers.benchmarks.run_benchmarks",
+            side_effect=ValueError(
+                "Baseline run is not compatible with this configuration. "
+                "Use mode comparison to compare across modes or settings."
+            ),
+        ) as mocked_runner,
     ):
+        client, _ = test_environment
         response = client.post(
             "/benchmarks/run",
-            json={
-                "mode": "llm",
-                "provider": "openai",
-                "baseline_run_id": baseline.id,
-            },
+            json={"mode": "llm", "provider": "openai", "baseline_run_id": 1},
         )
 
     assert response.status_code == 400
-    mocked_runner.assert_not_called()
+    mocked_runner.assert_called_once()
+
+
+def test_run_benchmark_baseline_missing_maps_to_404(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    with (
+        patch(
+            "app.routers.benchmarks.run_benchmarks",
+            side_effect=ValueError("Baseline benchmark run not found"),
+        ) as mocked_runner,
+    ):
+        client, _ = test_environment
+        response = client.post("/benchmarks/run", json={"mode": "rules", "baseline_run_id": 999})
+
+    assert response.status_code == 404
+    mocked_runner.assert_called_once()
 
 
 def test_report_endpoint_returns_404_for_missing_run(

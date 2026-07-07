@@ -65,35 +65,26 @@ def run_benchmark_suite(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=get_provider_setup_hint(normalized.provider),
             )
-
-    if normalized.baseline_run_id is not None:
-        baseline = db.get(BenchmarkRun, normalized.baseline_run_id)
-        if baseline is None:
+    try:
+        run_benchmarks(
+            mode=normalized.eval_mode,
+            provider=normalized.provider,
+            db=db,
+            stress_mode=normalized.stress_mode,
+            memory_mode=normalized.memory_mode,
+            baseline_run_id=normalized.baseline_run_id,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if message == "Baseline benchmark run not found":
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Baseline benchmark run not found",
-            )
-        if (
-            baseline.mode != normalized.eval_mode
-            or baseline.provider != normalized.provider
-            or baseline.mode_detail != normalized.mode_detail
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    "Baseline run is not compatible with this configuration. "
-                    "Use mode comparison to compare across modes or settings."
-                ),
-            )
-
-    run_benchmarks(
-        mode=normalized.eval_mode,
-        provider=normalized.provider,
-        db=db,
-        stress_mode=normalized.stress_mode,
-        memory_mode=normalized.memory_mode,
-        baseline_run_id=normalized.baseline_run_id,
-    )
+                detail=message,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=message,
+        ) from exc
     return _load_latest_benchmark_run(db)
 
 

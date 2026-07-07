@@ -31,10 +31,7 @@ def normalize_benchmark_request(options: BenchmarkRunRequest) -> NormalizedBench
     stress_mode = options.stress_mode
     baseline_run_id = options.baseline_run_id
 
-    if eval_mode == "full_workflow":
-        raise ValueError("full_workflow evaluation is not implemented yet")
-
-    if eval_mode == "rules":
+    if eval_mode in {"rules", "full_workflow"}:
         memory_mode = "off"
         provider = None
         return NormalizedBenchmarkRequest(
@@ -66,4 +63,3 @@ def normalize_benchmark_request(options: BenchmarkRunRequest) -> NormalizedBench
         mode_detail=build_mode_detail(stress_mode=stress_mode, memory_mode=memory_mode),
         baseline_run_id=baseline_run_id,
     )
-
