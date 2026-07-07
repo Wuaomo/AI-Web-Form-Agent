@@ -8,7 +8,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import WorkflowMemoryItem
-from app.workflow_constants import WORKFLOW_TYPE_FORM_FILL
+from app.workflow_constants import (
+    MEMORY_TYPE_CONFIRMED_MAPPING,
+    WORKFLOW_TYPE_FORM_FILL,
+)
 
 
 STOP_TOKENS = {
@@ -59,7 +62,10 @@ def search_similar_field_mappings(
 ) -> list[dict[str, object]]:
     """Return best matching memory items for one field text query."""
 
-    query = select(WorkflowMemoryItem).where(WorkflowMemoryItem.workflow_type == workflow_type)
+    query = select(WorkflowMemoryItem).where(
+        WorkflowMemoryItem.workflow_type == workflow_type,
+        WorkflowMemoryItem.memory_type == MEMORY_TYPE_CONFIRMED_MAPPING,
+    )
     candidates = list(db.scalars(query))
     results: list[dict[str, object]] = []
 

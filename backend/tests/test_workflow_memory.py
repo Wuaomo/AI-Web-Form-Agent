@@ -11,6 +11,7 @@ from app.database import Base
 from app.models import FormField, Profile, Task, WorkflowMemoryItem
 from app.services.workflow_memory import (
     build_field_memory_text,
+    is_one_time_field,
     save_confirmed_mapping_memory,
     should_save_mapping_memory,
 )
@@ -136,3 +137,45 @@ def test_duplicate_memory_increments_success_count(session: Session) -> None:
     assert len(rows) == 1
     assert rows[0].success_count == 2
 
+
+def test_postal_code_is_not_treated_as_one_time_field(session: Session) -> None:
+    task = _create_task(session)
+    field = FormField(
+        task_id=task.id,
+        label="Postal Code",
+        name="postal_code",
+        selector="#postal-code",
+        field_type="text",
+        required=False,
+    )
+
+    assert is_one_time_field(field) is False
+    assert should_save_mapping_memory(
+        FormField(
+            task_id=task.id,
+            label="Postal Code",
+            name="postal_code",
+            selector="#postal-code",
+            field_type="text",
+            required=False,
+            mapped_profile_key="custom:postal_code",
+            mapped_value="200000",
+        )
+    ) is True
+
+
+def test_verification_code_is_treated_as_one_time_field(session: Session) -> None:
+    task = _create_task(session)
+    field = FormField(
+        task_id=task.id,
+        label="Verification Code",
+        name="verification_code",
+        selector="#verification-code",
+        field_type="text",
+        required=True,
+        mapped_profile_key="custom:verification_code",
+        mapped_value="123456",
+    )
+
+    assert is_one_time_field(field) is True
+    assert should_save_mapping_memory(field) is False

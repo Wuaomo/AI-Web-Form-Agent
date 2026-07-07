@@ -89,3 +89,39 @@ def test_search_similar_field_mappings_ranks_by_score_and_filters_low_values(ses
     )
     assert low_results == []
 
+
+def test_search_similar_field_mappings_ignores_non_confirmed_memory_types(session: Session) -> None:
+    session.add_all(
+        [
+            WorkflowMemoryItem(
+                memory_type="successful_run",
+                workflow_type="form_fill",
+                source_domain="example.com",
+                field_signature="sig_non_confirmed",
+                field_text="label: GitHub\nname: github_url\ntype: url\noptions: []",
+                mapped_profile_key="github",
+                success_count=50,
+            ),
+            WorkflowMemoryItem(
+                memory_type=MEMORY_TYPE_CONFIRMED_MAPPING,
+                workflow_type="form_fill",
+                source_domain="example.com",
+                field_signature="sig_confirmed",
+                field_text="label: GitHub\nname: github_url\ntype: url\noptions: []",
+                mapped_profile_key="github",
+                success_count=1,
+            ),
+        ]
+    )
+    session.commit()
+
+    results = search_similar_field_mappings(
+        session,
+        field_text="label: GitHub\nname: github_profile\ntype: url\noptions: []",
+        workflow_type="form_fill",
+        source_domain="example.com",
+        limit=5,
+    )
+
+    assert len(results) == 1
+    assert results[0]["success_count"] == 1

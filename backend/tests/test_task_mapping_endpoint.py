@@ -279,6 +279,26 @@ def test_confirm_mapping_allows_required_values_after_manual_entry(
     assert task.status == "READY_TO_FILL"
 
 
+def test_confirm_mapping_succeeds_when_workflow_memory_save_fails(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_value = "manual@example.com"
+    session.commit()
+
+    with patch(
+        "app.routers.tasks.save_confirmed_mappings_for_task",
+        side_effect=RuntimeError("memory write failed"),
+    ):
+        response = client.post(f"/tasks/{task.id}/confirm-mapping")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "READY_TO_FILL"
+    session.refresh(task)
+    assert task.status == "READY_TO_FILL"
+
+
 def test_confirm_mapping_writes_back_to_built_in_profile_key(
     test_environment: tuple[TestClient, Session],
 ) -> None:

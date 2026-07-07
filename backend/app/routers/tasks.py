@@ -1,6 +1,7 @@
 """Task-related API endpoints."""
 
 import json
+import logging
 import re
 import time
 from typing import Literal, Union
@@ -137,6 +138,8 @@ from app.workflow_constants import (
     WORKFLOW_STAGE_MAPPING,
     WORKFLOW_TYPE_FORM_FILL,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -1420,12 +1423,13 @@ def confirm_task_mapping(
             )
 
     apply_workflow_status(task, WORKFLOW_STATUS_READY_TO_FILL, reason="mapping_confirmed")
+    db.commit()
     try:
         save_confirmed_mappings_for_task(db, task=task, fields=fields)
-        db.flush()
+        db.commit()
     except Exception:
-        logger.warning("Workflow memory save failed for task %s", task.id)
-    db.commit()
+        db.rollback()
+        logger.warning("Workflow memory save failed for task %s", task.id, exc_info=True)
     safe_finish_span(
         confirm_span_id,
         status=SPAN_STATUS_SUCCESS,

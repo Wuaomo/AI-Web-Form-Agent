@@ -1104,6 +1104,120 @@ def _response_covers_fillable_fields(
     return _fillable_field_ids(fields).issubset(mapped_field_ids)
 
 
+def _build_retrieval_context(
+    db: Session,
+    *,
+    task: Task,
+    fields: list[FormField],
+) -> tuple[list[dict[str, str]], dict[int, dict[str, object]]]:
+    """Build prompt examples and top retrieval hits for eligible fields."""
+
+    retrieval_examples: list[dict[str, str]] = []
+    retrieval_top_by_field_id: dict[int, dict[str, object]] = {}
+    source_domain = urlparse(task.url).hostname if task.url else None
+
+    for field in fields:
+        if field.id is None:
+            continue
+        if not is_memory_eligible_field(field):
+            continue
+        field_text = build_field_memory_text(field)
+        candidates = search_similar_field_mappings(
+            db,
+            field_text=field_text,
+            workflow_type=task.workflow_type,
+            source_domain=source_domain,
+            limit=5,
+        )
+        if not candidates:
+            continue
+        top_candidate = candidates[0]
+        retrieval_top_by_field_id[field.id] = top_candidate
+        retrieval_examples.append(
+            {
+                "field_text": str(top_candidate.get("field_text", "")).strip(),
+                "mapped_profile_key": str(top_candidate.get("mapped_profile_key", "")).strip(),
+            }
+        )
+
+    return retrieval_examples[:5], retrieval_top_by_field_id
+
+
+def _retrieval_fallback_mappings(
+    fields: list[FormField],
+    profile: dict[str, str],
+    retrieval_top_by_field_id: dict[int, dict[str, object]],
+    existing_mapped_field_ids: set[int],
+) -> list[LLMFieldMapping]:
+    """Return conservative retrieval-based fallback mappings for missing fields."""
+
+    fallback_mappings: list[LLMFieldMapping] = []
+    for field in fields:
+        if field.id is None:
+            continue
+        if field.id in existing_mapped_field_ids:
+            continue
+        if not is_memory_eligible_field(field):
+            continue
+
+        match = _match_profile_key(field)
+        if match is not None:
+            profile_key, _confidence = match
+            if profile_key in profile and profile[profile_key] not in (None, ""):
+                continue
+
+        top = retrieval_top_by_field_id.get(field.id)
+        if not top:
+            continue
+        score = float(top.get("score", 0.0))
+        if score < 0.65:
+            continue
+        mapped_profile_key = str(top.get("mapped_profile_key", "")).strip()
+        if not mapped_profile_key:
+            continue
+        if mapped_profile_key not in profile:
+            continue
+        if profile[mapped_profile_key] in (None, ""):
+            continue
+
+        fallback_mappings.append(
+            LLMFieldMapping(
+                field_id=field.id,
+                mapped_profile_key=mapped_profile_key,
+                confidence=0.65,
+            )
+        )
+
+    return fallback_mappings
+
+
+def _apply_partial_mappings(
+    fields: list[FormField],
+    profile: dict[str, str],
+    mappings: list[LLMFieldMapping],
+    db: Session,
+) -> list[FormField]:
+    """Apply additional mappings without clearing existing field values."""
+
+    if not mappings:
+        return fields
+
+    mappings_by_field_id = {
+        mapping.field_id: mapping
+        for mapping in mappings
+    }
+    for field in fields:
+        mapping = mappings_by_field_id.get(field.id)
+        if mapping is None:
+            continue
+        field.mapped_profile_key = mapping.mapped_profile_key
+        field.mapped_value = profile[mapping.mapped_profile_key]
+        field.confidence = mapping.confidence
+
+    db.commit()
+    return fields
+
+
 def _map_fields_with_llm_result(
     task_id: int,
     db: Session,
@@ -1126,6 +1240,8 @@ def _map_fields_with_llm_result(
     profile = _profile_payload(task)
     selected_provider: str | None = None
     start_time = time.perf_counter()
+    retrieval_examples: list[dict[str, str]] = []
+    retrieval_top_by_field_id: dict[int, dict[str, object]] = {}
 
     try:
         try:
@@ -1140,12 +1256,29 @@ def _map_fields_with_llm_result(
             selected_provider = provider
             cache_context = None
 
+        if memory_mode == "on":
+            retrieval_examples, retrieval_top_by_field_id = _build_retrieval_context(
+                db,
+                task=task,
+                fields=fields,
+            )
+
         override_response = read_user_override_response(db, fields, profile)
         if override_response is not None and _response_covers_fillable_fields(
             override_response,
             fields,
         ):
             result = _validate_llm_response(override_response, fields, profile)
+            fallback_mappings = _retrieval_fallback_mappings(
+                fields,
+                profile,
+                retrieval_top_by_field_id,
+                {mapping.field_id for mapping in result.mappings},
+            )
+            if fallback_mappings:
+                result = LLMMappingResponse(
+                    mappings=list(result.mappings) + fallback_mappings,
+                )
             if cache_context is not None:
                 write_mapping_cache_response(
                     db,
@@ -1173,6 +1306,16 @@ def _map_fields_with_llm_result(
                 fields,
                 profile,
             )
+            fallback_mappings = _retrieval_fallback_mappings(
+                fields,
+                profile,
+                retrieval_top_by_field_id,
+                {mapping.field_id for mapping in result.mappings},
+            )
+            if fallback_mappings:
+                result = LLMMappingResponse(
+                    mappings=list(result.mappings) + fallback_mappings,
+                )
             if cache_context is not None:
                 write_mapping_cache_response(
                     db,
@@ -1185,34 +1328,6 @@ def _map_fields_with_llm_result(
                 used_fallback=False,
             )
 
-        retrieval_examples: list[dict[str, str]] = []
-        retrieval_top_by_field_id: dict[int, dict[str, object]] = {}
-        if memory_mode == "on":
-            source_domain = urlparse(task.url).hostname if task.url else None
-            for field in fields:
-                if field.id is None:
-                    continue
-                if not is_memory_eligible_field(field):
-                    continue
-                field_text = build_field_memory_text(field)
-                candidates = search_similar_field_mappings(
-                    db,
-                    field_text=field_text,
-                    workflow_type=task.workflow_type,
-                    source_domain=source_domain,
-                    limit=5,
-                )
-                if not candidates:
-                    continue
-                retrieval_top_by_field_id[field.id] = candidates[0]
-                retrieval_examples.append(
-                    {
-                        "field_text": field_text,
-                        "mapped_profile_key": str(candidates[0].get("mapped_profile_key", "")),
-                    }
-                )
-            retrieval_examples = retrieval_examples[:5]
-
         prompt = _build_llm_prompt(fields, profile, retrieved_examples=retrieval_examples)
         raw_response = _request_llm_mapping(
             prompt,
@@ -1224,39 +1339,16 @@ def _map_fields_with_llm_result(
         if merged_response is None:
             merged_response = raw_response
         result = _validate_llm_response(merged_response, fields, profile)
-        if memory_mode == "on" and retrieval_top_by_field_id:
-            mapped_field_ids = {mapping.field_id for mapping in result.mappings}
-            fallback_mappings: list[LLMFieldMapping] = []
-            for field in fields:
-                if field.id is None:
-                    continue
-                if field.id in mapped_field_ids:
-                    continue
-                if not is_memory_eligible_field(field):
-                    continue
-                match = _match_profile_key(field)
-                if match:
-                    profile_key, _confidence = match
-                    if profile_key in profile and profile[profile_key] not in (None, ""):
-                        continue
-                top = retrieval_top_by_field_id.get(field.id)
-                if not top:
-                    continue
-                score = float(top.get("score", 0.0))
-                if score < 0.65:
-                    continue
-                mapped_profile_key = str(top.get("mapped_profile_key", "")).strip()
-                if not mapped_profile_key or mapped_profile_key not in profile:
-                    continue
-                fallback_mappings.append(
-                    LLMFieldMapping(
-                        field_id=field.id,
-                        mapped_profile_key=mapped_profile_key,
-                        confidence=0.65,
-                    )
-                )
-            if fallback_mappings:
-                result = LLMMappingResponse(mappings=list(result.mappings) + fallback_mappings)
+        fallback_mappings = _retrieval_fallback_mappings(
+            fields,
+            profile,
+            retrieval_top_by_field_id,
+            {mapping.field_id for mapping in result.mappings},
+        )
+        if fallback_mappings:
+            result = LLMMappingResponse(
+                mappings=list(result.mappings) + fallback_mappings,
+            )
         if cache_context is not None:
             write_mapping_cache_response(db, cache_context, fields, merged_response)
         mapped_fields = _apply_llm_mappings(fields, profile, result, db)
@@ -1300,7 +1392,24 @@ def _map_fields_with_llm_result(
             },
             db=db,
         )
-        return LlmMappingResult(fields=_map_fields(task_id, db), used_fallback=True)
+        mapped_fields = _map_fields(task_id, db)
+        fallback_mappings = _retrieval_fallback_mappings(
+            mapped_fields,
+            profile,
+            retrieval_top_by_field_id,
+            {
+                field.id
+                for field in mapped_fields
+                if field.id is not None and field.mapped_profile_key not in (None, "")
+            },
+        )
+        mapped_fields = _apply_partial_mappings(
+            mapped_fields,
+            profile,
+            fallback_mappings,
+            db,
+        )
+        return LlmMappingResult(fields=mapped_fields, used_fallback=True)
 
 
 def _map_fields_with_llm(

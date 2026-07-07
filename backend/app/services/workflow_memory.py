@@ -24,7 +24,6 @@ ONE_TIME_FIELD_TOKENS = {
     "security code",
     "passcode",
     "token",
-    "code",
 }
 
 ONE_TIME_FIELD_PHRASES = {
@@ -217,4 +216,3 @@ def save_confirmed_mappings_for_task(
         if item is not None:
             saved.append(item)
     return saved
-

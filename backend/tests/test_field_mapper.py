@@ -379,6 +379,201 @@ class LLMFieldMapperTests(unittest.TestCase):
         mapped_by_id = {mapped.id: mapped for mapped in result.fields}
         self.assertIsNone(mapped_by_id[field.id].mapped_profile_key)
 
+    def test_memory_mode_off_disables_retrieval_examples_and_fallback(self) -> None:
+        task = self.db.get(Task, self.task_id)
+        assert task is not None
+        task.profile.github = "https://github.com/ada"
+        self.db.commit()
+
+        field = self._add_field(
+            label="Portfolio URL",
+            selector="#portfolio",
+            field_type="url",
+        )
+        memory_item = WorkflowMemoryItem(
+            memory_type=MEMORY_TYPE_CONFIRMED_MAPPING,
+            workflow_type="form_fill",
+            source_domain="example.com",
+            field_signature="sig_memory_off_portfolio",
+            field_text=build_field_memory_text(field),
+            mapped_profile_key="github",
+            success_count=10,
+        )
+        self.db.add(memory_item)
+        self.db.commit()
+
+        captured_prompt: list[str] = []
+
+        def fake_request(prompt: str, *_args, **_kwargs) -> str:
+            captured_prompt.append(prompt)
+            return json.dumps({"mappings": []})
+
+        with patch(
+            "app.services.field_mapper._request_llm_mapping",
+            side_effect=fake_request,
+        ):
+            result = map_fields_with_llm_result(
+                self.task_id,
+                self.db,
+                provider="deepseek",
+                memory_mode="off",
+            )
+
+        mapped_by_id = {mapped.id: mapped for mapped in result.fields}
+        self.assertIsNone(mapped_by_id[field.id].mapped_profile_key)
+        self.assertTrue(captured_prompt)
+        self.assertNotIn("Historical mapping examples:", captured_prompt[0])
+
+    def test_cached_empty_mapping_still_applies_memory_fallback(self) -> None:
+        task = self.db.get(Task, self.task_id)
+        assert task is not None
+        task.profile.github = "https://github.com/ada"
+        self.db.commit()
+
+        first_field = self._add_field(
+            label="Portfolio URL",
+            selector="#portfolio",
+            field_type="url",
+        )
+        memory_item = WorkflowMemoryItem(
+            memory_type=MEMORY_TYPE_CONFIRMED_MAPPING,
+            workflow_type="form_fill",
+            source_domain="example.com",
+            field_signature="sig_cached_portfolio",
+            field_text=build_field_memory_text(first_field),
+            mapped_profile_key="github",
+            success_count=10,
+        )
+        self.db.add(memory_item)
+        self.db.commit()
+
+        empty_llm_json = json.dumps({"mappings": []})
+
+        with patch(
+            "app.services.field_mapper._request_llm_mapping",
+            return_value=empty_llm_json,
+        ) as request_mapping:
+            first_result = map_fields_with_llm_result(
+                self.task_id,
+                self.db,
+                provider="deepseek",
+            )
+
+        self.assertEqual(request_mapping.call_count, 1)
+        self.assertEqual(first_result.fields[0].mapped_profile_key, "github")
+
+        second_profile = Profile(
+            profile_name="Cached profile",
+            full_name="Grace Hopper",
+            email="grace@example.com",
+            github="https://github.com/grace",
+        )
+        second_task = Task(
+            url="https://example.com/form",
+            profile=second_profile,
+            status="MAPPING_READY",
+        )
+        self.db.add(second_task)
+        self.db.commit()
+        second_field = self._add_field(
+            task_id=second_task.id,
+            label="Portfolio URL",
+            selector="#portfolio",
+            field_type="url",
+        )
+
+        with patch(
+            "app.services.field_mapper._request_llm_mapping",
+            side_effect=AssertionError("cache hit should skip provider call"),
+        ):
+            second_result = map_fields_with_llm_result(
+                second_task.id,
+                self.db,
+                provider="deepseek",
+                memory_mode="on",
+            )
+
+        mapped_by_id = {mapped.id: mapped for mapped in second_result.fields}
+        self.assertEqual(mapped_by_id[second_field.id].mapped_profile_key, "github")
+        self.assertEqual(
+            mapped_by_id[second_field.id].mapped_value,
+            "https://github.com/grace",
+        )
+
+    def test_exception_path_applies_memory_fallback_after_rules_miss(self) -> None:
+        task = self.db.get(Task, self.task_id)
+        assert task is not None
+        task.profile.github = "https://github.com/ada"
+        self.db.commit()
+
+        field = self._add_field(
+            label="Portfolio URL",
+            selector="#portfolio",
+            field_type="url",
+        )
+        memory_item = WorkflowMemoryItem(
+            memory_type=MEMORY_TYPE_CONFIRMED_MAPPING,
+            workflow_type="form_fill",
+            source_domain="example.com",
+            field_signature="sig_exception_portfolio",
+            field_text=build_field_memory_text(field),
+            mapped_profile_key="github",
+            success_count=10,
+        )
+        self.db.add(memory_item)
+        self.db.commit()
+
+        with patch(
+            "app.services.field_mapper._request_llm_mapping",
+            side_effect=RuntimeError("LLM request failed"),
+        ):
+            result = map_fields_with_llm_result(
+                self.task_id,
+                self.db,
+                provider="deepseek",
+            )
+
+        self.assertTrue(result.used_fallback)
+        mapped_by_id = {mapped.id: mapped for mapped in result.fields}
+        self.assertEqual(mapped_by_id[field.id].mapped_profile_key, "github")
+
+    def test_exception_path_does_not_override_rules_hit_with_memory_fallback(self) -> None:
+        task = self.db.get(Task, self.task_id)
+        assert task is not None
+        task.profile.github = "https://github.com/ada"
+        self.db.commit()
+
+        field = self._add_field(
+            label="Email",
+            selector="#email",
+            field_type="email",
+        )
+        memory_item = WorkflowMemoryItem(
+            memory_type=MEMORY_TYPE_CONFIRMED_MAPPING,
+            workflow_type="form_fill",
+            source_domain="example.com",
+            field_signature="sig_exception_email",
+            field_text=build_field_memory_text(field),
+            mapped_profile_key="github",
+            success_count=10,
+        )
+        self.db.add(memory_item)
+        self.db.commit()
+
+        with patch(
+            "app.services.field_mapper._request_llm_mapping",
+            side_effect=RuntimeError("LLM request failed"),
+        ):
+            result = map_fields_with_llm_result(
+                self.task_id,
+                self.db,
+                provider="deepseek",
+            )
+
+        self.assertTrue(result.used_fallback)
+        mapped_by_id = {mapped.id: mapped for mapped in result.fields}
+        self.assertEqual(mapped_by_id[field.id].mapped_profile_key, "email")
+
     def test_llm_maps_split_name_fields_from_full_name(self) -> None:
         first_name = self._add_field(
             label="Given name",
