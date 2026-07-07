@@ -98,6 +98,24 @@ def test_init_db_adds_workflow_columns_to_existing_tasks_table(tmp_path):
     assert "workflow_plan_json" in columns
 
 
+def test_init_db_creates_workflow_memory_items_table(tmp_path):
+    """Verify workflow memory table is created for older SQLite databases."""
+
+    from app.database import _ensure_workflow_memory_items_table
+
+    db_path = tmp_path / "legacy_memory.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+
+    _ensure_workflow_memory_items_table(engine)
+
+    inspector = inspect(engine)
+    assert "workflow_memory_items" in inspector.get_table_names()
+    columns = {column["name"] for column in inspector.get_columns("workflow_memory_items")}
+    assert "memory_type" in columns
+    assert "field_signature" in columns
+    assert "mapped_profile_key" in columns
+
+
 def test_init_db_adds_missing_workflow_span_columns(tmp_path):
     """Verify legacy workflow_spans tables receive newly added columns."""
 

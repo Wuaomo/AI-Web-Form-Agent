@@ -92,9 +92,17 @@ def test_run_benchmark_persists_and_returns_results(
         ],
     )
 
-    def fake_run_benchmarks(*, mode: str, provider: str | None, db: Session, stress_mode: str = "standard") -> BenchmarkRunSummary:
+    def fake_run_benchmarks(
+        *,
+        mode: str,
+        provider: str | None,
+        db: Session,
+        stress_mode: str = "standard",
+        memory_mode: str = "off",
+    ) -> BenchmarkRunSummary:
         assert mode == "rules"
         assert provider is None
+        assert memory_mode == "off"
         _persist_summary(db, summary)
         return summary
 
@@ -128,9 +136,17 @@ def test_run_benchmark_rules_mode_succeeds(test_environment: tuple[TestClient, S
         case_results=[],
     )
 
-    def fake_run_benchmarks(*, mode: str, provider: str | None, db: Session, stress_mode: str = "standard") -> BenchmarkRunSummary:
+    def fake_run_benchmarks(
+        *,
+        mode: str,
+        provider: str | None,
+        db: Session,
+        stress_mode: str = "standard",
+        memory_mode: str = "off",
+    ) -> BenchmarkRunSummary:
         assert mode == "rules"
         assert provider is None
+        assert memory_mode == "off"
         _persist_summary(db, summary)
         return summary
 
@@ -161,9 +177,17 @@ def test_run_benchmark_empty_body_defaults_to_rules(
         case_results=[],
     )
 
-    def fake_run_benchmarks(*, mode: str, provider: str | None, db: Session, stress_mode: str = "standard") -> BenchmarkRunSummary:
+    def fake_run_benchmarks(
+        *,
+        mode: str,
+        provider: str | None,
+        db: Session,
+        stress_mode: str = "standard",
+        memory_mode: str = "off",
+    ) -> BenchmarkRunSummary:
         assert mode == "rules"
         assert provider is None
+        assert memory_mode == "off"
         _persist_summary(db, summary)
         return summary
 
@@ -213,9 +237,17 @@ def test_run_benchmark_llm_with_configured_provider_calls_runner(
         case_results=[],
     )
 
-    def fake_run_benchmarks(*, mode: str, provider: str | None, db: Session, stress_mode: str = "standard") -> BenchmarkRunSummary:
+    def fake_run_benchmarks(
+        *,
+        mode: str,
+        provider: str | None,
+        db: Session,
+        stress_mode: str = "standard",
+        memory_mode: str = "off",
+    ) -> BenchmarkRunSummary:
         assert mode == "llm"
         assert provider == "openai"
+        assert memory_mode == "off"
         _persist_summary(db, summary)
         return summary
 

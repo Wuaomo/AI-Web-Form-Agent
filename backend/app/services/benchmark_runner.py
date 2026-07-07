@@ -296,6 +296,8 @@ def _actual_fields_from_llm(
     raw_fields: list[dict[str, Any]],
     provider: str,
     db: Session,
+    *,
+    memory_mode: str,
 ) -> tuple[list[dict[str, Any]], int]:
     profile = _benchmark_profile()
     db.add(profile)
@@ -327,7 +329,12 @@ def _actual_fields_from_llm(
     db.flush()
 
     try:
-        result = map_fields_with_llm_result(task.id, db=db, provider=provider)
+        result = map_fields_with_llm_result(
+            task.id,
+            db=db,
+            provider=provider,
+            memory_mode=memory_mode,
+        )
         fallback_count = 1 if result.used_fallback else 0
         actual_fields = [
             {
@@ -366,6 +373,7 @@ def _run_case(
     mode: str = "rules",
     provider: str | None = None,
     db: Session | None = None,
+    memory_mode: str = "off",
 ) -> dict[str, Any]:
     """Execute one local HTML benchmark fixture."""
 
@@ -379,7 +387,12 @@ def _run_case(
             raise ValueError("LLM benchmarks require a database session")
         if not provider:
             raise ValueError("LLM benchmarks require a provider")
-        fields, llm_fallback_count = _actual_fields_from_llm(raw_fields, provider, db)
+        fields, llm_fallback_count = _actual_fields_from_llm(
+            raw_fields,
+            provider,
+            db,
+            memory_mode=memory_mode,
+        )
     else:
         fields = _actual_fields_from_rules(raw_fields)
 
@@ -471,7 +484,7 @@ def _find_baseline_run(
     db: Session,
     mode: str,
     provider: str | None,
-    stress_mode: str,
+    mode_detail: str,
 ) -> BenchmarkRun | None:
     """Find the most recent benchmark run with the same mode, provider, and stress mode to use as baseline."""
 
@@ -479,7 +492,7 @@ def _find_baseline_run(
         select(BenchmarkRun)
         .where(BenchmarkRun.mode == mode)
         .where(BenchmarkRun.provider == provider)
-        .where(BenchmarkRun.mode_detail == stress_mode)
+        .where(BenchmarkRun.mode_detail == mode_detail)
         .order_by(BenchmarkRun.created_at.desc(), BenchmarkRun.id.desc())
         .limit(1)
     )
@@ -487,6 +500,7 @@ def _find_baseline_run(
 
 
 VALID_STRESS_MODES = {"standard", "cache_cold", "cache_warm", "concurrent"}
+VALID_MEMORY_MODES = {"off", "on"}
 
 
 def run_benchmarks(
@@ -494,11 +508,14 @@ def run_benchmarks(
     provider: str | None = None,
     db: Session | None = None,
     stress_mode: str = "standard",
+    memory_mode: str = "off",
 ) -> BenchmarkRunSummary:
     """Run all benchmark cases and optionally persist the results."""
 
     if stress_mode not in VALID_STRESS_MODES:
         raise ValueError(f"Unknown stress mode: {stress_mode}. Valid modes: {VALID_STRESS_MODES}")
+    if memory_mode not in VALID_MEMORY_MODES:
+        raise ValueError(f"Unknown memory mode: {memory_mode}. Valid modes: {VALID_MEMORY_MODES}")
 
     if stress_mode == "concurrent":
         raise ValueError("concurrent stress mode is not implemented for sync benchmark runner")
@@ -515,9 +532,21 @@ def run_benchmarks(
     case_results: list[dict[str, Any]] = []
     for case in load_benchmark_cases():
         if stress_mode == "cache_warm":
-            _run_case(case, mode=mode, provider=provider, db=db)
+            _run_case(
+                case,
+                mode=mode,
+                provider=provider,
+                db=db,
+                memory_mode=memory_mode,
+            )
 
-        actual = _run_case(case, mode=mode, provider=provider, db=db)
+        actual = _run_case(
+            case,
+            mode=mode,
+            provider=provider,
+            db=db,
+            memory_mode=memory_mode,
+        )
         scored = score_case(case.expected, actual)
         case_results.append(
             {
@@ -545,11 +574,12 @@ def run_benchmarks(
     regression_count = 0
     improvement_count = 0
     baseline_run_id = None
+    mode_detail = f"stress_mode={stress_mode};memory_mode={memory_mode}"
 
     if db is not None:
         from app.models import BenchmarkCaseResult
 
-        baseline_run = _find_baseline_run(db, mode, provider, stress_mode)
+        baseline_run = _find_baseline_run(db, mode, provider, mode_detail)
         baseline_run_id = baseline_run.id if baseline_run else None
 
         if baseline_run:
@@ -588,7 +618,7 @@ def run_benchmarks(
             duration_ms=duration_ms,
             regression_count=regression_count,
             improvement_count=improvement_count,
-            mode_detail=stress_mode,
+            mode_detail=mode_detail,
         )
         db.add(run)
         db.flush()

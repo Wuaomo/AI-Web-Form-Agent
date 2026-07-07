@@ -300,7 +300,12 @@ def test_run_case_llm_mode_calls_map_fields_with_llm(db_session: Session) -> Non
         {"selector": "#email", "label": "Email", "field_type": "email", "required": True},
     ]
 
-    def fake_map_fields_with_llm_result(task_id: int, db: Session, provider: str):
+    def fake_map_fields_with_llm_result(
+        task_id: int,
+        db: Session,
+        provider: str,
+        memory_mode: str = "off",
+    ):
         fields = list(
             db.scalars(
                 select(FormField).where(FormField.task_id == task_id).order_by(FormField.id)
@@ -331,7 +336,12 @@ def test_run_case_llm_mode_converts_mapped_fields_to_actual_shape(db_session: Se
         {"selector": "#submit", "label": "Submit", "field_type": "submit", "required": False},
     ]
 
-    def fake_map_fields_with_llm_result(task_id: int, db: Session, provider: str):
+    def fake_map_fields_with_llm_result(
+        task_id: int,
+        db: Session,
+        provider: str,
+        memory_mode: str = "off",
+    ):
         fields = list(
             db.scalars(
                 select(FormField).where(FormField.task_id == task_id).order_by(FormField.id)
@@ -364,7 +374,12 @@ def test_run_case_llm_mode_cleans_up_temporary_rows(db_session: Session) -> None
         {"selector": "#email", "label": "Email", "field_type": "email", "required": True},
     ]
 
-    def fake_map_fields_with_llm_result(task_id: int, db: Session, provider: str):
+    def fake_map_fields_with_llm_result(
+        task_id: int,
+        db: Session,
+        provider: str,
+        memory_mode: str = "off",
+    ):
         fields = list(
             db.scalars(
                 select(FormField).where(FormField.task_id == task_id).order_by(FormField.id)
@@ -397,7 +412,12 @@ def test_run_case_llm_mode_sets_llm_fallback_count_when_used(db_session: Session
         {"selector": "#email", "label": "Email", "field_type": "email", "required": True},
     ]
 
-    def fake_map_fields_with_llm_result(task_id: int, db: Session, provider: str):
+    def fake_map_fields_with_llm_result(
+        task_id: int,
+        db: Session,
+        provider: str,
+        memory_mode: str = "off",
+    ):
         fields = list(
             db.scalars(
                 select(FormField).where(FormField.task_id == task_id).order_by(FormField.id)
@@ -427,7 +447,12 @@ def test_run_case_llm_mode_sets_llm_fallback_count_zero_when_not_used(db_session
         {"selector": "#email", "label": "Email", "field_type": "email", "required": True},
     ]
 
-    def fake_map_fields_with_llm_result(task_id: int, db: Session, provider: str):
+    def fake_map_fields_with_llm_result(
+        task_id: int,
+        db: Session,
+        provider: str,
+        memory_mode: str = "off",
+    ):
         fields = list(
             db.scalars(
                 select(FormField).where(FormField.task_id == task_id).order_by(FormField.id)
@@ -483,7 +508,7 @@ def test_run_benchmarks_baseline_comparison_counts_regressions_and_improvements(
             "mapping_accuracy": 0.85,
             "llm_fallback_count": 3,
         }),
-        mode_detail="standard",
+        mode_detail="stress_mode=standard;memory_mode=off",
     )
     db_session.add(baseline_run)
     db_session.commit()
@@ -638,7 +663,7 @@ def test_baseline_isolation_by_stress_mode(db_session: Session) -> None:
         total_cases=1,
         average_score=0.9,
         summary_metrics_json=json.dumps({"field_extraction_recall": 0.9}),
-        mode_detail="standard",
+        mode_detail="stress_mode=standard;memory_mode=off",
     )
     db_session.add(baseline_standard)
     db_session.commit()
@@ -675,7 +700,7 @@ def test_baseline_isolation_by_stress_mode(db_session: Session) -> None:
         total_cases=1,
         average_score=0.8,
         summary_metrics_json=json.dumps({"field_extraction_recall": 0.8}),
-        mode_detail="cache_warm",
+        mode_detail="stress_mode=cache_warm;memory_mode=off",
     )
     db_session.add(baseline_cache_warm)
     db_session.commit()
