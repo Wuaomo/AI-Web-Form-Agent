@@ -18,7 +18,13 @@ def build_benchmark_markdown_report(run: BenchmarkRun) -> str:
     if run.provider:
         lines.append(f"**Provider:** {run.provider}")
     if run.mode_detail:
-        lines.append(f"**Stress Mode:** {run.mode_detail}")
+        detail = _parse_mode_detail(run.mode_detail)
+        if "stress_mode" in detail:
+            lines.append(f"**Stress Mode:** {detail['stress_mode']}")
+        if "memory_mode" in detail:
+            lines.append(f"**Memory Mode:** {detail['memory_mode']}")
+        if not detail:
+            lines.append(f"**Run Detail:** {run.mode_detail}")
     lines.append(f"**Duration:** {_format_duration(run.duration_ms)}")
     lines.append("")
 
@@ -137,3 +143,22 @@ def _failure_reason_label(reason: str | None) -> str:
         "low_confidence_mapping": "Low Confidence Mapping",
     }
     return label_map.get(reason, reason.replace("_", " ").title())
+
+
+def _parse_mode_detail(value: str) -> dict[str, str]:
+    if not value:
+        return {}
+    if "=" not in value:
+        return {}
+    parts = [part.strip() for part in value.split(";") if part.strip()]
+    parsed: dict[str, str] = {}
+    for part in parts:
+        if "=" not in part:
+            continue
+        key, raw_value = part.split("=", 1)
+        key = key.strip()
+        raw_value = raw_value.strip()
+        if not key or not raw_value:
+            continue
+        parsed[key] = raw_value
+    return parsed

@@ -368,6 +368,7 @@ class BenchmarkRunRequest(BaseModel):
     mode: Literal["rules", "llm"] = "rules"
     provider: str | None = None
     stress_mode: Literal["standard", "cache_cold", "cache_warm", "concurrent"] = "standard"
+    memory_mode: Literal["off", "on"] = "off"
 
 
 class BenchmarkCaseResultResponse(BaseModel):

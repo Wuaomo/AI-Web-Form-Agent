@@ -95,6 +95,7 @@ from app.services.planner_service import (
     resolve_plan_goal,
     save_plan,
 )
+from app.services.workflow_memory import save_confirmed_mappings_for_task
 from app.services.checkpoint_service import list_checkpoints, write_checkpoint
 from app.services.tool_registry import require_tool
 from app.services.workflow_state_service import (
@@ -1419,6 +1420,11 @@ def confirm_task_mapping(
             )
 
     apply_workflow_status(task, WORKFLOW_STATUS_READY_TO_FILL, reason="mapping_confirmed")
+    try:
+        save_confirmed_mappings_for_task(db, task=task, fields=fields)
+        db.flush()
+    except Exception:
+        logger.warning("Workflow memory save failed for task %s", task.id)
     db.commit()
     safe_finish_span(
         confirm_span_id,

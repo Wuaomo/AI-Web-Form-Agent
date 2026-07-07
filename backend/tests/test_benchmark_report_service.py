@@ -71,7 +71,7 @@ def test_report_includes_all_sections() -> None:
         id=1,
         mode="llm",
         provider="openai",
-        mode_detail="cache_warm",
+        mode_detail="stress_mode=cache_warm;memory_mode=on",
         total_cases=3,
         average_score=0.85,
         summary_metrics_json=json.dumps({
@@ -90,6 +90,7 @@ def test_report_includes_all_sections() -> None:
     assert "## Run Summary" in report
     assert "## Summary Metrics" in report
     assert "## Regression Summary" in report
+    assert "**Memory Mode:** on" in report
 
 
 def test_report_formats_duration_correctly() -> None:

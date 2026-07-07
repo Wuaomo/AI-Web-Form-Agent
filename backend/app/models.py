@@ -336,6 +336,29 @@ class BenchmarkRun(Base):
         return parsed if isinstance(parsed, dict) else {}
 
 
+class WorkflowMemoryItem(Base):
+    """A retrieval-backed memory entry derived from confirmed safe mappings."""
+
+    __tablename__ = "workflow_memory_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    memory_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    workflow_type: Mapped[str] = mapped_column(
+        String(50),
+        default=WORKFLOW_TYPE_FORM_FILL,
+        nullable=False,
+    )
+    source_domain: Mapped[Optional[str]] = mapped_column(String(300))
+    field_signature: Mapped[str] = mapped_column(String(64), nullable=False)
+    field_text: Mapped[str] = mapped_column(Text, nullable=False)
+    mapped_profile_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    value_kind: Mapped[str] = mapped_column(String(50), default="profile_value", nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
+    success_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class BenchmarkCaseResult(Base):
     """Metrics and failures for one benchmark case in a run."""
 

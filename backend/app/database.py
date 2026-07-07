@@ -41,6 +41,7 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
     _add_missing_task_workflow_columns()
+    _ensure_workflow_memory_items_table()
     _add_missing_workflow_span_columns()
     _add_missing_approval_request_columns()
     _add_missing_form_field_columns()
@@ -74,6 +75,36 @@ def _add_missing_task_workflow_columns(target_engine=engine) -> None:
                         f"ADD COLUMN {column_name} {column_type}"
                     )
                 )
+
+
+def _ensure_workflow_memory_items_table(target_engine=engine) -> None:
+    """Create workflow_memory_items when opening an older SQLite database."""
+
+    inspector = inspect(target_engine)
+    if "workflow_memory_items" in inspector.get_table_names():
+        return
+
+    with target_engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS workflow_memory_items (
+                    id INTEGER PRIMARY KEY,
+                    memory_type VARCHAR(50) NOT NULL,
+                    workflow_type VARCHAR(50) NOT NULL DEFAULT 'form_fill',
+                    source_domain VARCHAR(300),
+                    field_signature VARCHAR(64) NOT NULL,
+                    field_text TEXT NOT NULL,
+                    mapped_profile_key VARCHAR(100) NOT NULL,
+                    value_kind VARCHAR(50) NOT NULL DEFAULT 'profile_value',
+                    confidence FLOAT NOT NULL DEFAULT 1.0,
+                    success_count INTEGER NOT NULL DEFAULT 1,
+                    last_used_at DATETIME,
+                    created_at DATETIME
+                )
+                """
+            )
+        )
 
 
 def _add_missing_workflow_span_columns(target_engine=engine) -> None:
