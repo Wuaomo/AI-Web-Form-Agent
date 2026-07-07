@@ -72,9 +72,11 @@ app.include_router(jobs_router)
 app.include_router(llm_usage_router)
 app.include_router(benchmarks_router)
 app.include_router(admin_router)
+screenshots_dir = BACKEND_DIR / "screenshots"
+screenshots_dir.mkdir(parents=True, exist_ok=True)
 app.mount(
     "/screenshots",
-    StaticFiles(directory=BACKEND_DIR / "screenshots"),
+    StaticFiles(directory=screenshots_dir),
     name="screenshots",
 )
 
