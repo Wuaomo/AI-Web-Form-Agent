@@ -439,11 +439,11 @@ function ReviewMapping() {
     <section>
       <div className="page-heading">
         <div>
-          <p className="eyebrow">Task #{taskId}</p>
+          <p className="eyebrow">Run #{taskId}</p>
           <h2>Review Mapping</h2>
-          <p>Review what the agent will enter or select before filling the form.</p>
+          <p>Review what the agent will enter or select before filling this workflow run.</p>
         </div>
-        <Link to={`/tasks/${taskId}`}>Back to task</Link>
+        <Link to={`/tasks/${taskId}`}>Back to run</Link>
       </div>
 
       <Message type="error">{error}</Message>
@@ -574,12 +574,12 @@ function ReviewMapping() {
         <p>Loading fields...</p>
       ) : fields.length === 0 ? (
         <div className="card empty-state">
-          <p>No fields found. Create the task again or check the task logs.</p>
+          <p>No fields found. Create the run again or check the run logs.</p>
         </div>
       ) : reviewGroups.length === 0 ? (
         <div className="card empty-state">
           <p>
-            No reviewable fields found. Create the task again or check the task
+            No reviewable fields found. Create the run again or check the run
             logs.
           </p>
         </div>

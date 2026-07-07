@@ -227,7 +227,7 @@ function Benchmarks() {
             </select>
           </label>
           <button className="button" type="button" onClick={runBenchmarks} disabled={disableRunButton}>
-            {busy ? "Running..." : "Run benchmarks"}
+            {busy ? "Running..." : "Run evaluation"}
           </button>
         </div>
       </div>
@@ -238,7 +238,7 @@ function Benchmarks() {
 
       {!selectedRun ? (
         <div className="card empty-state">
-          <p>No benchmark runs yet.</p>
+          <p>No evaluation runs yet.</p>
         </div>
       ) : (
         <>

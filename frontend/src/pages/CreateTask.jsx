@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
 import {
@@ -7,9 +7,14 @@ import {
   saveLlmProvider,
 } from "../llmProviderPreference";
 import Message from "../components/Message";
+import {
+  resolveWorkflowTypeSelection,
+  sortWorkflowTemplates,
+} from "../workflowTemplatePresentation";
 
 function CreateTask() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [profiles, setProfiles] = useState([]);
   const [llmProviders, setLlmProviders] = useState([]);
   const [workflowTemplates, setWorkflowTemplates] = useState([]);
@@ -23,38 +28,46 @@ function CreateTask() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
+    const requestedWorkflowType = new URLSearchParams(location.search).get(
+      "workflow_type",
+    );
     Promise.all([
       api.listProfiles(),
       api.listLlmProviders(),
       api.listWorkflowTemplates(),
     ])
       .then(([profileItems, providerItems, workflowItems]) => {
+        const orderedWorkflows = sortWorkflowTemplates(workflowItems);
+        const workflowSelection = resolveWorkflowTypeSelection(
+          orderedWorkflows,
+          requestedWorkflowType,
+        );
+
         setProfiles(profileItems);
         setLlmProviders(providerItems);
-        setWorkflowTemplates(workflowItems);
+        setWorkflowTemplates(orderedWorkflows);
         setSelectedLlmProvider(getSavedLlmProvider(providerItems));
-        const defaultWorkflow =
-          workflowItems.find((workflow) => workflow.id === "form_fill" && workflow.enabled) ||
-          workflowItems.find((workflow) => workflow.enabled) ||
-          null;
+        setNotice(workflowSelection.notice);
         if (profileItems.length) {
           setForm((current) => ({
             ...current,
             profile_id: String(profileItems[0].id),
-            workflow_type: defaultWorkflow?.id || current.workflow_type,
+            workflow_type:
+              workflowSelection.selectedWorkflowType || current.workflow_type,
           }));
           return;
         }
         setForm((current) => ({
           ...current,
-          workflow_type: defaultWorkflow?.id || current.workflow_type,
+          workflow_type: workflowSelection.selectedWorkflowType || current.workflow_type,
         }));
       })
       .catch((requestError) => setError(requestError.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [location.search]);
 
   function updateSelectedLlmProvider(provider) {
     setSelectedLlmProvider(provider);
@@ -112,17 +125,18 @@ function CreateTask() {
     <section className="narrow-page">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">New automation</p>
-          <h2>Create Task</h2>
-          <p>Choose a profile and the web form you want to analyze.</p>
+          <p className="eyebrow">New run</p>
+          <h2>Create Workflow Run</h2>
+          <p>Choose a profile, a workflow template, and the target form you want to prepare.</p>
         </div>
       </div>
 
       <Message type="error">{error}</Message>
+      <Message type="warning">{notice}</Message>
 
       <form className="card form-card" onSubmit={submitTask}>
         <label>
-          Workflow
+          Workflow Template
           <select
             value={form.workflow_type}
             onChange={(event) =>
@@ -185,7 +199,7 @@ function CreateTask() {
             rows="4"
             value={form.description}
             onChange={(event) => setForm({ ...form, description: event.target.value })}
-            placeholder="Optional note about this task"
+            placeholder="Optional note about this workflow run"
           />
         </label>
 
@@ -234,7 +248,7 @@ function CreateTask() {
             workflowUnavailable
           }
         >
-          {saving ? "Creating, analyzing, and mapping..." : "Create task"}
+          {saving ? "Creating, analyzing, and mapping..." : "Create run"}
         </button>
       </form>
     </section>
