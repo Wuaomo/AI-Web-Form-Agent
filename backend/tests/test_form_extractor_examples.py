@@ -11,8 +11,10 @@ def test_extracts_taotian_social_resume_component_form() -> None:
     """Extract semantic fields from the Taotian-style Kuma/Uxcore mock page."""
 
     example_url = (
-        Path("backend/examples/taotian-social-resume.html").resolve().as_uri()
-    )
+        Path(__file__).resolve().parents[1]
+        / "examples"
+        / "taotian-social-resume.html"
+    ).as_uri()
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
