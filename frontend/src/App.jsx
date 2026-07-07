@@ -8,12 +8,14 @@ import ApprovalCenter from "./pages/ApprovalCenter";
 import Profiles from "./pages/Profiles";
 import ReviewMapping from "./pages/ReviewMapping";
 import TaskDetail from "./pages/TaskDetail";
+import WorkflowTemplates from "./pages/WorkflowTemplates";
 
 function App() {
   return (
     <Routes>
       <Route element={<Layout />}>
         <Route index element={<Dashboard />} />
+        <Route path="workflows" element={<WorkflowTemplates />} />
         <Route path="benchmarks" element={<Benchmarks />} />
         <Route path="approvals" element={<ApprovalCenter />} />
         <Route path="profiles" element={<Profiles />} />

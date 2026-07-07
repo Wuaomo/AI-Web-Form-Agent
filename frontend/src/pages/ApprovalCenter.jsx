@@ -47,8 +47,9 @@ function ApprovalCenter() {
     <section>
       <div className="page-heading">
         <div>
-          <p className="eyebrow">Workflow approvals</p>
+          <p className="eyebrow">Approvals</p>
           <h2>Approval Center</h2>
+          <p>Review pending approvals before a workflow run continues.</p>
         </div>
       </div>
 
@@ -68,7 +69,7 @@ function ApprovalCenter() {
                   <strong>{approval.step_name}</strong>
                   <span className="badge">{approval.status}</span>
                 </div>
-                <div>Task #{approval.task_id}</div>
+                <div>Run #{approval.task_id}</div>
                 <div className="muted-text">{approval.reason}</div>
                 <div className="muted-text">
                   {approval.risk_type} · {approval.risk_level} · {formatChinaTime(approval.created_at)}
@@ -91,7 +92,7 @@ function ApprovalCenter() {
                     Reject
                   </button>
                   <Link className="button button-small button-secondary" to={`/tasks/${approval.task_id}`}>
-                    Open Task
+                    Open Run
                   </Link>
                 </div>
               </li>

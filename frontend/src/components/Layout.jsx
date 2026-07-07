@@ -1,11 +1,11 @@
 import { NavLink, Outlet } from "react-router-dom";
 
 const navigation = [
-  { to: "/", label: "Dashboard", end: true },
-  { to: "/benchmarks", label: "Benchmarks" },
+  { to: "/", label: "Runs", end: true },
+  { to: "/workflows", label: "Workflows" },
   { to: "/approvals", label: "Approvals" },
   { to: "/profiles", label: "Profiles" },
-  { to: "/tasks/new", label: "Create Task" },
+  { to: "/benchmarks", label: "Evaluation" },
 ];
 
 function Layout() {

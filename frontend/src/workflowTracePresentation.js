@@ -61,3 +61,38 @@ export function summarizeSpan(span) {
 
   return details.join(" | ");
 }
+
+export function getFailedSpans(spans = []) {
+  return sortSpans(spans)
+    .filter((span) => span?.status === "FAILED")
+    .reverse();
+}
+
+export function buildTraceSummary(spans = []) {
+  const orderedSpans = sortSpans(spans);
+  const latestSpan = orderedSpans.at(-1) || null;
+  const failedSpans = orderedSpans.filter((span) => span?.status === "FAILED");
+
+  return {
+    latestStatus: spanStatusLabel(latestSpan?.status),
+    totalSpanCount: orderedSpans.length,
+    failedSpanCount: failedSpans.length,
+    lastSpanLabel: latestSpan
+      ? `${phaseLabel(latestSpan.phase)} / ${latestSpan.name || "Unknown"}`
+      : "No trace spans recorded yet.",
+  };
+}
+
+export function getVisibleTraceSpans(spans = [], expanded = false) {
+  const failedSpans = getFailedSpans(spans);
+  const limit = expanded ? 10 : 3;
+  return failedSpans.slice(0, limit);
+}
+
+export function shouldShowTraceExpansion(spans = []) {
+  return getFailedSpans(spans).length > 3;
+}
+
+export function traceJsonText(spans = []) {
+  return JSON.stringify(spans, null, 2);
+}

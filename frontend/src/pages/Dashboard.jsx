@@ -41,12 +41,12 @@ function Dashboard() {
     <section>
       <div className="page-heading">
         <div>
-          <p className="eyebrow">Overview</p>
-          <h2>Dashboard</h2>
-          <p>Create a reusable profile, then start a form analysis task.</p>
+          <p className="eyebrow">Runs</p>
+          <h2>Workflow Runs</h2>
+          <p>Review recent workflow runs, then start a new run from an available template.</p>
         </div>
         <Link className="button" to="/tasks/new">
-          Create task
+          Create run
         </Link>
       </div>
 
@@ -62,39 +62,40 @@ function Dashboard() {
         </article>
 
         <article className="card">
-          <h3>1. Prepare profile</h3>
+          <h3>Profiles</h3>
           <p>Save the information you commonly use in forms.</p>
           <Link to="/profiles">Manage profiles</Link>
         </article>
 
         <article className="card">
-          <h3>2. Create a task</h3>
-          <p>Create a task using a target URL and one profile.</p>
-          <Link to="/tasks/new">Create a task</Link>
+          <h3>Workflows</h3>
+          <p>Browse templates and start a workflow run from an enabled template.</p>
+          <Link to="/workflows">Open templates</Link>
         </article>
       </div>
 
       <section className="section-block">
         <div className="section-heading">
-          <h3>Tasks</h3>
-          <Link to="/tasks/new">New task</Link>
+          <h3>Recent runs</h3>
+          <Link to="/tasks/new">Create run</Link>
         </div>
 
         <Message type="error">{tasksError}</Message>
 
         {tasksLoading ? (
-          <p>Loading tasks...</p>
+          <p>Loading workflow runs...</p>
         ) : tasks.length === 0 ? (
           <div className="card empty-state">
-            <p>No tasks yet. Create one to start an agent workflow.</p>
+            <p>No workflow runs yet. Create one to start an agent workflow.</p>
           </div>
         ) : (
           <div className="table-wrapper card">
             <table>
               <thead>
                 <tr>
-                  <th>Task</th>
+                  <th>Run</th>
                   <th>Status</th>
+                  <th>Workflow Type</th>
                   <th>Profile</th>
                   <th>Description</th>
                   <th>Created</th>
@@ -111,6 +112,7 @@ function Dashboard() {
                     <td>
                       <span className="badge">{task.status}</span>
                     </td>
+                    <td>{task.workflow_type || "form_fill"}</td>
                     <td>{profilesById.get(task.profile_id) || task.profile_id}</td>
                     <td>{task.description || "—"}</td>
                     <td>{formatChinaTime(task.created_at)}</td>

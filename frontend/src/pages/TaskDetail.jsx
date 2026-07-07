@@ -38,10 +38,14 @@ import {
   groupReviewsByRole,
 } from "../agentReviewPresentation";
 import {
+  buildTraceSummary,
+  getVisibleTraceSpans,
   phaseLabel,
+  shouldShowTraceExpansion,
   sortSpans,
   spanStatusLabel,
   summarizeSpan,
+  traceJsonText,
 } from "../workflowTracePresentation";
 import {
   getWorkflowPlanSteps,
@@ -75,6 +79,7 @@ function TaskDetail() {
   const [taskPlan, setTaskPlan] = useState(null);
   const [approvalRequests, setApprovalRequests] = useState([]);
   const [runningReview, setRunningReview] = useState(null);
+  const [showAllFailedSpans, setShowAllFailedSpans] = useState(false);
   const agentReviewInFlight = useRef(false);
 
   async function getTaskPlanOrNull(currentTaskId) {
@@ -137,6 +142,10 @@ function TaskDetail() {
       })
       .catch((requestError) => setError(requestError.message))
       .finally(() => setLoading(false));
+  }, [taskId]);
+
+  useEffect(() => {
+    setShowAllFailedSpans(false);
   }, [taskId]);
 
   async function refreshTaskData(nextTask = null) {
@@ -283,13 +292,22 @@ function TaskDetail() {
     }
   }
 
+  async function copyTraceJson() {
+    try {
+      await navigator.clipboard.writeText(traceJsonText(workflowTrace));
+      setNotice("Trace JSON copied to clipboard.");
+    } catch {
+      setError("Failed to copy trace JSON.");
+    }
+  }
+
   function updateSelectedLlmProvider(provider) {
     setSelectedLlmProvider(provider);
     saveLlmProvider(provider);
   }
 
   if (loading) {
-    return <p>Loading task...</p>;
+    return <p>Loading workflow run...</p>;
   }
 
   const profileName =
@@ -310,6 +328,9 @@ function TaskDetail() {
   const workflowNodes = showWorkflowTimeline && task ? getWorkflowTimeline(task, taskLogs) : [];
   const verificationSummary = summarizeVerificationResults(verificationResults);
   const orderedTrace = sortSpans(workflowTrace);
+  const traceSummary = buildTraceSummary(orderedTrace);
+  const visibleFailedSpans = getVisibleTraceSpans(orderedTrace, showAllFailedSpans);
+  const canExpandTrace = shouldShowTraceExpansion(orderedTrace);
   const plannedSteps = getWorkflowPlanSteps(taskPlan);
   const pendingApprovals = approvalRequests.filter((item) => item.status === "PENDING");
 
@@ -422,113 +443,98 @@ function TaskDetail() {
       )}
       {task && (
         <>
-          {showWorkflowTimeline && (
-            <div className="card workflow-timeline">
-              <h3>Workflow</h3>
-              <div className="timeline">
-                {workflowNodes.map((node, index) => (
-                  <div key={node.id} className="timeline-item">
-                    <div className={`timeline-node ${node.state}`}>
-                      <span className="timeline-label">{node.label}</span>
-                      {node.state === "active" && (
-                        <span className="timeline-indicator" />
-                      )}
-                    </div>
-                    {index < workflowNodes.length - 1 && (
-                      <div className={`timeline-connector ${node.state === "success" ? "completed" : ""}`} />
-                    )}
-                    {node.helpText && (
-                      <p className="timeline-help">{node.helpText}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
+          <div className="page-heading">
+            <div>
+              <p className="eyebrow">Run #{task.id}</p>
+              <h2>Workflow Run</h2>
+              <p className="break-word">{task.url}</p>
+            </div>
+            <span className="badge badge-large">{runState.statusLabel}</span>
+          </div>
+
+          {task.status === "LOGIN_REQUIRED" && (
+            <div className="message message-warning">
+              This site requires login before the form can be extracted. Log in
+              in the browser window, then close it to continue.
             </div>
           )}
 
-          <div className="card">
-              <h3>LLM Usage</h3>
-              {llmUsage?.summary ? (
-                llmUsage.summary.request_count > 0 ? (
-                  <div className="llm-usage-grid">
-                    <div className="llm-usage-card">
-                      <span>Requests</span>
-                      <strong>{llmUsage.summary.request_count}</strong>
-                    </div>
-                    <div className="llm-usage-card">
-                      <span>Total tokens</span>
-                      <strong>{llmUsage.summary.total_tokens?.toLocaleString()}</strong>
-                    </div>
-                    <div className="llm-usage-card">
-                      <span>Prompt cache hit rate</span>
-                      <strong>{formatCacheHitRate(llmUsage.summary.cache_hit_rate)}</strong>
-                    </div>
-                    <div className="llm-usage-card">
-                      <span>Average latency</span>
-                      <strong>{formatLatency(llmUsage.summary.average_latency_ms)}</strong>
-                    </div>
-                    <div className="llm-usage-card">
-                      <span>P95 latency</span>
-                      <strong>{formatLatency(llmUsage.summary.p95_latency_ms)}</strong>
-                    </div>
-                    <div className="llm-usage-card">
-                      <span>Fallback count</span>
-                      <strong>{llmUsage.summary.fallback_count}</strong>
-                    </div>
-                    <div className="llm-usage-card">
-                      <span>Estimated cost</span>
-                      <strong>{formatEstimatedCost(llmUsage.summary.estimated_cost)}</strong>
-                    </div>
-                  </div>
-                ) : (
-                  <p>No LLM usage yet.</p>
-                )
-              ) : (
-                <p>LLM usage is not available.</p>
+          <article className="card run-panel">
+            <div className="run-panel-header">
+              <div>
+                <p className="eyebrow">Current result</p>
+                <h3>{runState.statusLabel}</h3>
+                <p>{runState.description}</p>
+              </div>
+              {runState.primaryAction && (
+                <button
+                  className="button"
+                  type="button"
+                  onClick={runPrimaryAction}
+                  disabled={primaryDisabled}
+                >
+                  {primaryLabel}
+                </button>
               )}
             </div>
 
-          {orderedTrace.length > 0 && (
-            <div className="card">
-              <h3>Workflow Trace</h3>
-              <ul className="job-list">
-                {orderedTrace.map((span) => (
-                  <li key={span.id} className="job-item">
-                    <div className="job-item-header">
-                      <strong>{phaseLabel(span.phase)}</strong>
-                      <span className="badge">{spanStatusLabel(span.status)}</span>
-                    </div>
-                    <div>{span.name}</div>
-                    <div className="muted-text">{summarizeSpan(span) || "No summary"}</div>
-                    <div className="muted-text">
-                      {formatChinaTime(span.created_at)}
-                    </div>
-                  </li>
-                ))}
-              </ul>
+            <div className="run-summary-grid" aria-label="Workflow run summary">
+              {runSummaryItems.map((item) => (
+                <div key={item.key}>
+                  <strong>{item.value}</strong>
+                  <span>{item.label}</span>
+                </div>
+              ))}
             </div>
-          )}
 
-          {taskPlan && (
-            <div className="card">
-              <h3>Workflow Plan</h3>
-              <p className="muted-text">{taskPlan.goal}</p>
-              <ul className="job-list">
-                {plannedSteps.map((step) => (
-                  <li key={step.step_id} className="job-item">
-                    <div className="job-item-header">
-                      <strong>{step.step_id}</strong>
-                      {workflowPlanApprovalLabel(step) && (
-                        <span className="badge">{workflowPlanApprovalLabel(step)}</span>
-                      )}
-                    </div>
-                    <div>{step.tool}</div>
-                    <div className="muted-text">{step.reason}</div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+            <dl className="detail-list">
+              <div>
+                <dt>Raw status</dt>
+                <dd>{task.status}</dd>
+              </div>
+              <div>
+                <dt>Profile</dt>
+                <dd>{profileName}</dd>
+              </div>
+              <div>
+                <dt>Description</dt>
+                <dd>{task.description || "—"}</dd>
+              </div>
+              <div>
+                <dt>Extracted fields</dt>
+                <dd>{task.form_fields.length}</dd>
+              </div>
+              <div>
+                <dt>Required missing</dt>
+                <dd>
+                  {missingRequiredFields.length === 0
+                    ? "None"
+                    : missingRequiredFields.map(fieldDisplayName).join(", ")}
+                </dd>
+              </div>
+            </dl>
+
+            {(task.status === "CREATED" ||
+              task.status === "FAILED" ||
+              task.status === "LOGIN_REQUIRED") && (
+              <LlmMappingControls
+                mode={mappingMode}
+                onModeChange={setMappingMode}
+                provider={selectedLlmProvider}
+                onProviderChange={updateSelectedLlmProvider}
+                providers={llmProviders}
+                disabled={isBusy}
+              />
+            )}
+
+            {(task.status === "READY_TO_FILL" ||
+              task.status === "WAITING_APPROVAL" ||
+              task.status === "COMPLETED") && (
+              <Link className="text-button" to={`/tasks/${task.id}/review-mapping`}>
+                Review mapped run values
+              </Link>
+            )}
+          </article>
 
           <div className="card">
             <div className="job-item-header">
@@ -582,14 +588,28 @@ function TaskDetail() {
           </div>
 
           <div className="card">
-            <button
-              type="button"
-              className="button button-secondary"
-              onClick={copyDebugReport}
-              disabled={loading}
-            >
-              Copy Debug Report
-            </button>
+            <h3>Workflow Plan</h3>
+            {taskPlan ? (
+              <>
+                <p className="muted-text">{taskPlan.goal}</p>
+                <ul className="job-list">
+                  {plannedSteps.map((step) => (
+                    <li key={step.step_id} className="job-item">
+                      <div className="job-item-header">
+                        <strong>{step.step_id}</strong>
+                        {workflowPlanApprovalLabel(step) && (
+                          <span className="badge">{workflowPlanApprovalLabel(step)}</span>
+                        )}
+                      </div>
+                      <div>{step.tool}</div>
+                      <div className="muted-text">{step.reason}</div>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <p>No workflow plan has been created yet.</p>
+            )}
           </div>
 
           {verificationResults.length > 0 && (
@@ -628,6 +648,76 @@ function TaskDetail() {
               )}
             </div>
           )}
+
+          <div className="card">
+            <div className="workflow-trace-header">
+              <div>
+                <h3>Workflow Trace</h3>
+                <p className="muted-text">Trace stays compact by default and only expands failed spans.</p>
+              </div>
+              <div className="workflow-trace-actions">
+                <details className="technical-details">
+                  <summary>View raw trace JSON</summary>
+                  <pre className="trace-json-block">{traceJsonText(workflowTrace)}</pre>
+                </details>
+                <button
+                  type="button"
+                  className="button button-small button-secondary"
+                  onClick={copyTraceJson}
+                >
+                  Copy trace JSON
+                </button>
+              </div>
+            </div>
+
+            <div className="workflow-trace-summary" aria-label="Workflow trace summary">
+              <div>
+                <strong>{traceSummary.latestStatus}</strong>
+                <span>Latest status</span>
+              </div>
+              <div>
+                <strong>{traceSummary.totalSpanCount}</strong>
+                <span>Total spans</span>
+              </div>
+              <div>
+                <strong>{traceSummary.failedSpanCount}</strong>
+                <span>Failed spans</span>
+              </div>
+              <div>
+                <strong>{traceSummary.lastSpanLabel}</strong>
+                <span>Last phase/name</span>
+              </div>
+            </div>
+
+            {visibleFailedSpans.length > 0 ? (
+              <>
+                <ul className="job-list">
+                  {visibleFailedSpans.map((span) => (
+                    <li key={span.id} className="job-item">
+                      <div className="job-item-header">
+                        <strong>{phaseLabel(span.phase)}</strong>
+                        <span className="badge">{spanStatusLabel(span.status)}</span>
+                      </div>
+                      <div>{span.name}</div>
+                      <div className="muted-text">{summarizeSpan(span) || "No summary"}</div>
+                      <div className="muted-text">{formatChinaTime(span.created_at)}</div>
+                    </li>
+                  ))}
+                </ul>
+                {canExpandTrace && !showAllFailedSpans && (
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() => setShowAllFailedSpans(true)}
+                  >
+                    Show more
+                  </button>
+                )}
+              </>
+            ) : orderedTrace.length === 0 ? (
+              <p className="muted-text">No trace spans recorded yet.</p>
+            ) : null}
+          </div>
 
           <div className="card">
             <h3>Agent Reviews</h3>
@@ -686,98 +776,82 @@ function TaskDetail() {
             )}
           </div>
 
-          <div className="page-heading">
-            <div>
-              <p className="eyebrow">Task #{task.id}</p>
-              <h2>Agent Run</h2>
-              <p className="break-word">{task.url}</p>
-            </div>
-            <span className="badge badge-large">{runState.statusLabel}</span>
+          <div className="card">
+            <h3>LLM Usage</h3>
+            {llmUsage?.summary ? (
+              llmUsage.summary.request_count > 0 ? (
+                <div className="llm-usage-grid">
+                  <div className="llm-usage-card">
+                    <span>Requests</span>
+                    <strong>{llmUsage.summary.request_count}</strong>
+                  </div>
+                  <div className="llm-usage-card">
+                    <span>Total tokens</span>
+                    <strong>{llmUsage.summary.total_tokens?.toLocaleString()}</strong>
+                  </div>
+                  <div className="llm-usage-card">
+                    <span>Prompt cache hit rate</span>
+                    <strong>{formatCacheHitRate(llmUsage.summary.cache_hit_rate)}</strong>
+                  </div>
+                  <div className="llm-usage-card">
+                    <span>Average latency</span>
+                    <strong>{formatLatency(llmUsage.summary.average_latency_ms)}</strong>
+                  </div>
+                  <div className="llm-usage-card">
+                    <span>P95 latency</span>
+                    <strong>{formatLatency(llmUsage.summary.p95_latency_ms)}</strong>
+                  </div>
+                  <div className="llm-usage-card">
+                    <span>Fallback count</span>
+                    <strong>{llmUsage.summary.fallback_count}</strong>
+                  </div>
+                  <div className="llm-usage-card">
+                    <span>Estimated cost</span>
+                    <strong>{formatEstimatedCost(llmUsage.summary.estimated_cost)}</strong>
+                  </div>
+                </div>
+              ) : (
+                <p>No LLM usage yet.</p>
+              )
+            ) : (
+              <p>LLM usage is not available.</p>
+            )}
           </div>
 
-          {task.status === "LOGIN_REQUIRED" && (
-            <div className="message message-warning">
-              This site requires login before the form can be extracted. Log in
-              in the browser window, then close it to continue.
+          <div className="card">
+            <button
+              type="button"
+              className="button button-secondary"
+              onClick={copyDebugReport}
+              disabled={loading || Boolean(busyAction)}
+            >
+              Copy Debug Report
+            </button>
+          </div>
+
+          {showWorkflowTimeline && (
+            <div className="card workflow-timeline">
+              <h3>Workflow</h3>
+              <div className="timeline">
+                {workflowNodes.map((node, index) => (
+                  <div key={node.id} className="timeline-item">
+                    <div className={`timeline-node ${node.state}`}>
+                      <span className="timeline-label">{node.label}</span>
+                      {node.state === "active" && (
+                        <span className="timeline-indicator" />
+                      )}
+                    </div>
+                    {index < workflowNodes.length - 1 && (
+                      <div className={`timeline-connector ${node.state === "success" ? "completed" : ""}`} />
+                    )}
+                    {node.helpText && (
+                      <p className="timeline-help">{node.helpText}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
-
-          <article className="card run-panel">
-            <div className="run-panel-header">
-              <div>
-                <p className="eyebrow">Current result</p>
-                <h3>{runState.statusLabel}</h3>
-                <p>{runState.description}</p>
-              </div>
-              {runState.primaryAction && (
-                <button
-                  className="button"
-                  type="button"
-                  onClick={runPrimaryAction}
-                  disabled={primaryDisabled}
-                >
-                  {primaryLabel}
-                </button>
-              )}
-            </div>
-
-            <div className="run-summary-grid" aria-label="Task run summary">
-              {runSummaryItems.map((item) => (
-                <div key={item.key}>
-                  <strong>{item.value}</strong>
-                  <span>{item.label}</span>
-                </div>
-              ))}
-            </div>
-
-            <dl className="detail-list">
-              <div>
-                <dt>Raw status</dt>
-                <dd>{task.status}</dd>
-              </div>
-              <div>
-                <dt>Profile</dt>
-                <dd>{profileName}</dd>
-              </div>
-              <div>
-                <dt>Description</dt>
-                <dd>{task.description || "—"}</dd>
-              </div>
-              <div>
-                <dt>Extracted fields</dt>
-                <dd>{task.form_fields.length}</dd>
-              </div>
-              <div>
-                <dt>Required missing</dt>
-                <dd>
-                  {missingRequiredFields.length === 0
-                    ? "None"
-                    : missingRequiredFields.map(fieldDisplayName).join(", ")}
-                </dd>
-              </div>
-            </dl>
-
-            {(task.status === "CREATED" ||
-              task.status === "FAILED" ||
-              task.status === "LOGIN_REQUIRED") && (
-              <LlmMappingControls
-                mode={mappingMode}
-                onModeChange={setMappingMode}
-                provider={selectedLlmProvider}
-                onProviderChange={updateSelectedLlmProvider}
-                providers={llmProviders}
-                disabled={isBusy}
-              />
-            )}
-
-            {(task.status === "READY_TO_FILL" ||
-              task.status === "WAITING_APPROVAL" ||
-              task.status === "COMPLETED") && (
-              <Link className="text-button" to={`/tasks/${task.id}/review-mapping`}>
-                Review mapped values
-              </Link>
-            )}
-          </article>
 
           {taskJobs.length > 0 && newestJobSummary && (
             <div className="card">
