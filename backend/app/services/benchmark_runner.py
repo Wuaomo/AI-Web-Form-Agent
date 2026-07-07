@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.database import BACKEND_DIR
 from app.models import BenchmarkRun, FormField, LlmApiUsageLog, Profile, Task
 from app.services.benchmark_comparison_service import compare_summary_metrics
+from app.services.benchmark_request_service import build_mode_detail
 from app.services.field_mapper import _match_profile_key, map_fields_with_llm_result
 from app.services.form_extractor import _EXTRACT_FIELDS_SCRIPT, _LOGIN_DETECTION_SCRIPT
 
@@ -382,7 +383,7 @@ def _run_case(
     raw_fields, login_required = _extract_case_page_state(case)
 
     llm_fallback_count = 0
-    if mode == "llm":
+    if mode in {"llm", "rag_llm"}:
         if db is None:
             raise ValueError("LLM benchmarks require a database session")
         if not provider:
@@ -509,6 +510,7 @@ def run_benchmarks(
     db: Session | None = None,
     stress_mode: str = "standard",
     memory_mode: str = "off",
+    baseline_run_id: int | None = None,
 ) -> BenchmarkRunSummary:
     """Run all benchmark cases and optionally persist the results."""
 
@@ -573,14 +575,19 @@ def run_benchmarks(
     comparison = None
     regression_count = 0
     improvement_count = 0
-    baseline_run_id = None
-    mode_detail = f"stress_mode={stress_mode};memory_mode={memory_mode}"
+    selected_baseline_run_id: int | None = None
+    mode_detail = build_mode_detail(stress_mode=stress_mode, memory_mode=memory_mode)
 
     if db is not None:
         from app.models import BenchmarkCaseResult
 
-        baseline_run = _find_baseline_run(db, mode, provider, mode_detail)
-        baseline_run_id = baseline_run.id if baseline_run else None
+        baseline_run: BenchmarkRun | None = None
+        if baseline_run_id is not None:
+            baseline_run = db.get(BenchmarkRun, baseline_run_id)
+            selected_baseline_run_id = baseline_run.id if baseline_run else None
+        else:
+            baseline_run = _find_baseline_run(db, mode, provider, mode_detail)
+            selected_baseline_run_id = baseline_run.id if baseline_run else None
 
         if baseline_run:
             comparison = compare_summary_metrics(
@@ -614,7 +621,7 @@ def run_benchmarks(
             total_cases=summary.total_cases,
             average_score=summary.average_score,
             summary_metrics_json=json.dumps(summary.summary_metrics),
-            baseline_run_id=baseline_run_id,
+            baseline_run_id=selected_baseline_run_id,
             duration_ms=duration_ms,
             regression_count=regression_count,
             improvement_count=improvement_count,

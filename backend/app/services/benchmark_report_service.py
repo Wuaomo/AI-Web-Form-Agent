@@ -4,9 +4,10 @@ from collections import Counter
 from typing import Any
 
 from app.models import BenchmarkRun
+from app.services.benchmark_comparison_service import compare_summary_metrics
 
 
-def build_benchmark_markdown_report(run: BenchmarkRun) -> str:
+def build_benchmark_markdown_report(run: BenchmarkRun, *, baseline: BenchmarkRun | None = None) -> str:
     """Return a copyable Markdown report for one benchmark run."""
 
     lines: list[str] = []
@@ -25,6 +26,8 @@ def build_benchmark_markdown_report(run: BenchmarkRun) -> str:
             lines.append(f"**Memory Mode:** {detail['memory_mode']}")
         if not detail:
             lines.append(f"**Run Detail:** {run.mode_detail}")
+    if baseline is not None:
+        lines.append(f"**Baseline:** #{baseline.id}")
     lines.append(f"**Duration:** {_format_duration(run.duration_ms)}")
     lines.append("")
 
@@ -38,10 +41,24 @@ def build_benchmark_markdown_report(run: BenchmarkRun) -> str:
 
     lines.append("## Summary Metrics")
     lines.append("")
-    lines.append("| Metric | Value |")
-    lines.append("|--------|-------|")
-    for key, value in sorted(run.summary_metrics.items()):
-        lines.append(f"| {_metric_label(key)} | {_format_value(key, value)} |")
+    include_delta = baseline is not None
+    if include_delta:
+        comparisons = compare_summary_metrics(
+            current={k: float(v) for k, v in run.summary_metrics.items() if v is not None},
+            baseline={k: float(v) for k, v in baseline.summary_metrics.items() if v is not None},
+        )
+        lines.append("| Metric | Value | Delta |")
+        lines.append("|--------|-------|-------|")
+        for key, value in sorted(run.summary_metrics.items()):
+            delta_value = comparisons.get(key, {}).get("delta") if comparisons else None
+            lines.append(
+                f"| {_metric_label(key)} | {_format_value(key, value)} | {_format_delta(key, delta_value)} |"
+            )
+    else:
+        lines.append("| Metric | Value |")
+        lines.append("|--------|-------|")
+        for key, value in sorted(run.summary_metrics.items()):
+            lines.append(f"| {_metric_label(key)} | {_format_value(key, value)} |")
     lines.append("")
 
     if run.regression_count > 0 or run.improvement_count > 0:
@@ -109,6 +126,30 @@ def _format_value(key: str, value: float) -> str:
     if key in {"failure_rate", "llm_cache_hit_rate", "retry_success_rate"}:
         return _format_percent(value)
     return _format_percent(value)
+
+
+def _format_delta(key: str, value: object) -> str:
+    if value is None:
+        return "—"
+    try:
+        delta = float(value)
+    except (TypeError, ValueError):
+        return "—"
+
+    if key == "llm_fallback_count":
+        signed = int(round(delta))
+        return f"{signed:+d}"
+    if key.endswith("_duration_ms"):
+        ms = int(round(delta))
+        if ms == 0:
+            return "0ms"
+        prefix = "+" if ms > 0 else "-"
+        return f"{prefix}{_format_duration(abs(ms))}"
+
+    signed = round(delta * 100)
+    if signed == 0:
+        return "0%"
+    return f"{signed:+d}%"
 
 
 def _metric_label(key: str) -> str:

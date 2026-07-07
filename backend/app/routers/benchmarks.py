@@ -9,11 +9,11 @@ from app.database import get_db
 from app.models import BenchmarkRun
 from app.schemas import BenchmarkRunRequest, BenchmarkRunResponse
 from app.services.benchmark_report_service import build_benchmark_markdown_report
+from app.services.benchmark_request_service import normalize_benchmark_request
 from app.services.benchmark_runner import run_benchmarks
 from app.services.llm_provider_config import (
     get_provider_setup_hint,
     is_provider_configured,
-    resolve_llm_provider,
 )
 
 router = APIRouter(prefix="/benchmarks", tags=["benchmarks"])
@@ -46,42 +46,53 @@ def run_benchmark_suite(
     """Run the local benchmark suite and persist metrics."""
 
     options = request or BenchmarkRunRequest()
-    if options.mode == "rules":
-        run_benchmarks(
-            mode="rules",
-            provider=None,
-            db=db,
-            stress_mode=options.stress_mode,
-            memory_mode=options.memory_mode,
-        )
-        return _load_latest_benchmark_run(db)
-
-    if not options.provider:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Provider is required for LLM benchmarks",
-        )
-
     try:
-        selected_provider = resolve_llm_provider(options.provider)
+        normalized = normalize_benchmark_request(options)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
 
-    if not is_provider_configured(selected_provider):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=get_provider_setup_hint(selected_provider),
-        )
+    if normalized.execution_mode == "llm":
+        if not normalized.provider:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Provider is required for LLM benchmarks",
+            )
+        if not is_provider_configured(normalized.provider):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=get_provider_setup_hint(normalized.provider),
+            )
+
+    if normalized.baseline_run_id is not None:
+        baseline = db.get(BenchmarkRun, normalized.baseline_run_id)
+        if baseline is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Baseline benchmark run not found",
+            )
+        if (
+            baseline.mode != normalized.eval_mode
+            or baseline.provider != normalized.provider
+            or baseline.mode_detail != normalized.mode_detail
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Baseline run is not compatible with this configuration. "
+                    "Use mode comparison to compare across modes or settings."
+                ),
+            )
 
     run_benchmarks(
-        mode="llm",
-        provider=selected_provider,
+        mode=normalized.eval_mode,
+        provider=normalized.provider,
         db=db,
-        stress_mode=options.stress_mode,
-        memory_mode=options.memory_mode,
+        stress_mode=normalized.stress_mode,
+        memory_mode=normalized.memory_mode,
+        baseline_run_id=normalized.baseline_run_id,
     )
     return _load_latest_benchmark_run(db)
 
@@ -136,5 +147,6 @@ def get_benchmark_report(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Benchmark run not found",
         )
-    return build_benchmark_markdown_report(run)
+    baseline = db.get(BenchmarkRun, run.baseline_run_id) if run.baseline_run_id else None
+    return build_benchmark_markdown_report(run, baseline=baseline)
 

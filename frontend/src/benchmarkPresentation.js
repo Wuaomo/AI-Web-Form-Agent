@@ -91,6 +91,7 @@ export function caseFailureCount(caseResult = {}) {
 }
 
 export function summarizeBenchmarkRun(run = {}) {
+  const detail = parseModeDetail(run.mode_detail);
   return {
     averageScore: formatMetricPercent(run.average_score),
     totalCases: run.total_cases || 0,
@@ -103,7 +104,9 @@ export function summarizeBenchmarkRun(run = {}) {
     improvementCount: run.improvement_count || 0,
     mode: run.mode || "rules",
     provider: run.provider || null,
-    stressMode: run.mode_detail || null,
+    stressMode: detail.stressMode,
+    memoryMode: detail.memoryMode,
+    modeDetail: detail.modeDetail,
     baselineRunId: run.baseline_run_id || null,
   };
 }
@@ -168,13 +171,93 @@ export function selectDefaultProviderId(providers = []) {
 }
 
 export function shouldDisableBenchmarkRun(mode, provider) {
-  if (mode !== "llm") {
+  if (mode === "full_workflow") {
+    return true;
+  }
+  if (mode !== "llm" && mode !== "rag_llm") {
     return false;
   }
   if (!provider) {
     return true;
   }
   return provider.configured !== true;
+}
+
+export function buildModeDetail(stressMode, memoryMode) {
+  return `stress_mode=${stressMode};memory_mode=${memoryMode}`;
+}
+
+export function parseModeDetail(modeDetail) {
+  if (!modeDetail) {
+    return { stressMode: null, memoryMode: null, modeDetail: null };
+  }
+  const text = String(modeDetail);
+  if (!text.includes("=")) {
+    return { stressMode: null, memoryMode: null, modeDetail: text };
+  }
+  const parts = text.split(";").map((part) => part.trim()).filter(Boolean);
+  const entries = Object.fromEntries(
+    parts.map((part) => {
+      const [key, ...rest] = part.split("=");
+      return [key, rest.join("=")];
+    }),
+  );
+  return {
+    stressMode: entries.stress_mode || null,
+    memoryMode: entries.memory_mode || null,
+    modeDetail: text,
+  };
+}
+
+export function compareRunMetrics(currentMetrics = {}, baselineMetrics = {}) {
+  return benchmarkMetricOrder.map((key) => {
+    const current = currentMetrics[key];
+    const baseline = baselineMetrics[key];
+    const delta =
+      current === null ||
+      current === undefined ||
+      baseline === null ||
+      baseline === undefined ||
+      Number.isNaN(Number(current)) ||
+      Number.isNaN(Number(baseline))
+        ? null
+        : Number(current) - Number(baseline);
+    return {
+      key,
+      label: metricLabels[key] || key.replaceAll("_", " "),
+      current: formatMetricValue(key, current),
+      baseline: formatMetricValue(key, baseline),
+      delta: formatMetricDeltaValue(key, delta),
+    };
+  });
+}
+
+export function formatMetricDeltaValue(key, delta) {
+  if (delta === null || delta === undefined || Number.isNaN(Number(delta))) {
+    return "—";
+  }
+
+  if (key === "llm_fallback_count") {
+    const numericValue = Number(delta);
+    const rounded = Number.isInteger(numericValue) ? numericValue : Number(numericValue.toFixed(2));
+    return rounded > 0 ? `+${rounded}` : String(rounded);
+  }
+
+  if (key.endsWith("_duration_ms")) {
+    const ms = Number(delta);
+    if (ms === 0) {
+      return "0ms";
+    }
+    const sign = ms > 0 ? "+" : "-";
+    return `${sign}${formatDuration(Math.abs(ms))}`;
+  }
+
+  const percentagePoints = Math.round(Number(delta) * 100);
+  if (percentagePoints === 0) {
+    return "0%";
+  }
+  const sign = percentagePoints > 0 ? "+" : "";
+  return `${sign}${percentagePoints}%`;
 }
 
 const legacyFailureReasonMap = {

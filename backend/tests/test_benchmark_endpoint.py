@@ -99,10 +99,12 @@ def test_run_benchmark_persists_and_returns_results(
         db: Session,
         stress_mode: str = "standard",
         memory_mode: str = "off",
+        baseline_run_id: int | None = None,
     ) -> BenchmarkRunSummary:
         assert mode == "rules"
         assert provider is None
         assert memory_mode == "off"
+        assert baseline_run_id is None
         _persist_summary(db, summary)
         return summary
 
@@ -143,10 +145,12 @@ def test_run_benchmark_rules_mode_succeeds(test_environment: tuple[TestClient, S
         db: Session,
         stress_mode: str = "standard",
         memory_mode: str = "off",
+        baseline_run_id: int | None = None,
     ) -> BenchmarkRunSummary:
         assert mode == "rules"
         assert provider is None
         assert memory_mode == "off"
+        assert baseline_run_id is None
         _persist_summary(db, summary)
         return summary
 
@@ -184,10 +188,12 @@ def test_run_benchmark_empty_body_defaults_to_rules(
         db: Session,
         stress_mode: str = "standard",
         memory_mode: str = "off",
+        baseline_run_id: int | None = None,
     ) -> BenchmarkRunSummary:
         assert mode == "rules"
         assert provider is None
         assert memory_mode == "off"
+        assert baseline_run_id is None
         _persist_summary(db, summary)
         return summary
 
@@ -212,7 +218,7 @@ def test_run_benchmark_llm_with_unconfigured_provider_returns_409(
     client, _ = test_environment
 
     with (
-        patch("app.routers.benchmarks.resolve_llm_provider", return_value="openai"),
+        patch("app.services.benchmark_request_service.resolve_llm_provider", return_value="openai"),
         patch("app.routers.benchmarks.is_provider_configured", return_value=False),
         patch("app.routers.benchmarks.get_provider_setup_hint", return_value="Set OPENAI_API_KEY"),
         patch("app.routers.benchmarks.run_benchmarks") as mocked_runner,
@@ -244,15 +250,17 @@ def test_run_benchmark_llm_with_configured_provider_calls_runner(
         db: Session,
         stress_mode: str = "standard",
         memory_mode: str = "off",
+        baseline_run_id: int | None = None,
     ) -> BenchmarkRunSummary:
         assert mode == "llm"
         assert provider == "openai"
         assert memory_mode == "off"
+        assert baseline_run_id is None
         _persist_summary(db, summary)
         return summary
 
     with (
-        patch("app.routers.benchmarks.resolve_llm_provider", return_value="openai"),
+        patch("app.services.benchmark_request_service.resolve_llm_provider", return_value="openai"),
         patch("app.routers.benchmarks.is_provider_configured", return_value=True),
         patch("app.routers.benchmarks.run_benchmarks", side_effect=fake_run_benchmarks) as mocked_runner,
     ):
@@ -266,6 +274,91 @@ def test_run_benchmark_llm_with_configured_provider_calls_runner(
     assert mocked_runner.call_args.kwargs["provider"] == "openai"
     assert mocked_runner.call_args.kwargs["db"] is not None
     assert mocked_runner.call_args.kwargs["stress_mode"] == "standard"
+
+
+def test_run_benchmark_rag_llm_forces_memory_mode_on_and_calls_runner(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, _ = test_environment
+    summary = BenchmarkRunSummary(
+        mode="rag_llm",
+        provider="openai",
+        total_cases=0,
+        average_score=1.0,
+        summary_metrics={},
+        case_results=[],
+    )
+
+    def fake_run_benchmarks(
+        *,
+        mode: str,
+        provider: str | None,
+        db: Session,
+        stress_mode: str = "standard",
+        memory_mode: str = "off",
+        baseline_run_id: int | None = None,
+    ) -> BenchmarkRunSummary:
+        assert mode == "rag_llm"
+        assert provider == "openai"
+        assert memory_mode == "on"
+        assert baseline_run_id is None
+        _persist_summary(db, summary)
+        return summary
+
+    with (
+        patch("app.services.benchmark_request_service.resolve_llm_provider", return_value="openai"),
+        patch("app.routers.benchmarks.is_provider_configured", return_value=True),
+        patch("app.routers.benchmarks.run_benchmarks", side_effect=fake_run_benchmarks) as mocked_runner,
+    ):
+        response = client.post("/benchmarks/run", json={"mode": "rag_llm", "provider": "openai"})
+
+    assert response.status_code == 201
+    assert mocked_runner.call_args.kwargs["mode"] == "rag_llm"
+    assert mocked_runner.call_args.kwargs["memory_mode"] == "on"
+
+
+def test_run_benchmark_full_workflow_returns_400_without_executing(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, _ = test_environment
+    with patch("app.routers.benchmarks.run_benchmarks") as mocked_runner:
+        response = client.post("/benchmarks/run", json={"mode": "full_workflow"})
+
+    assert response.status_code == 400
+    mocked_runner.assert_not_called()
+
+
+def test_run_benchmark_rejects_incompatible_baseline_before_execution(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    baseline = BenchmarkRun(
+        mode="rules",
+        provider=None,
+        total_cases=0,
+        average_score=1.0,
+        summary_metrics_json=json.dumps({}),
+        mode_detail="stress_mode=standard;memory_mode=off",
+    )
+    session.add(baseline)
+    session.commit()
+
+    with (
+        patch("app.services.benchmark_request_service.resolve_llm_provider", return_value="openai"),
+        patch("app.routers.benchmarks.is_provider_configured", return_value=True),
+        patch("app.routers.benchmarks.run_benchmarks") as mocked_runner,
+    ):
+        response = client.post(
+            "/benchmarks/run",
+            json={
+                "mode": "llm",
+                "provider": "openai",
+                "baseline_run_id": baseline.id,
+            },
+        )
+
+    assert response.status_code == 400
+    mocked_runner.assert_not_called()
 
 
 def test_report_endpoint_returns_404_for_missing_run(

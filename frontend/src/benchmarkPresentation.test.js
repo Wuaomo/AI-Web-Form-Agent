@@ -3,14 +3,18 @@ import assert from "node:assert/strict";
 
 import {
   benchmarkMetricOrder,
+  buildModeDetail,
   caseFailureCount,
+  compareRunMetrics,
   failureReasonLabel,
   formatDuration,
+  formatMetricDeltaValue,
   formatMetricPercent,
   formatMetricValue,
   formatRegressionStatus,
   metricEntries,
   normalizeFailureReason,
+  parseModeDetail,
   selectDefaultProviderId,
   shouldDisableBenchmarkRun,
   sortCaseResults,
@@ -48,6 +52,8 @@ test("summarizeBenchmarkRun exposes score cards and failure counts", () => {
   assert.equal(summary.mode, "rules");
   assert.equal(summary.provider, null);
   assert.equal(summary.stressMode, null);
+  assert.equal(summary.memoryMode, null);
+  assert.equal(summary.modeDetail, null);
   assert.equal(summary.baselineRunId, null);
 
   assert.deepEqual(metricEntries(run.summary_metrics).slice(0, 3), [
@@ -150,6 +156,9 @@ test("shouldDisableBenchmarkRun enforces provider configuration for llm mode", (
   assert.equal(shouldDisableBenchmarkRun("llm", null), true);
   assert.equal(shouldDisableBenchmarkRun("llm", { configured: false }), true);
   assert.equal(shouldDisableBenchmarkRun("llm", { configured: true }), false);
+  assert.equal(shouldDisableBenchmarkRun("rag_llm", null), true);
+  assert.equal(shouldDisableBenchmarkRun("rag_llm", { configured: true }), false);
+  assert.equal(shouldDisableBenchmarkRun("full_workflow", { configured: true }), true);
 });
 
 test("normalizeFailureReason maps legacy failure reasons to stable taxonomy strings", () => {
@@ -206,7 +215,7 @@ test("summarizeBenchmarkRun includes duration and regression counts", () => {
     improvement_count: 2,
     mode: "llm",
     provider: "openai",
-    mode_detail: "cache_warm",
+    mode_detail: "stress_mode=cache_warm;memory_mode=on",
     baseline_run_id: 10,
     case_results: [
       { failures: [] },
@@ -225,6 +234,32 @@ test("summarizeBenchmarkRun includes duration and regression counts", () => {
   assert.equal(summary.mode, "llm");
   assert.equal(summary.provider, "openai");
   assert.equal(summary.stressMode, "cache_warm");
+  assert.equal(summary.memoryMode, "on");
+  assert.equal(summary.modeDetail, "stress_mode=cache_warm;memory_mode=on");
   assert.equal(summary.baselineRunId, 10);
+});
+
+test("mode detail helpers build and parse stable stress/memory strings", () => {
+  const detail = buildModeDetail("cache_warm", "on");
+  assert.equal(detail, "stress_mode=cache_warm;memory_mode=on");
+  assert.deepEqual(parseModeDetail(detail), {
+    stressMode: "cache_warm",
+    memoryMode: "on",
+    modeDetail: "stress_mode=cache_warm;memory_mode=on",
+  });
+});
+
+test("compareRunMetrics emits stable delta formatting", () => {
+  assert.equal(formatMetricDeltaValue("mapping_accuracy", 0.2), "+20%");
+  assert.equal(formatMetricDeltaValue("mapping_accuracy", -0.05), "-5%");
+  assert.equal(formatMetricDeltaValue("average_case_duration_ms", 500), "+500ms");
+  assert.equal(formatMetricDeltaValue("average_case_duration_ms", -1500), "-1.5s");
+
+  const deltas = compareRunMetrics(
+    { mapping_accuracy: 0.8 },
+    { mapping_accuracy: 0.6 },
+  );
+  const mappingEntry = deltas.find((entry) => entry.key === "mapping_accuracy");
+  assert.equal(mappingEntry.delta, "+20%");
 });
 

@@ -161,3 +161,39 @@ def test_report_includes_top_failure_reasons() -> None:
     assert "## Top Failure Reasons" in report
     assert "Field Not Extracted" in report
     assert "Wrong Profile Key" in report
+
+
+def test_report_includes_delta_when_baseline_present() -> None:
+    run = BenchmarkRun(
+        id=10,
+        mode="llm",
+        provider="openai",
+        mode_detail="stress_mode=standard;memory_mode=off",
+        total_cases=1,
+        average_score=1.0,
+        summary_metrics_json=json.dumps({"mapping_accuracy": 0.8}),
+        duration_ms=1000,
+        regression_count=0,
+        improvement_count=1,
+        baseline_run_id=9,
+        created_at=datetime(2026, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
+    )
+    baseline = BenchmarkRun(
+        id=9,
+        mode="llm",
+        provider="openai",
+        mode_detail="stress_mode=standard;memory_mode=off",
+        total_cases=1,
+        average_score=1.0,
+        summary_metrics_json=json.dumps({"mapping_accuracy": 0.6}),
+        duration_ms=1000,
+        regression_count=0,
+        improvement_count=0,
+        created_at=datetime(2026, 1, 15, 10, 0, 0, tzinfo=timezone.utc),
+    )
+
+    report = build_benchmark_markdown_report(run, baseline=baseline)
+
+    assert "| Metric | Value | Delta |" in report
+    assert "**Baseline:** #9" in report
+    assert "| Mapping Accuracy | 80% | +20% |" in report
