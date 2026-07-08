@@ -1,10 +1,12 @@
-# Review-first AI Workflow Automation
+# AI Web Form Agent
 
-AI Web Form Agent is a local browser automation app that analyzes web forms, maps reusable profile data to fields, fills the page in Chromium, and pauses before final submission.
+Review-first AI workflow automation for structured web tasks.
+
+The app analyzes web forms, maps reusable profile data to fields, plans the fill workflow, executes it in Chromium, records trace evidence, and pauses before final submission.
 
 ## What It Is
 
-This project demonstrates safe, inspectable workflow automation for web forms. It combines a FastAPI backend, SQLite persistence, Playwright browser execution, and a React/Vite frontend.
+This project demonstrates safe, inspectable browser automation. It combines a FastAPI backend, SQLite persistence, Playwright execution, workflow templates, policy/approval gates, workflow traces, local evaluation runs, and a React/Vite console.
 
 The default demo runs without LLM API keys. Optional providers can assist semantic mapping, but deterministic rules remain available.
 
@@ -12,14 +14,26 @@ The default demo runs without LLM API keys. Optional providers can assist semant
 
 Browser agents are risky when they submit forms invisibly. This app keeps the user in the loop with mapping review, approval gates, screenshots, action logs, traces, and local benchmark evidence.
 
+## Current App Surface
+
+- Workflow console for runs, templates, approvals, traces, and evaluation.
+- Review mapping flow before browser execution.
+- Deterministic planner and tool registry for the enabled form-fill workflow.
+- Policy engine and persisted approval requests for risky steps.
+- SQLite-backed workflow memory for reviewed reusable values.
+- Trace spans, screenshots, action logs, verification evidence, and usage/cost summaries.
+- Local benchmark/evaluation center with comparison reports.
+
 ## Core Workflow
 
 ```text
 Create Profile
   -> Create Run
   -> Analyze Form
+  -> Plan Workflow
   -> Generate Mapping
   -> Review Mapping
+  -> Apply Policy Gates
   -> Confirm Mapping
   -> Fill Form
   -> Verify Fields
@@ -39,8 +53,10 @@ Create Profile
 React UI
   -> FastAPI API
     -> SQLite profiles, tasks, jobs, approvals, traces
+    -> Workflow templates, planner, and tool registry
     -> Form extraction and field mapping services
     -> Policy and approval gates
+    -> Workflow memory and retrieval examples
     -> Playwright browser execution
     -> Benchmark runner and reports
 ```
@@ -62,7 +78,24 @@ The benchmark suite uses local HTML fixtures and expected JSON answers to track 
 
 See [docs/evaluation-report-sample.md](docs/evaluation-report-sample.md) and [backend/benchmarks/README.md](backend/benchmarks/README.md).
 
-## Local Setup
+## Quick Start
+
+The fastest demo path is Docker:
+
+```powershell
+docker compose up --build -d
+python scripts/seed_demo.py
+```
+
+Open `http://localhost:5173`.
+
+Stop the demo:
+
+```powershell
+docker compose down
+```
+
+## Manual Local Setup
 
 Backend:
 
@@ -93,15 +126,9 @@ Backend health:
 http://localhost:8000/health
 ```
 
-## Docker Demo
+## Docker Details
 
-Start the demo from the repository root:
-
-```powershell
-docker compose up --build
-```
-
-The stack exposes:
+The Docker stack exposes:
 
 - backend: `http://localhost:8000`
 - frontend: `http://localhost:5173`
@@ -113,12 +140,6 @@ python scripts/seed_demo.py
 ```
 
 The seed script creates `Demo Applicant` through the running API and does not require LLM credentials.
-
-Stop the demo:
-
-```powershell
-docker compose down
-```
 
 ## Optional LLM Providers
 
@@ -189,6 +210,6 @@ docker compose build
 
 CI runs backend tests and frontend tests/build through `.github/workflows/ci.yml`.
 
-## Portfolio Notes
+## Current Boundaries
 
 This repository is intended to show a review-first agent architecture: workflow templates, policy gates, approval center, profile memory, trace evidence, evaluation runs, and a runnable local demo. It does not claim production deployment, production authentication, cloud hosting, or CAPTCHA bypass.
