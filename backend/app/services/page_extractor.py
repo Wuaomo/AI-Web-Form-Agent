@@ -179,7 +179,7 @@ _EXTRACT_PAGE_SCRIPT = """
         .map(table => {
             const headers = Array.from(table.querySelectorAll('th'))
                 .map(th => normalizeText(th.innerText || th.textContent));
-            
+
             const rows = Array.from(table.querySelectorAll('tr'))
                 .filter(tr => tr.querySelectorAll('td, th').length > 0)
                 .slice(headers.length > 0 ? 1 : 0)
