@@ -2,16 +2,18 @@
 
 ## Goal
 
-Reorganize the existing React frontend so the product reads as a workflow platform rather than a loose collection of task screens.
+Reorganize the existing React frontend so the product reads as a workflow platform without burying the user's main path under engineering diagnostics.
 
-Phase 08 should make these concepts visible in the UI:
+Phase 08 should make the normal path obvious:
 
 - workflow templates
 - workflow runs
 - approvals
 - workflow plan
-- workflow trace
-- evaluation
+- field mapping/review
+- execution and final approval
+
+Trace, LLM usage, agent reviews, screenshots, logs, and evaluation evidence must remain available, but they should be secondary by default.
 
 This phase is primarily presentation, navigation, and information architecture. It should reuse existing backend APIs and existing page components wherever practical.
 
@@ -26,6 +28,7 @@ This phase is primarily presentation, navigation, and information architecture. 
 - Do not rewrite the Approval Center into a new page/component hierarchy.
 - Do not force a large-scale internal rename from `task` to `run` in API names, route params, or component identifiers.
 - Do not turn this phase into rename churn. User-facing copy should change; internal code names only change when there is a direct local benefit.
+- Do not make trace, LLM usage, agent reviews, screenshots, logs, or debug reports the default reading path for a successful run.
 
 ## Existing Code Surfaces
 
@@ -237,7 +240,7 @@ Reuse [TaskDetail.jsx](file:///c:/Users/wuaomo/Documents/AI%20Web%20Form%20Agent
 
 ### Priority order
 
-Task Detail should emphasize operational workflow content before diagnostics.
+Task Detail should emphasize the user's operational path before diagnostics.
 
 Recommended section order:
 
@@ -248,17 +251,23 @@ Recommended section order:
 5. workflow plan
 6. verification results
 7. mapping/review entry points
-8. workflow trace
-9. agent reviews
-10. LLM usage
-11. screenshots
-12. logs / debug report / background job details
+8. collapsed `Advanced` or `Debug` area
+
+The advanced/debug area may contain:
+
+- workflow trace
+- agent reviews
+- LLM usage
+- screenshots
+- logs / debug report / background job details
+
+If a run fails, show a concise failure summary in the default path and provide a direct route to the relevant advanced evidence.
 
 ### Trace card boundary
 
 Trace is diagnostic support, not the main content of Task Detail.
 
-The Trace card must live in a secondary position and must not visually outrank:
+The Trace card must live in the advanced/debug area by default and must not visually outrank:
 
 - plan
 - approvals
@@ -300,6 +309,12 @@ Keep low-cost escape hatches rather than a larger trace surface:
 - `Copy trace JSON`
 
 These are sufficient for full inspection in Phase 08.
+
+### Placement
+
+- successful runs keep trace collapsed inside advanced/debug
+- failed runs may show a small failed phase/name/error summary in the main path
+- raw trace JSON is never shown inline by default
 
 ## Approval Center
 
@@ -361,6 +376,7 @@ Goals:
 
 - preserve the current visual system
 - keep cards compact
+- keep advanced/debug sections collapsed by default
 - avoid nested cards
 - keep tables scrollable on small screens
 - ensure buttons and badges do not overflow
@@ -399,6 +415,8 @@ Key cases:
 - failed-only default list behavior
 - show-more expansion capped at 10 failed spans
 - no-failure trace stays collapsed
+- successful runs keep advanced/debug evidence collapsed
+- failed runs show a concise failure summary in the normal path
 - raw trace copy/view payload formatting
 - approval risk/status labels if helper added
 
@@ -418,7 +436,9 @@ npm run build
 - enabled templates offer `Create` and disabled templates show `Coming soon`
 - Create Workflow Run handles query `workflow_type` conservatively and falls back safely
 - Task Detail uses run-oriented copy without requiring large internal renames
-- Trace card is compact, failed-only by default, and secondary to plan/approvals/mapping/verification
+- Task Detail has a clear normal path for completing a run
+- Trace, LLM usage, agent reviews, screenshots, logs, and debug reports are advanced/debug evidence by default
+- failed runs expose a concise failure summary with access to the relevant evidence
 - Approval Center remains the same page with improved wording and missing information filled in
 - existing creation, mapping, review, approval, and evaluation flows continue to work
 - frontend tests and build pass
@@ -430,7 +450,7 @@ npm run build
 3. add template presentation helper and tests
 4. update CreateTask into Create Workflow Run with conservative query handling
 5. update Dashboard into Runs home
-6. update TaskDetail wording and trace card behavior
+6. update TaskDetail wording, default path, and advanced/debug disclosure
 7. refine ApprovalCenter wording and missing fields
 8. add minimal CSS adjustments
 9. run frontend tests and build

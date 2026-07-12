@@ -393,6 +393,37 @@ textarea {
   border: 1px solid #efcf98;
 }
 
+.failure-summary-card {
+  margin-top: 1rem;
+  color: #7a1f2b;
+  background: #fff7f7;
+  border-color: #efc2c6;
+}
+
+.failure-summary-card p:last-child {
+  margin-bottom: 0;
+}
+
+.advanced-panel {
+  margin-top: 1.25rem;
+  padding: 0.9rem 1rem;
+  background: #f8fafc;
+  border: 1px solid #dfe4ec;
+  border-radius: 0.7rem;
+}
+
+.advanced-panel > summary {
+  color: #405274;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.advanced-panel-body {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
 .status {
   display: flex;
   align-items: center;

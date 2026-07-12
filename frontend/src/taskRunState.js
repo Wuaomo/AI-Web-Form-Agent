@@ -1,4 +1,5 @@
 import { isReviewableField } from "./reviewMappingPresentation.js";
+import { phaseLabel, sortSpans } from "./workflowTracePresentation.js";
 
 export function isFillableField(field) {
   return isReviewableField(field);
@@ -165,4 +166,49 @@ export function getTaskRunState(task, checkpoints = []) {
   }
 
   return baseState;
+}
+
+const failureTitleByTracePhase = {
+  extraction: "Analysis failed",
+  mapping: "Mapping failed",
+  browser: "Fill failed",
+  verification: "Verification failed",
+  approval: "Approval failed",
+};
+
+export function getRunFailureSummary(task, checkpoints = [], traceSpans = []) {
+  if (getTaskStatus(task) !== "FAILED") {
+    return null;
+  }
+
+  const latestFailedSpan = sortSpans(traceSpans)
+    .filter((span) => span?.status === "FAILED")
+    .at(-1);
+
+  if (latestFailedSpan) {
+    return {
+      title:
+        failureTitleByTracePhase[latestFailedSpan.phase] ||
+        getTaskRunState(task, checkpoints).statusLabel,
+      detail: latestFailedSpan.error_message || "Check advanced details for the failed step.",
+      source: `${phaseLabel(latestFailedSpan.phase)} / ${latestFailedSpan.name || "Unknown"}`,
+    };
+  }
+
+  const latestFailedCheckpoint = checkpoints
+    .filter((checkpoint) => checkpoint?.status === "FAILED")
+    .at(-1);
+
+  return {
+    title: getTaskRunState(task, checkpoints).statusLabel,
+    detail:
+      latestFailedCheckpoint?.error_message ||
+      latestFailedCheckpoint?.failure_reason ||
+      "Check advanced details for the failed step.",
+    source: latestFailedCheckpoint?.stage || "Run",
+  };
+}
+
+export function shouldOpenAdvancedByDefault() {
+  return false;
 }

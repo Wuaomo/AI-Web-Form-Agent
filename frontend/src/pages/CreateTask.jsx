@@ -8,6 +8,7 @@ import {
 } from "../llmProviderPreference";
 import Message from "../components/Message";
 import {
+  dockerDemoFormUrl,
   resolveWorkflowTypeSelection,
   sortWorkflowTemplates,
 } from "../workflowTemplatePresentation";
@@ -175,6 +176,13 @@ function CreateTask() {
             required
           />
         </label>
+        <button
+          type="button"
+          className="text-button"
+          onClick={() => setForm({ ...form, url: dockerDemoFormUrl() })}
+        >
+          Use Docker demo form
+        </button>
 
         <label>
           Profile

@@ -22,6 +22,10 @@ export function buildWorkflowTemplateCreatePath(templateId) {
   return `/tasks/new?workflow_type=${encodeURIComponent(templateId)}`;
 }
 
+export function dockerDemoFormUrl() {
+  return "file:///app/examples/llm-registration.html";
+}
+
 export function resolveWorkflowTypeSelection(
   templates = [],
   requestedWorkflowType,

@@ -1,6 +1,6 @@
 # Phase 08 - Frontend Workflow Console (Implementation Plan)
 
-**Goal:** Reposition the existing React frontend as a workflow console with Runs, Workflows, Approvals, Profiles, and Evaluation navigation, while keeping backend APIs and existing task-based internals intact.
+**Goal:** Reposition the existing React frontend as a workflow console whose default path helps a user complete a form run, while keeping trace, usage, review, and evaluation evidence available as secondary/advanced material.
 
 **Hard boundaries:**
 - Do not add new backend APIs.
@@ -10,6 +10,7 @@
 - Do not create a new `Approvals.jsx` page or rebuild the approval card system.
 - Do not do large-scale internal rename churn from `task` to `run`.
 - User-facing copy should say `Run / Workflow Run`; internal symbols such as `taskId`, `TaskDetail`, and `api.getTask()` may remain.
+- Do not make diagnostics the default reading path. Trace, LLM usage, agent reviews, raw logs, and debug reports belong behind an `Advanced` or `Debug` disclosure unless they directly explain a failure.
 
 ## Step 1 - Update App Routes and Global Navigation
 
@@ -91,7 +92,7 @@
 - Update visible table labels from `Task` to `Run`, but keep links and underlying task objects unchanged.
 - If workflow type is absent in the task payload, display `form_fill`.
 
-## Step 5 - Refine TaskDetail as Workflow Run Detail
+## Step 5 - Refine TaskDetail as Guided Workflow Run Detail
 
 **Files**
 - Modify: `frontend/src/pages/TaskDetail.jsx`
@@ -101,7 +102,7 @@
 **Work**
 - Update user-visible copy to `Run` / `Workflow Run`.
 - Keep internal identifiers (`taskId`, `task`, `TaskDetail`) as-is unless a local rename clearly improves readability.
-- Reorder content so workflow operations come before diagnostics:
+- Reorder content into a simple default run path:
   - messages
   - run header
   - primary action panel
@@ -109,9 +110,15 @@
   - workflow plan
   - verification results
   - mapping/review entry point
+- Put engineering evidence into a collapsed `Advanced` or `Debug` area by default:
   - workflow trace
-  - diagnostics
-- Keep Trace as a secondary card, not the main event.
+  - agent reviews
+  - LLM usage
+  - screenshots
+  - logs
+  - debug report
+- If a run fails, show a short failure summary in the default path and link/expand to the relevant advanced evidence.
+- Keep Trace as supporting evidence, not the main event.
 
 ### Trace card implementation
 
@@ -138,6 +145,7 @@
   - `View raw trace JSON`
   - `Copy trace JSON`
 - Do not render the full trace list inline.
+- Place the trace card inside the advanced/debug disclosure by default. On failure, the default path may show only the failed phase/name/error summary plus a jump to trace details.
 
 ## Step 6 - Refine Approval Center In Place
 
@@ -179,6 +187,7 @@
   - compact trace summary/list/actions
   - runs-home emphasis
   - approval metadata layout improvements
+  - collapsed advanced/debug sections
 - Maintain current visual system:
   - no component-library style overhaul
   - no decorative redesign
@@ -202,6 +211,8 @@
 - failed-only default trace list
 - `Show more` capped at 10 failed spans
 - no-failure trace stays collapsed
+- advanced/debug content is collapsed by default on successful runs
+- failed runs expose a concise failure summary without opening every diagnostic panel
 - raw trace JSON payload formatting or copy string generation
 - approval risk/status labels if helper introduced
 
@@ -222,7 +233,8 @@ npm run build
 - Workflow Templates page exists and remains list-only
 - Create Workflow Run handles `workflow_type` query conservatively and falls back to `form_fill` when needed
 - Dashboard reads as Runs home
-- TaskDetail shows a compact failed-only Trace card and keeps diagnostics secondary
+- TaskDetail defaults to a clear user path and keeps trace, usage, reviews, screenshots, logs, and debug reports behind advanced/debug disclosure
+- failed runs show a concise failure summary with access to the relevant advanced evidence
 - Approval Center is improved in place, not rebuilt
 - visible wording uses `Run / Workflow Run` while internal task-based code remains mostly intact
 - tests and build pass

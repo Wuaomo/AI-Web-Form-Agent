@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildWorkflowTemplateCreatePath,
+  dockerDemoFormUrl,
   isTemplateEnabled,
   resolveWorkflowTypeSelection,
   sortWorkflowTemplates,
@@ -34,6 +35,13 @@ test("buildWorkflowTemplateCreatePath encodes the workflow id", () => {
   assert.equal(
     buildWorkflowTemplateCreatePath("form fill"),
     "/tasks/new?workflow_type=form%20fill",
+  );
+});
+
+test("dockerDemoFormUrl points to the backend container demo fixture", () => {
+  assert.equal(
+    dockerDemoFormUrl(),
+    "file:///app/examples/llm-registration.html",
   );
 });
 
