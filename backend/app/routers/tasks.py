@@ -68,6 +68,7 @@ from app.services.field_mapper import (
 )
 from app.services.form_extractor import ExtractedFormAnalysis, extract_form_analysis
 from app.services.page_extractor import extract_page
+from app.services.research_summary import generate_research_summary
 from app.services.form_analysis_cache import (
     read_form_analysis_cache,
     write_form_analysis_cache,
@@ -139,6 +140,7 @@ from app.workflow_constants import (
     WORKFLOW_STAGE_MAPPING,
     WORKFLOW_TYPE_FORM_FILL,
     WORKFLOW_TYPE_WEB_DATA_EXTRACT,
+    WORKFLOW_TYPE_JOB_RESEARCH_SUMMARY,
 )
 
 logger = logging.getLogger(__name__)
@@ -1085,6 +1087,183 @@ async def extract_task_page(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Page extraction failed",
+        ) from exc
+
+    statement = (
+        select(Task)
+        .options(selectinload(Task.form_fields))
+        .where(Task.id == task.id)
+    )
+    return db.scalar(statement)
+
+
+@router.post(
+    "/{task_id}/job-summary",
+    response_model=TaskResponse,
+)
+async def generate_job_summary(
+    task_id: int,
+    db: Session = Depends(get_db),
+) -> Task:
+    """Generate a research summary for job_research_summary workflow.
+
+    If extraction checkpoint doesn't exist, first extracts page data,
+    then generates a deterministic summary report.
+    """
+
+    task = get_task_or_404(task_id, db)
+    if task.workflow_type not in (WORKFLOW_TYPE_WEB_DATA_EXTRACT, WORKFLOW_TYPE_JOB_RESEARCH_SUMMARY):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Job summary is only available for web_data_extract and job_research_summary workflows",
+        )
+
+    step = get_next_log_step(task.id, db)
+    span_started_at = time.monotonic()
+    summary_span_id = safe_create_span(
+        task_id=task.id,
+        phase=SPAN_PHASE_EXTRACTION,
+        name="generate_job_summary",
+        input={"url": task.url},
+    )
+
+    apply_workflow_status(task, WORKFLOW_STATUS_ANALYZING, reason="summary_started")
+    create_log(
+        task_id=task.id,
+        step=step,
+        action="generate_job_summary",
+        message=f"Generating research summary for {task.url}.",
+        status="STARTED",
+        db=db,
+    )
+    db.commit()
+
+    try:
+        extraction_checkpoints = list_checkpoints(task_id=task.id, db=db)
+        extraction_data = None
+        for cp in extraction_checkpoints:
+            if cp.stage == "EXTRACTION" and cp.status == CHECKPOINT_SUCCESS and cp.output:
+                extraction_data = cp.output
+                break
+
+        if extraction_data is None:
+            create_log(
+                task_id=task.id,
+                step=get_next_log_step(task.id, db),
+                action="extract_page",
+                message=f"No extraction checkpoint found, extracting page first.",
+                status="STARTED",
+                db=db,
+            )
+            db.commit()
+
+            result = await extract_page(task.url, task.profile_id)
+
+            await open_url_and_capture_screenshot(
+                task_id=task.id,
+                url=task.url,
+                profile_id=task.profile_id,
+                stage="extracted",
+                db=db,
+            )
+
+            extraction_data = {
+                "title": result.title,
+                "heading_count": len(result.headings),
+                "headings": [{"level": h.level, "text": h.text} for h in result.headings],
+                "text_block_count": len(result.main_text_blocks),
+                "link_count": len(result.links),
+                "links": [{"text": l.text, "href": l.href} for l in result.links],
+                "table_count": len(result.tables),
+                "tables": [
+                    {"headers": t.headers, "row_count": len(t.rows)}
+                    for t in result.tables
+                ],
+                "form_count": len(result.forms),
+                "forms": [
+                    {"action": f.action, "method": f.method, "field_count": f.field_count}
+                    for f in result.forms
+                ],
+            }
+
+            write_checkpoint(
+                task_id=task.id,
+                stage="EXTRACTION",
+                status=CHECKPOINT_SUCCESS,
+                input_hash=f"{task.url}:{task.profile_id}",
+                output=extraction_data,
+                db=db,
+            )
+
+        summary_result = generate_research_summary(extraction_data, goal=task.description or "")
+
+        summary_output = {
+            "summary": summary_result.summary,
+            "key_requirements": summary_result.key_requirements,
+            "action_checklist": summary_result.action_checklist,
+            "risks": summary_result.risks,
+        }
+
+        write_checkpoint(
+            task_id=task.id,
+            stage="SUMMARY",
+            status=CHECKPOINT_SUCCESS,
+            input_hash=f"{task.url}:{task.profile_id}",
+            output=summary_output,
+            db=db,
+        )
+
+        apply_workflow_status(task, WORKFLOW_STATUS_COMPLETED, reason="summary_completed")
+        create_log(
+            task_id=task.id,
+            step=get_next_log_step(task.id, db),
+            action="generate_job_summary",
+            message=f"Generated research summary with {len(summary_result.key_requirements)} requirements, {len(summary_result.action_checklist)} checklist items, {len(summary_result.risks)} risks.",
+            status="SUCCESS",
+            db=db,
+        )
+        db.commit()
+        safe_finish_span(
+            summary_span_id,
+            status=SPAN_STATUS_SUCCESS,
+            output={
+                "requirement_count": len(summary_result.key_requirements),
+                "checklist_count": len(summary_result.action_checklist),
+                "risk_count": len(summary_result.risks),
+            },
+            latency_ms=int((time.monotonic() - span_started_at) * 1000),
+        )
+    except Exception as exc:
+        db.rollback()
+        task = get_task_or_404(task_id, db)
+        apply_workflow_status(task, WORKFLOW_STATUS_FAILED, reason="summary_failed")
+        write_checkpoint(
+            task_id=task.id,
+            stage="SUMMARY",
+            status=CHECKPOINT_FAILED,
+            input_hash=f"{task.url}:{task.profile_id}",
+            failure_reason=FAILURE_ANALYSIS_FAILED,
+            error_message=str(exc),
+            db=db,
+        )
+        create_log(
+            task_id=task.id,
+            step=get_next_log_step(task.id, db),
+            action="generate_job_summary",
+            message=f"Research summary failed: {exc}",
+            status="FAILED",
+            db=db,
+        )
+        db.commit()
+        safe_finish_span(
+            summary_span_id,
+            status=SPAN_STATUS_FAILED,
+            error_message=str(exc),
+            latency_ms=int((time.monotonic() - span_started_at) * 1000),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Research summary failed",
         ) from exc
 
     statement = (

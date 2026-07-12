@@ -53,7 +53,7 @@ import {
   getWorkflowPlanSteps,
   workflowPlanApprovalLabel,
 } from "../workflowPlanPresentation";
-import { getExtractionData } from "../webExtractionPresentation";
+import { getExtractionData, getSummaryData } from "../webExtractionPresentation";
 
 function TaskDetail() {
   const { taskId } = useParams();
@@ -1017,6 +1017,73 @@ function TaskDetail() {
                       <details className="technical-details">
                         <summary>View raw JSON</summary>
                         <pre className="trace-json-block">{JSON.stringify(extractionData, null, 2)}</pre>
+                      </details>
+                    </div>
+                  </section>
+                );
+              })()}
+
+              {(() => {
+                const summaryData = getSummaryData(taskCheckpoints);
+                if (!summaryData) return null;
+                const copyableText = `# Research Summary\n\n${summaryData.summary}\n\n## Key Requirements\n${summaryData.key_requirements.map((r, i) => `${i + 1}. ${r}`).join("\n")}\n\n## Action Checklist\n${summaryData.action_checklist.map((c, i) => `${i + 1}. ${c}`).join("\n")}\n\n## Risks / Missing Information\n${summaryData.risks.map((r, i) => `${i + 1}. ${r}`).join("\n")}`;
+                const [copied, setCopied] = useState(false);
+                const handleCopy = async () => {
+                  await navigator.clipboard.writeText(copyableText);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                };
+                return (
+                  <section className="section-block">
+                    <div className="section-heading">
+                      <h3>Research Summary</h3>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={handleCopy}
+                      >
+                        {copied ? "Copied!" : "Copy Report"}
+                      </button>
+                    </div>
+                    <div className="card">
+                      {summaryData.summary && (
+                        <div>
+                          <h4>Summary</h4>
+                          <pre className="summary-text">{summaryData.summary}</pre>
+                        </div>
+                      )}
+                      {summaryData.key_requirements && summaryData.key_requirements.length > 0 && (
+                        <div>
+                          <h4>Key Requirements</h4>
+                          <ul className="extraction-list">
+                            {summaryData.key_requirements.map((req, index) => (
+                              <li key={index}>{req}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {summaryData.action_checklist && summaryData.action_checklist.length > 0 && (
+                        <div>
+                          <h4>Action Checklist</h4>
+                          <ul className="extraction-list">
+                            {summaryData.action_checklist.map((item, index) => (
+                              <li key={index}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {summaryData.risks && summaryData.risks.length > 0 && (
+                        <div>
+                          <h4>Risks / Missing Information</h4>
+                          <ul className="extraction-list">
+                            {summaryData.risks.map((risk, index) => (
+                              <li key={index} className="text-warning">{risk}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      <details className="technical-details">
+                        <summary>View raw JSON</summary>
+                        <pre className="trace-json-block">{JSON.stringify(summaryData, null, 2)}</pre>
                       </details>
                     </div>
                   </section>

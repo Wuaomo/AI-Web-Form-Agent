@@ -91,6 +91,11 @@ function CreateTask() {
         navigate(`/tasks/${task.id}`);
         return;
       }
+      if (form.workflow_type === "job_research_summary") {
+        await api.generateJobSummary(task.id);
+        navigate(`/tasks/${task.id}`);
+        return;
+      }
       const analyzedTask = await api.analyzeTask(task.id);
       if (analyzedTask.status === "LOGIN_REQUIRED") {
         navigate(`/tasks/${task.id}`, {
@@ -125,6 +130,7 @@ function CreateTask() {
   );
   const mappingUnavailable =
     form.workflow_type !== "web_data_extract" &&
+    form.workflow_type !== "job_research_summary" &&
     (!selectedLlmProvider || !selectedProvider?.configured);
   const workflowUnavailable = !selectedWorkflow?.enabled;
 
@@ -217,7 +223,7 @@ function CreateTask() {
           />
         </label>
 
-        {form.workflow_type !== "web_data_extract" && (
+        {form.workflow_type !== "web_data_extract" && form.workflow_type !== "job_research_summary" && (
           <>
             <label>
               Large model

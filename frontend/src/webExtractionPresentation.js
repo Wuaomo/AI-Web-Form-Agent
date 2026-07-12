@@ -21,3 +21,19 @@ export function getExtractionData(checkpoints) {
   }
   return parseExtractionOutput(checkpoint);
 }
+
+export function getSummaryCheckpoint(checkpoints) {
+  if (!checkpoints || !Array.isArray(checkpoints)) {
+    return null;
+  }
+  const result = checkpoints.find((cp) => cp.stage === "SUMMARY" && cp.output);
+  return result || null;
+}
+
+export function getSummaryData(checkpoints) {
+  const checkpoint = getSummaryCheckpoint(checkpoints);
+  if (!checkpoint) {
+    return null;
+  }
+  return parseExtractionOutput(checkpoint);
+}

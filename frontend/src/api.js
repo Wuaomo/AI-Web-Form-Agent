@@ -129,6 +129,8 @@ export const api = {
       request(`/tasks/${taskId}/analyze`, { method: "POST" }),
     extractTaskPage: (taskId) =>
       request(`/tasks/${taskId}/extract-page`, { method: "POST" }),
+    generateJobSummary: (taskId) =>
+      request(`/tasks/${taskId}/job-summary`, { method: "POST" }),
     loginAndAnalyzeTask: (taskId) =>
       request(`/tasks/${taskId}/login-and-analyze`, { method: "POST" }),
   mapTaskFields: (taskId, options = {}) => {
