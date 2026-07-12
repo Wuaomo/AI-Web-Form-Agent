@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  getRunFailureSummary,
   getVisibleRunSummaryItems,
   getTaskRunSummary,
   getTaskRunState,
+  shouldOpenAdvancedByDefault,
   isFillableField,
 } from "./taskRunState.js";
 
@@ -160,4 +162,40 @@ test("getTaskRunState ignores checkpoints for non-FAILED status", () => {
   const state = getTaskRunState(baseTask, checkpoints);
   assert.equal(state.statusLabel, "Needs review");
   assert.equal(state.primaryAction, "review");
+});
+
+test("getRunFailureSummary uses the latest failed trace error for failed runs", () => {
+  const summary = getRunFailureSummary(
+    { ...baseTask, status: "FAILED" },
+    [{ stage: "ANALYSIS", status: "FAILED", error_message: "Checkpoint error" }],
+    [
+      {
+        id: 1,
+        phase: "extraction",
+        name: "extract_form",
+        status: "FAILED",
+        error_message: "Old error",
+        created_at: "2026-07-07T10:00:00Z",
+      },
+      {
+        id: 2,
+        phase: "mapping",
+        name: "map_fields",
+        status: "FAILED",
+        error_message: "Provider rejected the request",
+        created_at: "2026-07-07T10:01:00Z",
+      },
+    ],
+  );
+
+  assert.deepEqual(summary, {
+    title: "Mapping failed",
+    detail: "Provider rejected the request",
+    source: "Mapping / map_fields",
+  });
+});
+
+test("advanced diagnostics stay collapsed by default", () => {
+  assert.equal(shouldOpenAdvancedByDefault({ ...baseTask, status: "COMPLETED" }), false);
+  assert.equal(shouldOpenAdvancedByDefault({ ...baseTask, status: "FAILED" }), false);
 });

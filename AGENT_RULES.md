@@ -4,15 +4,37 @@ Project:
 AI Web Form Agent
 
 Purpose:
-Maintain a review-first AI workflow automation app that can analyze web forms,
-map reusable profile data to fields, plan safe tool use, fill the page in a real
-browser, record evidence, and pause before final submission.
+Maintain a review-first AI browser workflow assistant. Form filling remains the
+first concrete workflow, but the project should grow toward reading pages,
+extracting structured information, using reviewed memory, taking reviewed
+browser actions, measuring behavior, and explaining failures.
+
+Primary instruction entry point:
+Read `AGENTS.md` first. This file provides the longer project boundary and
+architecture notes.
+
+---
+
+## Current Roadmap
+
+Use `docs/roadmap/` as the source of truth for future development.
+
+The new JD-aligned project direction is:
+
+1. Browser Workflow Assistant
+2. Retrieval Memory Layer
+3. Evaluation Workbench
+4. Agent Observability
+5. Portfolio Packaging
+
+Do not resurrect the old `docs/trae-upgrade`, `docs/superpowers/plans`, or
+`docs/superpowers/specs` phase systems.
 
 ---
 
 ## Product Boundaries
 
-The project is a controlled local workflow automation demo, not a bulk
+The project is a controlled local browser workflow assistant, not a bulk
 submission, scraping, or production browser-fleet platform.
 
 The core workflow is:
@@ -30,15 +52,18 @@ discover fields
 
 The system should remain focused on:
 
+- clear user workflows before diagnostic panels;
 - dynamic form discovery;
+- page extraction and structured summaries;
 - reusable profile data;
 - user-reviewed mappings;
+- retrieval-backed memory from reviewed corrections;
 - deterministic planning and tool selection;
 - policy and approval gates;
 - safe browser execution;
 - screenshots, logs, verification evidence, and traces;
-- workflow memory for reviewed reusable values;
-- benchmark-based evaluation.
+- benchmark-based evaluation;
+- portfolio-ready explanation, demo, and limitations.
 
 ---
 
@@ -151,8 +176,8 @@ Keep the project focused and portfolio-ready:
 - Keep code readable for a reviewer who has not seen the project before.
 - Avoid unrelated infrastructure such as multi-user account systems, cloud
   browser fleets, broad scraping features, or production auth.
-- Prefer improving the enabled `form_fill` workflow before expanding disabled
-  workflow templates.
+- Prefer user-path clarity before adding more observability UI.
+- Keep advanced/debug evidence collapsed by default unless it explains a failure.
 - Keep optional LLM providers optional; the local demo must work without API
   keys.
 - Add tests when changing behavior.
@@ -161,8 +186,8 @@ Keep the project focused and portfolio-ready:
 
 ## Preferred Expansion Order
 
-1. Reliability of the enabled form-fill workflow.
-2. Mapping review clarity, memory controls, and approval UX.
-3. Trace, usage, debug, and verification evidence.
-4. Benchmark/evaluation accuracy and regression reporting.
-5. Documentation, Docker demo, and CI polish.
+1. Browser Workflow Assistant: make the app useful beyond form filling.
+2. Retrieval Memory Layer: show learning from reviewed corrections.
+3. Evaluation Workbench: prove rules, LLM, and memory behavior with metrics.
+4. Agent Observability: improve trace/debug only after the user path is clear.
+5. Portfolio Packaging: make the project easy to run, explain, and discuss.

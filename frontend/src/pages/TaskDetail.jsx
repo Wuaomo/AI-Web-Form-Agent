@@ -17,8 +17,10 @@ import {
 } from "../llmUsagePresentation";
 import Message from "../components/Message";
 import {
+  getRunFailureSummary,
   getTaskRunState,
   getVisibleRunSummaryItems,
+  shouldOpenAdvancedByDefault,
 } from "../taskRunState";
 import { fieldDisplayName, needsRequiredInput } from "../reviewMappingPresentation";
 import {
@@ -331,6 +333,7 @@ function TaskDetail() {
   const traceSummary = buildTraceSummary(orderedTrace);
   const visibleFailedSpans = getVisibleTraceSpans(orderedTrace, showAllFailedSpans);
   const canExpandTrace = shouldShowTraceExpansion(orderedTrace);
+  const failureSummary = getRunFailureSummary(task, taskCheckpoints, orderedTrace);
   const plannedSteps = getWorkflowPlanSteps(taskPlan);
   const pendingApprovals = approvalRequests.filter((item) => item.status === "PENDING");
 
@@ -536,6 +539,17 @@ function TaskDetail() {
             )}
           </article>
 
+          {failureSummary && (
+            <div className="card failure-summary-card">
+              <div>
+                <p className="eyebrow">Needs attention</p>
+                <h3>{failureSummary.title}</h3>
+                <p>{failureSummary.detail}</p>
+                <p className="muted-text">{failureSummary.source}</p>
+              </div>
+            </div>
+          )}
+
           <div className="card">
             <div className="job-item-header">
               <h3>Approval Requests</h3>
@@ -649,272 +663,280 @@ function TaskDetail() {
             </div>
           )}
 
-          <div className="card">
-            <div className="workflow-trace-header">
-              <div>
-                <h3>Workflow Trace</h3>
-                <p className="muted-text">Trace stays compact by default and only expands failed spans.</p>
+          <details
+            className="advanced-panel"
+            open={shouldOpenAdvancedByDefault(task)}
+          >
+            <summary>Advanced / Debug</summary>
+            <div className="advanced-panel-body">
+              <div className="card">
+                <div className="workflow-trace-header">
+                  <div>
+                    <h3>Workflow Trace</h3>
+                    <p className="muted-text">Trace stays compact by default and only expands failed spans.</p>
+                  </div>
+                  <div className="workflow-trace-actions">
+                    <details className="technical-details">
+                      <summary>View raw trace JSON</summary>
+                      <pre className="trace-json-block">{traceJsonText(workflowTrace)}</pre>
+                    </details>
+                    <button
+                      type="button"
+                      className="button button-small button-secondary"
+                      onClick={copyTraceJson}
+                    >
+                      Copy trace JSON
+                    </button>
+                  </div>
+                </div>
+
+                <div className="workflow-trace-summary" aria-label="Workflow trace summary">
+                  <div>
+                    <strong>{traceSummary.latestStatus}</strong>
+                    <span>Latest status</span>
+                  </div>
+                  <div>
+                    <strong>{traceSummary.totalSpanCount}</strong>
+                    <span>Total spans</span>
+                  </div>
+                  <div>
+                    <strong>{traceSummary.failedSpanCount}</strong>
+                    <span>Failed spans</span>
+                  </div>
+                  <div>
+                    <strong>{traceSummary.lastSpanLabel}</strong>
+                    <span>Last phase/name</span>
+                  </div>
+                </div>
+
+                {visibleFailedSpans.length > 0 ? (
+                  <>
+                    <ul className="job-list">
+                      {visibleFailedSpans.map((span) => (
+                        <li key={span.id} className="job-item">
+                          <div className="job-item-header">
+                            <strong>{phaseLabel(span.phase)}</strong>
+                            <span className="badge">{spanStatusLabel(span.status)}</span>
+                          </div>
+                          <div>{span.name}</div>
+                          <div className="muted-text">{summarizeSpan(span) || "No summary"}</div>
+                          <div className="muted-text">{formatChinaTime(span.created_at)}</div>
+                        </li>
+                      ))}
+                    </ul>
+                    {canExpandTrace && !showAllFailedSpans && (
+                      <button
+                        type="button"
+                        className="text-button"
+                        onClick={() => setShowAllFailedSpans(true)}
+                      >
+                        Show more
+                      </button>
+                    )}
+                  </>
+                ) : orderedTrace.length === 0 ? (
+                  <p className="muted-text">No trace spans recorded yet.</p>
+                ) : null}
               </div>
-              <div className="workflow-trace-actions">
-                <details className="technical-details">
-                  <summary>View raw trace JSON</summary>
-                  <pre className="trace-json-block">{traceJsonText(workflowTrace)}</pre>
-                </details>
+
+              <div className="card">
+                <h3>Agent Reviews</h3>
+                <div className="agent-review-actions">
+                  <button
+                    className="button button-small"
+                    type="button"
+                    onClick={() => runAgentReview("MAPPING_CRITIC")}
+                    disabled={isBusy || Boolean(runningReview)}
+                  >
+                    {runningReview === "MAPPING_CRITIC" ? "Running..." : "Run mapping review"}
+                  </button>
+                  <button
+                    className="button button-small"
+                    type="button"
+                    onClick={() => runAgentReview("SAFETY_REVIEW")}
+                    disabled={isBusy || Boolean(runningReview)}
+                  >
+                    {runningReview === "SAFETY_REVIEW" ? "Running..." : "Run safety review"}
+                  </button>
+                  <button
+                    className="button button-small"
+                    type="button"
+                    onClick={() => runAgentReview("EXECUTION_VERIFICATION")}
+                    disabled={isBusy || Boolean(runningReview)}
+                  >
+                    {runningReview === "EXECUTION_VERIFICATION" ? "Running..." : "Run verification review"}
+                  </button>
+                </div>
+                {agentReviews.length > 0 && (
+                  <div className="agent-review-list">
+                    {Object.entries(groupReviewsByRole(agentReviews)).map(([role, reviews]) => {
+                      const latest = getLatestReview(reviews);
+                      const itemsSummary = summarizeReviewItems(latest);
+                      return (
+                        <article key={role} className="agent-review-card">
+                          <div className="agent-review-header">
+                            <span className="agent-review-role">{roleLabel(role)}</span>
+                            <span className={`agent-review-decision agent-review-decision-${latest.decision.toLowerCase()}`}>
+                              {decisionLabel(latest.decision)}
+                            </span>
+                          </div>
+                          {latest.output?.summary && (
+                            <p className="agent-review-summary">{latest.output.summary}</p>
+                          )}
+                          {itemsSummary.total > 0 && (
+                            <p className="agent-review-item-count">
+                              {itemsSummary.total} item{itemsSummary.total > 1 ? "s" : ""}
+                              {itemsSummary.issues > 0 && ` (${itemsSummary.issues} issue${itemsSummary.issues > 1 ? "s" : ""})`}
+                            </p>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="card">
+                <h3>LLM Usage</h3>
+                {llmUsage?.summary ? (
+                  llmUsage.summary.request_count > 0 ? (
+                    <div className="llm-usage-grid">
+                      <div className="llm-usage-card">
+                        <span>Requests</span>
+                        <strong>{llmUsage.summary.request_count}</strong>
+                      </div>
+                      <div className="llm-usage-card">
+                        <span>Total tokens</span>
+                        <strong>{llmUsage.summary.total_tokens?.toLocaleString()}</strong>
+                      </div>
+                      <div className="llm-usage-card">
+                        <span>Prompt cache hit rate</span>
+                        <strong>{formatCacheHitRate(llmUsage.summary.cache_hit_rate)}</strong>
+                      </div>
+                      <div className="llm-usage-card">
+                        <span>Average latency</span>
+                        <strong>{formatLatency(llmUsage.summary.average_latency_ms)}</strong>
+                      </div>
+                      <div className="llm-usage-card">
+                        <span>P95 latency</span>
+                        <strong>{formatLatency(llmUsage.summary.p95_latency_ms)}</strong>
+                      </div>
+                      <div className="llm-usage-card">
+                        <span>Fallback count</span>
+                        <strong>{llmUsage.summary.fallback_count}</strong>
+                      </div>
+                      <div className="llm-usage-card">
+                        <span>Estimated cost</span>
+                        <strong>{formatEstimatedCost(llmUsage.summary.estimated_cost)}</strong>
+                      </div>
+                    </div>
+                  ) : (
+                    <p>No LLM usage yet.</p>
+                  )
+                ) : (
+                  <p>LLM usage is not available.</p>
+                )}
+              </div>
+
+              <div className="card">
                 <button
                   type="button"
-                  className="button button-small button-secondary"
-                  onClick={copyTraceJson}
+                  className="button button-secondary"
+                  onClick={copyDebugReport}
+                  disabled={loading || Boolean(busyAction)}
                 >
-                  Copy trace JSON
+                  Copy Debug Report
                 </button>
               </div>
-            </div>
 
-            <div className="workflow-trace-summary" aria-label="Workflow trace summary">
-              <div>
-                <strong>{traceSummary.latestStatus}</strong>
-                <span>Latest status</span>
-              </div>
-              <div>
-                <strong>{traceSummary.totalSpanCount}</strong>
-                <span>Total spans</span>
-              </div>
-              <div>
-                <strong>{traceSummary.failedSpanCount}</strong>
-                <span>Failed spans</span>
-              </div>
-              <div>
-                <strong>{traceSummary.lastSpanLabel}</strong>
-                <span>Last phase/name</span>
-              </div>
-            </div>
-
-            {visibleFailedSpans.length > 0 ? (
-              <>
-                <ul className="job-list">
-                  {visibleFailedSpans.map((span) => (
-                    <li key={span.id} className="job-item">
-                      <div className="job-item-header">
-                        <strong>{phaseLabel(span.phase)}</strong>
-                        <span className="badge">{spanStatusLabel(span.status)}</span>
+              {showWorkflowTimeline && (
+                <div className="card workflow-timeline">
+                  <h3>Workflow</h3>
+                  <div className="timeline">
+                    {workflowNodes.map((node, index) => (
+                      <div key={node.id} className="timeline-item">
+                        <div className={`timeline-node ${node.state}`}>
+                          <span className="timeline-label">{node.label}</span>
+                          {node.state === "active" && (
+                            <span className="timeline-indicator" />
+                          )}
+                        </div>
+                        {index < workflowNodes.length - 1 && (
+                          <div className={`timeline-connector ${node.state === "success" ? "completed" : ""}`} />
+                        )}
+                        {node.helpText && (
+                          <p className="timeline-help">{node.helpText}</p>
+                        )}
                       </div>
-                      <div>{span.name}</div>
-                      <div className="muted-text">{summarizeSpan(span) || "No summary"}</div>
-                      <div className="muted-text">{formatChinaTime(span.created_at)}</div>
-                    </li>
-                  ))}
-                </ul>
-                {canExpandTrace && !showAllFailedSpans && (
-                  <button
-                    type="button"
-                    className="text-button"
-                    onClick={() => setShowAllFailedSpans(true)}
-                  >
-                    Show more
-                  </button>
-                )}
-              </>
-            ) : orderedTrace.length === 0 ? (
-              <p className="muted-text">No trace spans recorded yet.</p>
-            ) : null}
-          </div>
-
-          <div className="card">
-            <h3>Agent Reviews</h3>
-            <div className="agent-review-actions">
-              <button
-                className="button button-small"
-                type="button"
-                onClick={() => runAgentReview("MAPPING_CRITIC")}
-                disabled={isBusy || Boolean(runningReview)}
-              >
-                {runningReview === "MAPPING_CRITIC" ? "Running..." : "Run mapping review"}
-              </button>
-              <button
-                className="button button-small"
-                type="button"
-                onClick={() => runAgentReview("SAFETY_REVIEW")}
-                disabled={isBusy || Boolean(runningReview)}
-              >
-                {runningReview === "SAFETY_REVIEW" ? "Running..." : "Run safety review"}
-              </button>
-              <button
-                className="button button-small"
-                type="button"
-                onClick={() => runAgentReview("EXECUTION_VERIFICATION")}
-                disabled={isBusy || Boolean(runningReview)}
-              >
-                {runningReview === "EXECUTION_VERIFICATION" ? "Running..." : "Run verification review"}
-              </button>
-            </div>
-            {agentReviews.length > 0 && (
-              <div className="agent-review-list">
-                {Object.entries(groupReviewsByRole(agentReviews)).map(([role, reviews]) => {
-                  const latest = getLatestReview(reviews);
-                  const itemsSummary = summarizeReviewItems(latest);
-                  return (
-                    <article key={role} className="agent-review-card">
-                      <div className="agent-review-header">
-                        <span className="agent-review-role">{roleLabel(role)}</span>
-                        <span className={`agent-review-decision agent-review-decision-${latest.decision.toLowerCase()}`}>
-                          {decisionLabel(latest.decision)}
-                        </span>
-                      </div>
-                      {latest.output?.summary && (
-                        <p className="agent-review-summary">{latest.output.summary}</p>
-                      )}
-                      {itemsSummary.total > 0 && (
-                        <p className="agent-review-item-count">
-                          {itemsSummary.total} item{itemsSummary.total > 1 ? "s" : ""}
-                          {itemsSummary.issues > 0 && ` (${itemsSummary.issues} issue${itemsSummary.issues > 1 ? "s" : ""})`}
-                        </p>
-                      )}
-                    </article>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <div className="card">
-            <h3>LLM Usage</h3>
-            {llmUsage?.summary ? (
-              llmUsage.summary.request_count > 0 ? (
-                <div className="llm-usage-grid">
-                  <div className="llm-usage-card">
-                    <span>Requests</span>
-                    <strong>{llmUsage.summary.request_count}</strong>
-                  </div>
-                  <div className="llm-usage-card">
-                    <span>Total tokens</span>
-                    <strong>{llmUsage.summary.total_tokens?.toLocaleString()}</strong>
-                  </div>
-                  <div className="llm-usage-card">
-                    <span>Prompt cache hit rate</span>
-                    <strong>{formatCacheHitRate(llmUsage.summary.cache_hit_rate)}</strong>
-                  </div>
-                  <div className="llm-usage-card">
-                    <span>Average latency</span>
-                    <strong>{formatLatency(llmUsage.summary.average_latency_ms)}</strong>
-                  </div>
-                  <div className="llm-usage-card">
-                    <span>P95 latency</span>
-                    <strong>{formatLatency(llmUsage.summary.p95_latency_ms)}</strong>
-                  </div>
-                  <div className="llm-usage-card">
-                    <span>Fallback count</span>
-                    <strong>{llmUsage.summary.fallback_count}</strong>
-                  </div>
-                  <div className="llm-usage-card">
-                    <span>Estimated cost</span>
-                    <strong>{formatEstimatedCost(llmUsage.summary.estimated_cost)}</strong>
+                    ))}
                   </div>
                 </div>
-              ) : (
-                <p>No LLM usage yet.</p>
-              )
-            ) : (
-              <p>LLM usage is not available.</p>
-            )}
-          </div>
+              )}
 
-          <div className="card">
-            <button
-              type="button"
-              className="button button-secondary"
-              onClick={copyDebugReport}
-              disabled={loading || Boolean(busyAction)}
-            >
-              Copy Debug Report
-            </button>
-          </div>
-
-          {showWorkflowTimeline && (
-            <div className="card workflow-timeline">
-              <h3>Workflow</h3>
-              <div className="timeline">
-                {workflowNodes.map((node, index) => (
-                  <div key={node.id} className="timeline-item">
-                    <div className={`timeline-node ${node.state}`}>
-                      <span className="timeline-label">{node.label}</span>
-                      {node.state === "active" && (
-                        <span className="timeline-indicator" />
-                      )}
+              {taskJobs.length > 0 && newestJobSummary && (
+                <div className="card">
+                  <h3>Background job</h3>
+                  <dl className="detail-list">
+                    <div>
+                      <dt>Job type</dt>
+                      <dd>{newestJobSummary.typeLabel}</dd>
                     </div>
-                    {index < workflowNodes.length - 1 && (
-                      <div className={`timeline-connector ${node.state === "success" ? "completed" : ""}`} />
+                    <div>
+                      <dt>Status</dt>
+                      <dd>
+                        <span className={`badge badge-${newestJobSummary.statusClass}`}>
+                          {newestJobSummary.statusLabel}
+                        </span>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Attempts</dt>
+                      <dd>{newestJobSummary.attempts} / {newestJobSummary.maxAttempts}</dd>
+                    </div>
+                    {newestJobSummary.error && (
+                      <div>
+                        <dt>Last error</dt>
+                        <dd>{newestJobSummary.error}</dd>
+                      </div>
                     )}
-                    {node.helpText && (
-                      <p className="timeline-help">{node.helpText}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+                  </dl>
+                  <p className="break-word">{jobStatusText}</p>
+                </div>
+              )}
 
-          {taskJobs.length > 0 && newestJobSummary && (
-            <div className="card">
-              <h3>Background job</h3>
-              <dl className="detail-list">
-                <div>
-                  <dt>Job type</dt>
-                  <dd>{newestJobSummary.typeLabel}</dd>
+              <section className="section-block">
+                <div className="section-heading">
+                  <h3>Screenshots</h3>
                 </div>
-                <div>
-                  <dt>Status</dt>
-                  <dd>
-                    <span className={`badge badge-${newestJobSummary.statusClass}`}>
-                      {newestJobSummary.statusLabel}
-                    </span>
-                  </dd>
-                </div>
-                <div>
-                  <dt>Attempts</dt>
-                  <dd>{newestJobSummary.attempts} / {newestJobSummary.maxAttempts}</dd>
-                </div>
-                {newestJobSummary.error && (
-                  <div>
-                    <dt>Last error</dt>
-                    <dd>{newestJobSummary.error}</dd>
+                {screenshots.length === 0 ? (
+                  <div className="card empty-state">
+                    <p>No screenshots captured yet.</p>
+                  </div>
+                ) : (
+                  <div className="screenshot-grid">
+                    {screenshots.map((screenshot) => (
+                      <article className="card screenshot-card" key={screenshot.id}>
+                        <a
+                          href={new URL(screenshot.file_path, `${API_BASE_URL}/`).toString()}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <img
+                            src={new URL(screenshot.file_path, `${API_BASE_URL}/`).toString()}
+                            alt={`${screenshot.stage} screenshot`}
+                          />
+                        </a>
+                        <p>
+                          <strong>{screenshot.stage}</strong>
+                          <span>{formatChinaTime(screenshot.created_at)}</span>
+                        </p>
+                      </article>
+                    ))}
                   </div>
                 )}
-              </dl>
-              <p className="break-word">{jobStatusText}</p>
+              </section>
             </div>
-          )}
-
-          <section className="section-block">
-            <div className="section-heading">
-              <h3>Screenshots</h3>
-            </div>
-            {screenshots.length === 0 ? (
-              <div className="card empty-state">
-                <p>No screenshots captured yet.</p>
-              </div>
-            ) : (
-              <div className="screenshot-grid">
-                {screenshots.map((screenshot) => (
-                  <article className="card screenshot-card" key={screenshot.id}>
-                    <a
-                      href={new URL(screenshot.file_path, `${API_BASE_URL}/`).toString()}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      <img
-                        src={new URL(screenshot.file_path, `${API_BASE_URL}/`).toString()}
-                        alt={`${screenshot.stage} screenshot`}
-                      />
-                    </a>
-                    <p>
-                      <strong>{screenshot.stage}</strong>
-                      <span>{formatChinaTime(screenshot.created_at)}</span>
-                    </p>
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
+          </details>
         </>
       )}
     </section>
