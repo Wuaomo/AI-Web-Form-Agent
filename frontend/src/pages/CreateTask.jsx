@@ -86,6 +86,11 @@ function CreateTask() {
         profile_id: Number(form.profile_id),
         description: form.description || null,
       });
+      if (form.workflow_type === "web_data_extract") {
+        await api.extractTaskPage(task.id);
+        navigate(`/tasks/${task.id}`);
+        return;
+      }
       const analyzedTask = await api.analyzeTask(task.id);
       if (analyzedTask.status === "LOGIN_REQUIRED") {
         navigate(`/tasks/${task.id}`, {
@@ -119,7 +124,8 @@ function CreateTask() {
     (workflow) => workflow.id === form.workflow_type,
   );
   const mappingUnavailable =
-    !selectedLlmProvider || !selectedProvider?.configured;
+    form.workflow_type !== "web_data_extract" &&
+    (!selectedLlmProvider || !selectedProvider?.configured);
   const workflowUnavailable = !selectedWorkflow?.enabled;
 
   return (
@@ -211,32 +217,36 @@ function CreateTask() {
           />
         </label>
 
-        <label>
-          Large model
-          <select
-            value={selectedLlmProvider}
-            onChange={(event) => updateSelectedLlmProvider(event.target.value)}
-            required
-            disabled={loading || llmProviders.length === 0}
-          >
-            <option value="">Choose provider</option>
-            {llmProviders.map((provider) => (
-              <option key={provider.id} value={provider.id}>
-                {provider.display_name} - {provider.model}
-                {provider.configured ? "" : " - needs API key"}
-              </option>
-            ))}
-          </select>
-        </label>
-        {!selectedLlmProvider && (
-          <p className="provider-status provider-status-warning">
-            Choose a model provider. This choice will be remembered.
-          </p>
-        )}
-        {selectedLlmProvider && selectedProvider && !selectedProvider.configured && (
-          <p className="provider-status provider-status-warning">
-            {selectedProvider.setup_hint}
-          </p>
+        {form.workflow_type !== "web_data_extract" && (
+          <>
+            <label>
+              Large model
+              <select
+                value={selectedLlmProvider}
+                onChange={(event) => updateSelectedLlmProvider(event.target.value)}
+                required
+                disabled={loading || llmProviders.length === 0}
+              >
+                <option value="">Choose provider</option>
+                {llmProviders.map((provider) => (
+                  <option key={provider.id} value={provider.id}>
+                    {provider.display_name} - {provider.model}
+                    {provider.configured ? "" : " - needs API key"}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {!selectedLlmProvider && (
+              <p className="provider-status provider-status-warning">
+                Choose a model provider. This choice will be remembered.
+              </p>
+            )}
+            {selectedLlmProvider && selectedProvider && !selectedProvider.configured && (
+              <p className="provider-status provider-status-warning">
+                {selectedProvider.setup_hint}
+              </p>
+            )}
+          </>
         )}
 
         {profiles.length === 0 && !loading && (

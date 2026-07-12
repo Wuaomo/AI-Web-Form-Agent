@@ -126,9 +126,11 @@ export const api = {
   rejectApproval: (approvalId) =>
     request(`/approvals/${approvalId}/reject`, { method: "POST" }),
   analyzeTask: (taskId) =>
-    request(`/tasks/${taskId}/analyze`, { method: "POST" }),
-  loginAndAnalyzeTask: (taskId) =>
-    request(`/tasks/${taskId}/login-and-analyze`, { method: "POST" }),
+      request(`/tasks/${taskId}/analyze`, { method: "POST" }),
+    extractTaskPage: (taskId) =>
+      request(`/tasks/${taskId}/extract-page`, { method: "POST" }),
+    loginAndAnalyzeTask: (taskId) =>
+      request(`/tasks/${taskId}/login-and-analyze`, { method: "POST" }),
   mapTaskFields: (taskId, options = {}) => {
     const params = new URLSearchParams();
     if (typeof options === "string") {

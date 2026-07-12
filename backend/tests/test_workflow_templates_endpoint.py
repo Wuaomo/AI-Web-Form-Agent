@@ -63,7 +63,7 @@ def test_workflow_templates_endpoint_returns_static_templates() -> None:
         template for template in payload if template["id"] == "web_data_extract"
     )
     assert form_fill["enabled"] is True
-    assert web_extract["enabled"] is False
+    assert web_extract["enabled"] is True
     session.close()
 
 
@@ -97,10 +97,10 @@ def test_create_task_rejects_disabled_workflow_template() -> None:
         json={
             "url": "https://example.com/form",
             "profile_id": profile.id,
-            "workflow_type": "web_data_extract",
+            "workflow_type": "data_entry",
         },
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Workflow template is not enabled: web_data_extract"
+    assert response.json()["detail"] == "Workflow template is not enabled: data_entry"
     session.close()

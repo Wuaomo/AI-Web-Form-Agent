@@ -67,6 +67,7 @@ from app.services.field_mapper import (
     map_fields_with_llm,
 )
 from app.services.form_extractor import ExtractedFormAnalysis, extract_form_analysis
+from app.services.page_extractor import extract_page
 from app.services.form_analysis_cache import (
     read_form_analysis_cache,
     write_form_analysis_cache,
@@ -137,6 +138,7 @@ from app.workflow_constants import (
     WORKFLOW_STAGE_FILL,
     WORKFLOW_STAGE_MAPPING,
     WORKFLOW_TYPE_FORM_FILL,
+    WORKFLOW_TYPE_WEB_DATA_EXTRACT,
 )
 
 logger = logging.getLogger(__name__)
@@ -949,6 +951,148 @@ def list_task_checkpoints(
 
     get_task_or_404(task_id, db)
     return list_checkpoints(task_id=task_id, db=db)
+
+
+@router.post(
+    "/{task_id}/extract-page",
+    response_model=TaskResponse,
+)
+async def extract_task_page(
+    task_id: int,
+    db: Session = Depends(get_db),
+) -> Task:
+    """Extract page data for web_data_extract workflow.
+
+    Opens the page, extracts structured data (title, headings, text, links, tables, forms),
+    captures a screenshot, and saves the result to the extraction checkpoint.
+    """
+
+    task = get_task_or_404(task_id, db)
+    if task.workflow_type != WORKFLOW_TYPE_WEB_DATA_EXTRACT:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Extract page is only available for web_data_extract workflow",
+        )
+
+    step = get_next_log_step(task.id, db)
+    span_started_at = time.monotonic()
+    extract_span_id = safe_create_span(
+        task_id=task.id,
+        phase=SPAN_PHASE_EXTRACTION,
+        name="extract_page",
+        input={"url": task.url},
+    )
+
+    apply_workflow_status(task, WORKFLOW_STATUS_ANALYZING, reason="extract_started")
+    create_log(
+        task_id=task.id,
+        step=step,
+        action="extract_page",
+        message=f"Opening {task.url} and extracting page data.",
+        status="STARTED",
+        db=db,
+    )
+    db.commit()
+
+    try:
+        result = await extract_page(task.url, task.profile_id)
+
+        await open_url_and_capture_screenshot(
+            task_id=task.id,
+            url=task.url,
+            profile_id=task.profile_id,
+            stage="extracted",
+            db=db,
+        )
+
+        extraction_output = {
+            "title": result.title,
+            "heading_count": len(result.headings),
+            "headings": [{"level": h.level, "text": h.text} for h in result.headings],
+            "text_block_count": len(result.main_text_blocks),
+            "link_count": len(result.links),
+            "links": [{"text": l.text, "href": l.href} for l in result.links],
+            "table_count": len(result.tables),
+            "tables": [
+                {"headers": t.headers, "row_count": len(t.rows)}
+                for t in result.tables
+            ],
+            "form_count": len(result.forms),
+            "forms": [
+                {"action": f.action, "method": f.method, "field_count": f.field_count}
+                for f in result.forms
+            ],
+        }
+
+        write_checkpoint(
+            task_id=task.id,
+            stage="EXTRACTION",
+            status=CHECKPOINT_SUCCESS,
+            input_hash=f"{task.url}:{task.profile_id}",
+            output=extraction_output,
+            db=db,
+        )
+
+        apply_workflow_status(task, WORKFLOW_STATUS_COMPLETED, reason="extraction_completed")
+        create_log(
+            task_id=task.id,
+            step=get_next_log_step(task.id, db),
+            action="extract_page",
+            message=f"Extracted page data: {len(result.headings)} headings, {len(result.links)} links, {len(result.tables)} tables, {len(result.forms)} forms",
+            status="SUCCESS",
+            db=db,
+        )
+        db.commit()
+        safe_finish_span(
+            extract_span_id,
+            status=SPAN_STATUS_SUCCESS,
+            output={
+                "heading_count": len(result.headings),
+                "link_count": len(result.links),
+                "table_count": len(result.tables),
+                "form_count": len(result.forms),
+            },
+            latency_ms=int((time.monotonic() - span_started_at) * 1000),
+        )
+    except Exception as exc:
+        db.rollback()
+        task = get_task_or_404(task_id, db)
+        apply_workflow_status(task, WORKFLOW_STATUS_FAILED, reason="extraction_failed")
+        write_checkpoint(
+            task_id=task.id,
+            stage="EXTRACTION",
+            status=CHECKPOINT_FAILED,
+            input_hash=f"{task.url}:{task.profile_id}",
+            failure_reason=FAILURE_ANALYSIS_FAILED,
+            error_message=str(exc),
+            db=db,
+        )
+        create_log(
+            task_id=task.id,
+            step=get_next_log_step(task.id, db),
+            action="extract_page",
+            message=f"Page extraction failed: {exc}",
+            status="FAILED",
+            db=db,
+        )
+        db.commit()
+        safe_finish_span(
+            extract_span_id,
+            status=SPAN_STATUS_FAILED,
+            error_message=str(exc),
+            latency_ms=int((time.monotonic() - span_started_at) * 1000),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Page extraction failed",
+        ) from exc
+
+    statement = (
+        select(Task)
+        .options(selectinload(Task.form_fields))
+        .where(Task.id == task.id)
+    )
+    return db.scalar(statement)
 
 
 @router.post(
