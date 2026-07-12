@@ -53,6 +53,7 @@ import {
   getWorkflowPlanSteps,
   workflowPlanApprovalLabel,
 } from "../workflowPlanPresentation";
+import { getExtractionData } from "../webExtractionPresentation";
 
 function TaskDetail() {
   const { taskId } = useParams();
@@ -935,6 +936,92 @@ function TaskDetail() {
                   </div>
                 )}
               </section>
+
+              {(() => {
+                const extractionData = getExtractionData(taskCheckpoints);
+                if (!extractionData) return null;
+                return (
+                  <section className="section-block">
+                    <div className="section-heading">
+                      <h3>Extraction Result</h3>
+                    </div>
+                    <div className="card">
+                      {extractionData.title && (
+                        <div className="extraction-title">
+                          <h4>Page Title</h4>
+                          <p>{extractionData.title}</p>
+                        </div>
+                      )}
+                      {extractionData.headings && extractionData.headings.length > 0 && (
+                        <div>
+                          <h4>Headings ({extractionData.heading_count})</h4>
+                          <ul className="extraction-list">
+                            {extractionData.headings.map((heading, index) => (
+                              <li key={index}>
+                                <span className="badge badge-small">H{heading.level}</span>
+                                <span>{heading.text}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {extractionData.links && extractionData.links.length > 0 && (
+                        <div>
+                          <h4>Links ({extractionData.link_count})</h4>
+                          <ul className="extraction-list">
+                            {extractionData.links.slice(0, 20).map((link, index) => (
+                              <li key={index}>
+                                <a href={link.href} target="_blank" rel="noreferrer">
+                                  {link.text || link.href}
+                                </a>
+                              </li>
+                            ))}
+                            {extractionData.links.length > 20 && (
+                              <li className="muted-text">...and {extractionData.links.length - 20} more</li>
+                            )}
+                          </ul>
+                        </div>
+                      )}
+                      {extractionData.tables && extractionData.tables.length > 0 && (
+                        <div>
+                          <h4>Tables ({extractionData.table_count})</h4>
+                          <ul className="extraction-list">
+                            {extractionData.tables.map((table, index) => (
+                              <li key={index}>
+                                <span>Headers: {table.headers.join(", ") || "none"}</span>
+                                <span className="muted-text">{table.row_count} rows</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {extractionData.forms && extractionData.forms.length > 0 && (
+                        <div>
+                          <h4>Forms ({extractionData.form_count})</h4>
+                          <ul className="extraction-list">
+                            {extractionData.forms.map((form, index) => (
+                              <li key={index}>
+                                <span>{form.method || "GET"} {form.action || "(no action)"}</span>
+                                <span className="muted-text">{form.field_count} fields</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {extractionData.text_block_count !== undefined && (
+                        <div>
+                          <h4>Text Blocks</h4>
+                          <p>{extractionData.text_block_count} blocks extracted</p>
+                        </div>
+                      )}
+                      <details className="technical-details">
+                        <summary>View raw JSON</summary>
+                        <pre className="trace-json-block">{JSON.stringify(extractionData, null, 2)}</pre>
+                      </details>
+                    </div>
+                  </section>
+                );
+              })()}
             </div>
           </details>
         </>

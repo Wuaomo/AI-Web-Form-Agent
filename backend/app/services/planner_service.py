@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Task
 from app.services.tool_registry import require_tool
-from app.workflow_constants import WORKFLOW_TYPE_FORM_FILL, WORKFLOW_TYPE_WEB_DATA_EXTRACT
+from app.workflow_constants import WORKFLOW_TYPE_FORM_FILL, WORKFLOW_TYPE_WEB_DATA_EXTRACT, WORKFLOW_TYPE_JOB_RESEARCH_SUMMARY
 
 
 @dataclass(frozen=True)
@@ -133,6 +133,38 @@ def build_web_data_extract_plan(*, goal: str) -> WorkflowPlan:
     )
 
 
+def build_job_research_summary_plan(*, goal: str) -> WorkflowPlan:
+    """Build the deterministic job_research_summary workflow plan."""
+
+    steps = [
+        _planned_step(
+            step_id="open_url",
+            tool="open_url",
+            reason="Open the target job page before extracting DOM structure.",
+        ),
+        _planned_step(
+            step_id="extract_dom",
+            tool="extract_dom",
+            reason="Extract DOM structure, headings, text blocks, links, and tables.",
+        ),
+        _planned_step(
+            step_id="summarize_page",
+            tool="summarize_page",
+            reason="Summarize page content into a structured research summary.",
+        ),
+        _planned_step(
+            step_id="save_result",
+            tool="save_result",
+            reason="Save the research summary to persistent storage.",
+        ),
+    ]
+    return WorkflowPlan(
+        workflow_type=WORKFLOW_TYPE_JOB_RESEARCH_SUMMARY,
+        goal=goal,
+        steps=steps,
+    )
+
+
 def build_plan(*, workflow_type: str, goal: str) -> WorkflowPlan:
     """Build a deterministic saved plan for one supported workflow type."""
 
@@ -140,6 +172,8 @@ def build_plan(*, workflow_type: str, goal: str) -> WorkflowPlan:
         return build_form_fill_plan(goal=goal)
     if workflow_type == WORKFLOW_TYPE_WEB_DATA_EXTRACT:
         return build_web_data_extract_plan(goal=goal)
+    if workflow_type == WORKFLOW_TYPE_JOB_RESEARCH_SUMMARY:
+        return build_job_research_summary_plan(goal=goal)
     raise ValueError(f"Unsupported workflow type for planning: {workflow_type}")
 
 

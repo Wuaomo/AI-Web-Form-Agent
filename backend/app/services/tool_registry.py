@@ -94,6 +94,13 @@ _TOOL_REGISTRY = {
         requires_approval=False,
         implemented=False,
     ),
+    "summarize_page": ToolDefinition(
+        name="summarize_page",
+        description="Summarize extracted page content into a structured research summary.",
+        risk_level="medium",
+        requires_approval=False,
+        implemented=False,
+    ),
     "submit_form": ToolDefinition(
         name="submit_form",
         description="Submit the completed form.",
