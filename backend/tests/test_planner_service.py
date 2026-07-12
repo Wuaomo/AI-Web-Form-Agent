@@ -73,16 +73,52 @@ def test_submit_form_step_requires_approval() -> None:
     assert submit_step.requires_approval is True
 
 
+def test_build_web_data_extract_plan_uses_expected_step_order() -> None:
+    """Verify the deterministic web_data_extract planner outputs the approved order."""
+
+    plan = build_plan(
+        workflow_type="web_data_extract",
+        goal="Extract data from page",
+    )
+
+    assert plan.workflow_type == "web_data_extract"
+    assert plan.goal == "Extract data from page"
+    assert [step.step_id for step in plan.steps] == [
+        "open_url",
+        "extract_dom",
+        "capture_screenshot",
+        "save_result",
+    ]
+
+
+def test_build_job_research_summary_plan_uses_expected_step_order() -> None:
+    """Verify the deterministic job_research_summary planner outputs the approved order."""
+
+    plan = build_plan(
+        workflow_type="job_research_summary",
+        goal="Research job listing",
+    )
+
+    assert plan.workflow_type == "job_research_summary"
+    assert plan.goal == "Research job listing"
+    assert [step.step_id for step in plan.steps] == [
+        "open_url",
+        "extract_dom",
+        "summarize_page",
+        "save_result",
+    ]
+
+
 def test_build_plan_rejects_unsupported_workflow_type() -> None:
-    """Verify planner scope remains bounded to form_fill in this phase."""
+    """Verify planner scope remains bounded to supported workflow types."""
 
     with pytest.raises(
         ValueError,
-        match="Unsupported workflow type for planning: web_data_extract",
+        match="Unsupported workflow type for planning: data_entry",
     ):
         build_plan(
-            workflow_type="web_data_extract",
-            goal="Extract data",
+            workflow_type="data_entry",
+            goal="Data entry",
         )
 
 

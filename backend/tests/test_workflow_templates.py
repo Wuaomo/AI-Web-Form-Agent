@@ -43,8 +43,8 @@ def test_require_enabled_template_accepts_form_fill() -> None:
 def test_require_enabled_template_rejects_disabled_template() -> None:
     """Verify disabled templates cannot be used to create tasks."""
 
-    with pytest.raises(ValueError, match="Workflow template is not enabled: web_data_extract"):
-        require_enabled_template("web_data_extract")
+    with pytest.raises(ValueError, match="Workflow template is not enabled: data_entry"):
+        require_enabled_template("data_entry")
 
 
 def test_require_enabled_template_rejects_missing_template() -> None:

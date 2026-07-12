@@ -6,6 +6,7 @@ from app.workflow_constants import (
     WORKFLOW_TYPE_DATA_ENTRY,
     WORKFLOW_TYPE_FORM_FILL,
     WORKFLOW_TYPE_JOB_APPLICATION,
+    WORKFLOW_TYPE_JOB_RESEARCH_SUMMARY,
     WORKFLOW_TYPE_WEB_DATA_EXTRACT,
 )
 
@@ -40,14 +41,27 @@ WORKFLOW_TEMPLATES: dict[str, dict[str, object]] = {
     WORKFLOW_TYPE_WEB_DATA_EXTRACT: {
         "id": WORKFLOW_TYPE_WEB_DATA_EXTRACT,
         "name": "Web Data Extraction Workflow",
-        "description": "Open a page, extract structured data, review the result, and save it.",
-        "enabled": False,
+        "description": "Open a page, extract structured data, capture screenshot, and save the result.",
+        "enabled": True,
         "steps": [
             "open_url",
             "extract_dom",
-            "identify_target_data",
-            "extract_structured_json",
-            "review_extraction",
+            "capture_screenshot",
+            "save_result",
+        ],
+        "approval_policy": {
+            "external_navigation": "review_required",
+        },
+    },
+    WORKFLOW_TYPE_JOB_RESEARCH_SUMMARY: {
+        "id": WORKFLOW_TYPE_JOB_RESEARCH_SUMMARY,
+        "name": "Job Research Summary Workflow",
+        "description": "Open a job page, extract DOM structure, summarize content, and save the research result.",
+        "enabled": True,
+        "steps": [
+            "open_url",
+            "extract_dom",
+            "summarize_page",
             "save_result",
         ],
         "approval_policy": {
