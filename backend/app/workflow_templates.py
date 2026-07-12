@@ -40,14 +40,12 @@ WORKFLOW_TEMPLATES: dict[str, dict[str, object]] = {
     WORKFLOW_TYPE_WEB_DATA_EXTRACT: {
         "id": WORKFLOW_TYPE_WEB_DATA_EXTRACT,
         "name": "Web Data Extraction Workflow",
-        "description": "Open a page, extract structured data, review the result, and save it.",
-        "enabled": False,
+        "description": "Open a page, extract structured data, capture screenshot, and save the result.",
+        "enabled": True,
         "steps": [
             "open_url",
             "extract_dom",
-            "identify_target_data",
-            "extract_structured_json",
-            "review_extraction",
+            "capture_screenshot",
             "save_result",
         ],
         "approval_policy": {

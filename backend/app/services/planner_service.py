@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Task
 from app.services.tool_registry import require_tool
-from app.workflow_constants import WORKFLOW_TYPE_FORM_FILL
+from app.workflow_constants import WORKFLOW_TYPE_FORM_FILL, WORKFLOW_TYPE_WEB_DATA_EXTRACT
 
 
 @dataclass(frozen=True)
@@ -101,12 +101,46 @@ def build_form_fill_plan(*, goal: str) -> WorkflowPlan:
     )
 
 
+def build_web_data_extract_plan(*, goal: str) -> WorkflowPlan:
+    """Build the deterministic web_data_extract workflow plan."""
+
+    steps = [
+        _planned_step(
+            step_id="open_url",
+            tool="open_url",
+            reason="Open the target page before extracting DOM structure.",
+        ),
+        _planned_step(
+            step_id="extract_dom",
+            tool="extract_dom",
+            reason="Extract DOM structure, headings, text blocks, links, and tables.",
+        ),
+        _planned_step(
+            step_id="capture_screenshot",
+            tool="capture_screenshot",
+            reason="Capture a screenshot for review and documentation.",
+        ),
+        _planned_step(
+            step_id="save_result",
+            tool="save_result",
+            reason="Save the extraction result to persistent storage.",
+        ),
+    ]
+    return WorkflowPlan(
+        workflow_type=WORKFLOW_TYPE_WEB_DATA_EXTRACT,
+        goal=goal,
+        steps=steps,
+    )
+
+
 def build_plan(*, workflow_type: str, goal: str) -> WorkflowPlan:
     """Build a deterministic saved plan for one supported workflow type."""
 
-    if workflow_type != WORKFLOW_TYPE_FORM_FILL:
-        raise ValueError(f"Unsupported workflow type for planning: {workflow_type}")
-    return build_form_fill_plan(goal=goal)
+    if workflow_type == WORKFLOW_TYPE_FORM_FILL:
+        return build_form_fill_plan(goal=goal)
+    if workflow_type == WORKFLOW_TYPE_WEB_DATA_EXTRACT:
+        return build_web_data_extract_plan(goal=goal)
+    raise ValueError(f"Unsupported workflow type for planning: {workflow_type}")
 
 
 def plan_to_dict(plan: WorkflowPlan) -> dict[str, object]:
