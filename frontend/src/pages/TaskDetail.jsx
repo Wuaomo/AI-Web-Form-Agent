@@ -83,6 +83,7 @@ function TaskDetail() {
   const [approvalRequests, setApprovalRequests] = useState([]);
   const [runningReview, setRunningReview] = useState(null);
   const [showAllFailedSpans, setShowAllFailedSpans] = useState(false);
+  const [summaryCopied, setSummaryCopied] = useState(false);
   const agentReviewInFlight = useRef(false);
 
   async function getTaskPlanOrNull(currentTaskId) {
@@ -304,6 +305,18 @@ function TaskDetail() {
     }
   }
 
+  async function copyResearchSummary() {
+    if (!summaryData) return;
+    const copyableText = `# Research Summary\n\n${summaryData.summary}\n\n## Key Requirements\n${summaryData.key_requirements.map((r, i) => `${i + 1}. ${r}`).join("\n")}\n\n## Action Checklist\n${summaryData.action_checklist.map((c, i) => `${i + 1}. ${c}`).join("\n")}\n\n## Risks / Missing Information\n${summaryData.risks.map((r, i) => `${i + 1}. ${r}`).join("\n")}`;
+    try {
+      await navigator.clipboard.writeText(copyableText);
+      setSummaryCopied(true);
+      setTimeout(() => setSummaryCopied(false), 2000);
+    } catch {
+      setError("Failed to copy research summary.");
+    }
+  }
+
   function updateSelectedLlmProvider(provider) {
     setSelectedLlmProvider(provider);
     saveLlmProvider(provider);
@@ -337,6 +350,8 @@ function TaskDetail() {
   const failureSummary = getRunFailureSummary(task, taskCheckpoints, orderedTrace);
   const plannedSteps = getWorkflowPlanSteps(taskPlan);
   const pendingApprovals = approvalRequests.filter((item) => item.status === "PENDING");
+  const extractionData = getExtractionData(taskCheckpoints);
+  const summaryData = getSummaryData(taskCheckpoints);
 
   async function resolveApproval(approval, action) {
     setBusyAction(`${action}-approval`);
@@ -664,6 +679,144 @@ function TaskDetail() {
             </div>
           )}
 
+          {extractionData && (
+            <section className="section-block">
+              <div className="section-heading">
+                <h3>Extraction Result</h3>
+              </div>
+              <div className="card">
+                {extractionData.title && (
+                  <div className="extraction-title">
+                    <h4>Page Title</h4>
+                    <p>{extractionData.title}</p>
+                  </div>
+                )}
+                {extractionData.headings && extractionData.headings.length > 0 && (
+                  <div>
+                    <h4>Headings ({extractionData.heading_count})</h4>
+                    <ul className="extraction-list">
+                      {extractionData.headings.map((heading, index) => (
+                        <li key={index}>
+                          <span className="badge badge-small">H{heading.level}</span>
+                          <span>{heading.text}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {extractionData.links && extractionData.links.length > 0 && (
+                  <div>
+                    <h4>Links ({extractionData.link_count})</h4>
+                    <ul className="extraction-list">
+                      {extractionData.links.slice(0, 20).map((link, index) => (
+                        <li key={index}>
+                          <a href={link.href} target="_blank" rel="noreferrer">
+                            {link.text || link.href}
+                          </a>
+                        </li>
+                      ))}
+                      {extractionData.links.length > 20 && (
+                        <li className="muted-text">...and {extractionData.links.length - 20} more</li>
+                      )}
+                    </ul>
+                  </div>
+                )}
+                {extractionData.tables && extractionData.tables.length > 0 && (
+                  <div>
+                    <h4>Tables ({extractionData.table_count})</h4>
+                    <ul className="extraction-list">
+                      {extractionData.tables.map((table, index) => (
+                        <li key={index}>
+                          <span>Headers: {table.headers.join(", ") || "none"}</span>
+                          <span className="muted-text">{table.row_count} rows</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {extractionData.forms && extractionData.forms.length > 0 && (
+                  <div>
+                    <h4>Forms ({extractionData.form_count})</h4>
+                    <ul className="extraction-list">
+                      {extractionData.forms.map((form, index) => (
+                        <li key={index}>
+                          <span>{form.method || "GET"} {form.action || "(no action)"}</span>
+                          <span className="muted-text">{form.field_count} fields</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {extractionData.text_block_count !== undefined && (
+                  <div>
+                    <h4>Text Blocks</h4>
+                    <p>{extractionData.text_block_count} blocks extracted</p>
+                  </div>
+                )}
+                <details className="technical-details">
+                  <summary>View raw JSON</summary>
+                  <pre className="trace-json-block">{JSON.stringify(extractionData, null, 2)}</pre>
+                </details>
+              </div>
+            </section>
+          )}
+
+          {summaryData && (
+            <section className="section-block">
+              <div className="section-heading">
+                <h3>Research Summary</h3>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={copyResearchSummary}
+                >
+                  {summaryCopied ? "Copied!" : "Copy Report"}
+                </button>
+              </div>
+              <div className="card">
+                {summaryData.summary && (
+                  <div>
+                    <h4>Summary</h4>
+                    <pre className="summary-text">{summaryData.summary}</pre>
+                  </div>
+                )}
+                {summaryData.key_requirements && summaryData.key_requirements.length > 0 && (
+                  <div>
+                    <h4>Key Requirements</h4>
+                    <ul className="extraction-list">
+                      {summaryData.key_requirements.map((req, index) => (
+                        <li key={index}>{req}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {summaryData.action_checklist && summaryData.action_checklist.length > 0 && (
+                  <div>
+                    <h4>Action Checklist</h4>
+                    <ul className="extraction-list">
+                      {summaryData.action_checklist.map((item, index) => (
+                        <li key={index}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {summaryData.risks && summaryData.risks.length > 0 && (
+                  <div>
+                    <h4>Risks / Missing Information</h4>
+                    <ul className="extraction-list">
+                      {summaryData.risks.map((risk, index) => (
+                        <li key={index} className="text-warning">{risk}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                <details className="technical-details">
+                  <summary>View raw JSON</summary>
+                  <pre className="trace-json-block">{JSON.stringify(summaryData, null, 2)}</pre>
+                </details>
+              </div>
+            </section>
+          )}
+
           <details
             className="advanced-panel"
             open={shouldOpenAdvancedByDefault(task)}
@@ -936,159 +1089,6 @@ function TaskDetail() {
                   </div>
                 )}
               </section>
-
-              {(() => {
-                const extractionData = getExtractionData(taskCheckpoints);
-                if (!extractionData) return null;
-                return (
-                  <section className="section-block">
-                    <div className="section-heading">
-                      <h3>Extraction Result</h3>
-                    </div>
-                    <div className="card">
-                      {extractionData.title && (
-                        <div className="extraction-title">
-                          <h4>Page Title</h4>
-                          <p>{extractionData.title}</p>
-                        </div>
-                      )}
-                      {extractionData.headings && extractionData.headings.length > 0 && (
-                        <div>
-                          <h4>Headings ({extractionData.heading_count})</h4>
-                          <ul className="extraction-list">
-                            {extractionData.headings.map((heading, index) => (
-                              <li key={index}>
-                                <span className="badge badge-small">H{heading.level}</span>
-                                <span>{heading.text}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      {extractionData.links && extractionData.links.length > 0 && (
-                        <div>
-                          <h4>Links ({extractionData.link_count})</h4>
-                          <ul className="extraction-list">
-                            {extractionData.links.slice(0, 20).map((link, index) => (
-                              <li key={index}>
-                                <a href={link.href} target="_blank" rel="noreferrer">
-                                  {link.text || link.href}
-                                </a>
-                              </li>
-                            ))}
-                            {extractionData.links.length > 20 && (
-                              <li className="muted-text">...and {extractionData.links.length - 20} more</li>
-                            )}
-                          </ul>
-                        </div>
-                      )}
-                      {extractionData.tables && extractionData.tables.length > 0 && (
-                        <div>
-                          <h4>Tables ({extractionData.table_count})</h4>
-                          <ul className="extraction-list">
-                            {extractionData.tables.map((table, index) => (
-                              <li key={index}>
-                                <span>Headers: {table.headers.join(", ") || "none"}</span>
-                                <span className="muted-text">{table.row_count} rows</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      {extractionData.forms && extractionData.forms.length > 0 && (
-                        <div>
-                          <h4>Forms ({extractionData.form_count})</h4>
-                          <ul className="extraction-list">
-                            {extractionData.forms.map((form, index) => (
-                              <li key={index}>
-                                <span>{form.method || "GET"} {form.action || "(no action)"}</span>
-                                <span className="muted-text">{form.field_count} fields</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      {extractionData.text_block_count !== undefined && (
-                        <div>
-                          <h4>Text Blocks</h4>
-                          <p>{extractionData.text_block_count} blocks extracted</p>
-                        </div>
-                      )}
-                      <details className="technical-details">
-                        <summary>View raw JSON</summary>
-                        <pre className="trace-json-block">{JSON.stringify(extractionData, null, 2)}</pre>
-                      </details>
-                    </div>
-                  </section>
-                );
-              })()}
-
-              {(() => {
-                const summaryData = getSummaryData(taskCheckpoints);
-                if (!summaryData) return null;
-                const copyableText = `# Research Summary\n\n${summaryData.summary}\n\n## Key Requirements\n${summaryData.key_requirements.map((r, i) => `${i + 1}. ${r}`).join("\n")}\n\n## Action Checklist\n${summaryData.action_checklist.map((c, i) => `${i + 1}. ${c}`).join("\n")}\n\n## Risks / Missing Information\n${summaryData.risks.map((r, i) => `${i + 1}. ${r}`).join("\n")}`;
-                const [copied, setCopied] = useState(false);
-                const handleCopy = async () => {
-                  await navigator.clipboard.writeText(copyableText);
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 2000);
-                };
-                return (
-                  <section className="section-block">
-                    <div className="section-heading">
-                      <h3>Research Summary</h3>
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        onClick={handleCopy}
-                      >
-                        {copied ? "Copied!" : "Copy Report"}
-                      </button>
-                    </div>
-                    <div className="card">
-                      {summaryData.summary && (
-                        <div>
-                          <h4>Summary</h4>
-                          <pre className="summary-text">{summaryData.summary}</pre>
-                        </div>
-                      )}
-                      {summaryData.key_requirements && summaryData.key_requirements.length > 0 && (
-                        <div>
-                          <h4>Key Requirements</h4>
-                          <ul className="extraction-list">
-                            {summaryData.key_requirements.map((req, index) => (
-                              <li key={index}>{req}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      {summaryData.action_checklist && summaryData.action_checklist.length > 0 && (
-                        <div>
-                          <h4>Action Checklist</h4>
-                          <ul className="extraction-list">
-                            {summaryData.action_checklist.map((item, index) => (
-                              <li key={index}>{item}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      {summaryData.risks && summaryData.risks.length > 0 && (
-                        <div>
-                          <h4>Risks / Missing Information</h4>
-                          <ul className="extraction-list">
-                            {summaryData.risks.map((risk, index) => (
-                              <li key={index} className="text-warning">{risk}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      <details className="technical-details">
-                        <summary>View raw JSON</summary>
-                        <pre className="trace-json-block">{JSON.stringify(summaryData, null, 2)}</pre>
-                      </details>
-                    </div>
-                  </section>
-                );
-              })()}
             </div>
           </details>
         </>

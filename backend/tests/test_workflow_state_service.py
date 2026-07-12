@@ -30,6 +30,12 @@ def test_can_transition_rejects_created_to_completed() -> None:
     assert can_transition(WORKFLOW_STATUS_CREATED, WORKFLOW_STATUS_COMPLETED) is False
 
 
+def test_can_transition_allows_analyzing_to_completed() -> None:
+    """Web extraction and job research summary finish from ANALYZING -> COMPLETED."""
+
+    assert can_transition(WORKFLOW_STATUS_ANALYZING, WORKFLOW_STATUS_COMPLETED) is True
+
+
 def test_set_workflow_status_updates_workflow_and_legacy_status() -> None:
     """Verify workflow status writes stay synchronized with legacy status."""
 
