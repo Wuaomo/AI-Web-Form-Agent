@@ -64,7 +64,7 @@ from app.services.field_mapper import (
     CUSTOM_PROFILE_KEY_PREFIX,
     get_profile_value,
     map_fields_by_rules,
-    map_fields_with_llm,
+    map_fields_with_llm_result,
 )
 from app.services.form_extractor import ExtractedFormAnalysis, extract_form_analysis
 from app.services.page_extractor import extract_page
@@ -98,6 +98,7 @@ from app.services.planner_service import (
     resolve_plan_goal,
     save_plan,
 )
+from app.services.policy_answer_retrieval import apply_policy_answer_suggestions
 from app.services.workflow_memory import save_confirmed_mappings_for_task
 from app.services.checkpoint_service import list_checkpoints, write_checkpoint
 from app.services.tool_registry import require_tool
@@ -139,8 +140,10 @@ from app.workflow_constants import (
     WORKFLOW_STAGE_FILL,
     WORKFLOW_STAGE_MAPPING,
     WORKFLOW_TYPE_FORM_FILL,
-    WORKFLOW_TYPE_WEB_DATA_EXTRACT,
     WORKFLOW_TYPE_JOB_RESEARCH_SUMMARY,
+    WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
+    WORKFLOW_TYPE_VENDOR_ONBOARDING,
+    WORKFLOW_TYPE_WEB_DATA_EXTRACT,
 )
 
 logger = logging.getLogger(__name__)
@@ -352,7 +355,11 @@ def build_and_save_task_plan(db: Session, task: Task, *, goal: str) -> dict[str,
 def ensure_form_fill_workflow(task: Task) -> None:
     """Reject execution for workflow types that are not implemented yet."""
 
-    if task.workflow_type != WORKFLOW_TYPE_FORM_FILL:
+    if task.workflow_type not in {
+        WORKFLOW_TYPE_FORM_FILL,
+        WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
+        WORKFLOW_TYPE_VENDOR_ONBOARDING,
+    }:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Workflow type not executable yet: {task.workflow_type}",
@@ -1337,19 +1344,41 @@ def map_task_fields(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=get_provider_setup_hint(selected_provider),
                 )
-            fields = map_fields_with_llm(task_id, db, provider=selected_provider)
+            mapping_result = map_fields_with_llm_result(
+                task_id,
+                db,
+                provider=selected_provider,
+            )
+            fields = mapping_result.fields
+            retrieval_suggestions = mapping_result.retrieval_suggestions
         else:
             fields = map_fields_by_rules(task_id, db)
+            retrieval_suggestions = []
+
+        source_suggestions: list[dict[str, object]] = []
+        if task.workflow_type == WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE:
+            source_suggestions = apply_policy_answer_suggestions(
+                fields=fields,
+            )
 
         apply_workflow_status(task, WORKFLOW_STATUS_MAPPING_READY, reason="mapping_completed")
-        mapped_count = sum(1 for f in fields if f.mapped_profile_key)
+        mapped_count = sum(1 for f in fields if f.mapped_profile_key or f.mapped_value)
         usage_fields = trace_usage_fields(task_id, db) if mode == "llm" else {}
+        checkpoint_output = {
+            "field_count": len(fields),
+            "mapped_count": mapped_count,
+            "mode": mode,
+        }
+        if source_suggestions:
+            checkpoint_output["source_suggestions"] = source_suggestions
+        if retrieval_suggestions:
+            checkpoint_output["retrieval_suggestions"] = retrieval_suggestions
         write_checkpoint(
             task_id=task_id,
             stage=WORKFLOW_STAGE_MAPPING,
             status=CHECKPOINT_SUCCESS,
             input_hash=f"{task_id}:{mode}:{provider or 'default'}",
-            output={"field_count": len(fields), "mapped_count": mapped_count, "mode": mode},
+            output=checkpoint_output,
             db=db,
         )
         db.commit()

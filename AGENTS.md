@@ -22,6 +22,12 @@ Current roadmap order:
 4. Phase 4: Agent Observability
 5. Phase 5: Portfolio Packaging
 
+Post-portfolio extension order:
+
+6. Phase 6: Domain Workflow Templates
+7. Phase 7: Retrieval Quality and Memory Governance
+8. Phase 8: Agent Reliability Benchmark Suite
+
 ## Product Principles
 
 - User path first, engineering evidence second.

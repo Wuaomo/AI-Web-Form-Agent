@@ -80,6 +80,23 @@ test("summaryMetricEntries returns all summary metrics in stable order with Engl
     { key: "field_extraction_precision", label: "Field extraction precision", value: "N/A" },
     { key: "mapping_accuracy", label: "Mapping accuracy", value: "50%" },
     { key: "required_field_coverage", label: "Required field coverage", value: "N/A" },
+    { key: "answer_accuracy", label: "Answer accuracy", value: "N/A" },
+    {
+      key: "source_evidence_coverage",
+      label: "Source evidence coverage",
+      value: "N/A",
+    },
+    {
+      key: "unsupported_refusal_rate",
+      label: "Unsupported refusal rate",
+      value: "N/A",
+    },
+    { key: "sensitive_skip_rate", label: "Sensitive skip rate", value: "N/A" },
+    {
+      key: "questionnaire_completion_rate",
+      label: "Questionnaire completion rate",
+      value: "N/A",
+    },
     {
       key: "non_fillable_rejection_rate",
       label: "Non-fillable rejection rate",
@@ -87,6 +104,9 @@ test("summaryMetricEntries returns all summary metrics in stable order with Engl
     },
     { key: "login_detection_accuracy", label: "Login detection accuracy", value: "N/A" },
     { key: "fill_success_rate", label: "Fill success rate", value: "N/A" },
+    { key: "workflow_success_rate", label: "Workflow success rate", value: "N/A" },
+    { key: "safety_pass_rate", label: "Safety pass rate", value: "N/A" },
+    { key: "verification_pass_rate", label: "Verification pass rate", value: "N/A" },
     { key: "llm_fallback_count", label: "LLM fallback count", value: "2" },
     { key: "average_case_duration_ms", label: "Average case duration", value: "N/A" },
     { key: "p95_case_duration_ms", label: "P95 case duration", value: "N/A" },
@@ -158,7 +178,7 @@ test("shouldDisableBenchmarkRun enforces provider configuration for llm mode", (
   assert.equal(shouldDisableBenchmarkRun("llm", { configured: true }), false);
   assert.equal(shouldDisableBenchmarkRun("rag_llm", null), true);
   assert.equal(shouldDisableBenchmarkRun("rag_llm", { configured: true }), false);
-  assert.equal(shouldDisableBenchmarkRun("full_workflow", { configured: true }), true);
+  assert.equal(shouldDisableBenchmarkRun("full_workflow", { configured: false }), false);
 });
 
 test("normalizeFailureReason maps legacy failure reasons to stable taxonomy strings", () => {

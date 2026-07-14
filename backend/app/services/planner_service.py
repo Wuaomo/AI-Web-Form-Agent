@@ -8,7 +8,13 @@ from sqlalchemy.orm import Session
 
 from app.models import Task
 from app.services.tool_registry import require_tool
-from app.workflow_constants import WORKFLOW_TYPE_FORM_FILL, WORKFLOW_TYPE_WEB_DATA_EXTRACT, WORKFLOW_TYPE_JOB_RESEARCH_SUMMARY
+from app.workflow_constants import (
+    WORKFLOW_TYPE_FORM_FILL,
+    WORKFLOW_TYPE_JOB_RESEARCH_SUMMARY,
+    WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
+    WORKFLOW_TYPE_VENDOR_ONBOARDING,
+    WORKFLOW_TYPE_WEB_DATA_EXTRACT,
+)
 
 
 @dataclass(frozen=True)
@@ -165,6 +171,28 @@ def build_job_research_summary_plan(*, goal: str) -> WorkflowPlan:
     )
 
 
+def build_security_questionnaire_plan(*, goal: str) -> WorkflowPlan:
+    """Build the deterministic security_questionnaire workflow plan."""
+
+    form_plan = build_form_fill_plan(goal=goal)
+    return WorkflowPlan(
+        workflow_type=WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
+        goal=goal,
+        steps=form_plan.steps,
+    )
+
+
+def build_vendor_onboarding_plan(*, goal: str) -> WorkflowPlan:
+    """Build the deterministic vendor_onboarding workflow plan."""
+
+    form_plan = build_form_fill_plan(goal=goal)
+    return WorkflowPlan(
+        workflow_type=WORKFLOW_TYPE_VENDOR_ONBOARDING,
+        goal=goal,
+        steps=form_plan.steps,
+    )
+
+
 def build_plan(*, workflow_type: str, goal: str) -> WorkflowPlan:
     """Build a deterministic saved plan for one supported workflow type."""
 
@@ -174,6 +202,10 @@ def build_plan(*, workflow_type: str, goal: str) -> WorkflowPlan:
         return build_web_data_extract_plan(goal=goal)
     if workflow_type == WORKFLOW_TYPE_JOB_RESEARCH_SUMMARY:
         return build_job_research_summary_plan(goal=goal)
+    if workflow_type == WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE:
+        return build_security_questionnaire_plan(goal=goal)
+    if workflow_type == WORKFLOW_TYPE_VENDOR_ONBOARDING:
+        return build_vendor_onboarding_plan(goal=goal)
     raise ValueError(f"Unsupported workflow type for planning: {workflow_type}")
 
 

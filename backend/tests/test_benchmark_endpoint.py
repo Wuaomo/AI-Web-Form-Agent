@@ -317,17 +317,40 @@ def test_run_benchmark_rag_llm_forces_memory_mode_on_and_calls_runner(
     assert mocked_runner.call_args.kwargs["memory_mode"] == "on"
 
 
-def test_run_benchmark_full_workflow_returns_400_without_executing(
+def test_run_benchmark_full_workflow_runs_without_provider(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     client, _ = test_environment
-    with patch(
-        "app.routers.benchmarks.run_benchmarks",
-        side_effect=ValueError("full_workflow evaluation is not implemented yet"),
-    ) as mocked_runner:
+    summary = BenchmarkRunSummary(
+        mode="full_workflow",
+        provider=None,
+        total_cases=0,
+        average_score=1.0,
+        summary_metrics={"workflow_success_rate": 1.0},
+        case_results=[],
+    )
+
+    def fake_run_benchmarks(
+        *,
+        mode: str,
+        provider: str | None,
+        db: Session,
+        stress_mode: str = "standard",
+        memory_mode: str = "off",
+        baseline_run_id: int | None = None,
+    ) -> BenchmarkRunSummary:
+        assert mode == "full_workflow"
+        assert provider is None
+        assert memory_mode == "off"
+        assert baseline_run_id is None
+        _persist_summary(db, summary)
+        return summary
+
+    with patch("app.routers.benchmarks.run_benchmarks", side_effect=fake_run_benchmarks) as mocked_runner:
         response = client.post("/benchmarks/run", json={"mode": "full_workflow"})
 
-    assert response.status_code == 400
+    assert response.status_code == 201
+    assert response.json()["mode"] == "full_workflow"
     mocked_runner.assert_called_once()
 
 

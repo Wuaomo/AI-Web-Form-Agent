@@ -4,7 +4,10 @@ import test from "node:test";
 import {
   buildWorkflowTemplateCreatePath,
   dockerDemoFormUrl,
+  dockerDemoUrlForWorkflow,
   isTemplateEnabled,
+  mappingModeForWorkflow,
+  requiresLlmProviderForCreate,
   resolveWorkflowTypeSelection,
   sortWorkflowTemplates,
   templateAvailabilityLabel,
@@ -43,6 +46,34 @@ test("dockerDemoFormUrl points to the backend container demo fixture", () => {
     dockerDemoFormUrl(),
     "file:///app/examples/llm-registration.html",
   );
+});
+
+test("dockerDemoUrlForWorkflow uses the questionnaire fixture for security workflow", () => {
+  assert.equal(
+    dockerDemoUrlForWorkflow("security_questionnaire"),
+    "file:///app/examples/security-questionnaire.html",
+  );
+  assert.equal(dockerDemoUrlForWorkflow("form_fill"), dockerDemoFormUrl());
+});
+
+test("dockerDemoUrlForWorkflow uses the vendor onboarding fixture", () => {
+  assert.equal(
+    dockerDemoUrlForWorkflow("vendor_onboarding"),
+    "file:///app/examples/vendor-onboarding.html",
+  );
+});
+
+test("security questionnaire creation can run without an LLM provider", () => {
+  assert.equal(requiresLlmProviderForCreate("security_questionnaire"), false);
+  assert.equal(requiresLlmProviderForCreate("vendor_onboarding"), false);
+  assert.equal(requiresLlmProviderForCreate("form_fill"), true);
+  assert.equal(requiresLlmProviderForCreate("web_data_extract"), false);
+});
+
+test("mappingModeForWorkflow uses rules for local no-provider workflows", () => {
+  assert.equal(mappingModeForWorkflow("security_questionnaire"), "rules");
+  assert.equal(mappingModeForWorkflow("vendor_onboarding"), "rules");
+  assert.equal(mappingModeForWorkflow("form_fill"), "llm");
 });
 
 test("resolveWorkflowTypeSelection falls back to form_fill for disabled requests", () => {

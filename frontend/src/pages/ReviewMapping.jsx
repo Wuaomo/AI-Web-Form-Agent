@@ -15,7 +15,9 @@ import {
   fieldDisplayName,
   formatConfidence,
   formatMappingSummary,
+  formatSourceSuggestion,
   getFieldChoiceOptions,
+  getSourceSuggestionsByFieldId,
   hasFieldChoiceOptions,
   isReviewableField,
   needsMappingReview,
@@ -62,6 +64,7 @@ function ReviewMapping() {
   const [fieldUpdateCount, setFieldUpdateCount] = useState(0);
   const [agentReviews, setAgentReviews] = useState([]);
   const [runningReview, setRunningReview] = useState(null);
+  const [taskCheckpoints, setTaskCheckpoints] = useState([]);
   const agentReviewInFlight = useRef(false);
   const pendingValueUpdateTimers = useRef({});
   const pendingValueUpdates = useRef({});
@@ -73,14 +76,16 @@ function ReviewMapping() {
     setLoading(true);
     setError("");
     try {
-      const [fieldItems, providerItems, reviewItems] = await Promise.all([
+      const [fieldItems, providerItems, reviewItems, checkpointItems] = await Promise.all([
         api.listTaskFields(taskId),
         api.listLlmProviders(),
         api.getTaskAgentReviews(taskId).catch(() => []),
+        api.listTaskCheckpoints(taskId).catch(() => []),
       ]);
       setFields(fieldItems);
       setLlmProviders(providerItems);
       setAgentReviews(reviewItems);
+      setTaskCheckpoints(checkpointItems);
       setSelectedLlmProvider(getSavedLlmProvider(providerItems));
     } catch (requestError) {
       setError(requestError.message);
@@ -136,6 +141,7 @@ function ReviewMapping() {
           provider: mappingMode === "llm" ? selectedLlmProvider : undefined,
         }),
       );
+      setTaskCheckpoints(await api.listTaskCheckpoints(taskId).catch(() => []));
       setNotice("Agent mappings generated.");
     } catch (requestError) {
       setError(requestError.message);
@@ -434,6 +440,7 @@ function ReviewMapping() {
   const showMappingSource = shouldShowMappingSource();
   const showAdvancedFieldDetails = shouldShowAdvancedFieldDetails();
   const showProfileMemoryControl = shouldShowProfileMemoryControl();
+  const sourceSuggestionsByFieldId = getSourceSuggestionsByFieldId(taskCheckpoints);
 
   return (
     <section>
@@ -612,6 +619,11 @@ function ReviewMapping() {
                         <p className="review-field-source">
                           {formatMappingSummary(field)} ·{" "}
                           {formatConfidence(field.confidence)}
+                        </p>
+                      )}
+                      {sourceSuggestionsByFieldId.has(field.id) && (
+                        <p className="review-field-source">
+                          {formatSourceSuggestion(sourceSuggestionsByFieldId.get(field.id))}
                         </p>
                       )}
                       {showAdvancedFieldDetails && field.element_ref && (

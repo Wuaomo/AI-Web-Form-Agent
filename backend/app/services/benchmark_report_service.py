@@ -70,6 +70,20 @@ def build_benchmark_markdown_report(run: BenchmarkRun, *, baseline: BenchmarkRun
             lines.append(f"- **Improved:** {run.improvement_count} metrics")
         lines.append("")
 
+    reliability_metrics = [
+        ("workflow_success_rate", "Workflow Success"),
+        ("safety_pass_rate", "Safety Pass"),
+        ("verification_pass_rate", "Verification Pass"),
+        ("failure_rate", "Failure Rate"),
+    ]
+    if any(key in run.summary_metrics for key, _label in reliability_metrics):
+        lines.append("## Reliability Summary")
+        lines.append("")
+        for key, label in reliability_metrics:
+            if key in run.summary_metrics:
+                lines.append(f"- **{label}:** {_format_value(key, run.summary_metrics[key])}")
+        lines.append("")
+
     failed_cases = [cr for cr in run.case_results if len(cr.failures) > 0]
     if failed_cases:
         lines.append("## Failed Cases")
@@ -158,9 +172,17 @@ def _metric_label(key: str) -> str:
         "field_extraction_precision": "Field Extraction Precision",
         "mapping_accuracy": "Mapping Accuracy",
         "required_field_coverage": "Required Field Coverage",
+        "answer_accuracy": "Answer Accuracy",
+        "source_evidence_coverage": "Source Evidence Coverage",
+        "unsupported_refusal_rate": "Unsupported Refusal Rate",
+        "sensitive_skip_rate": "Sensitive Skip Rate",
+        "questionnaire_completion_rate": "Questionnaire Completion Rate",
         "non_fillable_rejection_rate": "Non-fillable Rejection Rate",
         "login_detection_accuracy": "Login Detection Accuracy",
         "fill_success_rate": "Fill Success Rate",
+        "workflow_success_rate": "Workflow Success Rate",
+        "safety_pass_rate": "Safety Pass Rate",
+        "verification_pass_rate": "Verification Pass Rate",
         "llm_fallback_count": "LLM Fallback Count",
         "average_case_duration_ms": "Average Case Duration",
         "p95_case_duration_ms": "P95 Case Duration",
@@ -182,6 +204,10 @@ def _failure_reason_label(reason: str | None) -> str:
         "missing_required_value": "Missing Required Value",
         "option_value_mismatch": "Option Value Mismatch",
         "low_confidence_mapping": "Low Confidence Mapping",
+        "wrong_answer": "Wrong Answer",
+        "missing_source_evidence": "Missing Source Evidence",
+        "unsupported_answer_should_refuse": "Unsupported Answer Should Refuse",
+        "sensitive_value_should_block": "Sensitive Value Should Block",
     }
     return label_map.get(reason, reason.replace("_", " ").title())
 

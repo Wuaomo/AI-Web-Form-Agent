@@ -3,9 +3,17 @@ export const benchmarkMetricOrder = [
   "field_extraction_precision",
   "mapping_accuracy",
   "required_field_coverage",
+  "answer_accuracy",
+  "source_evidence_coverage",
+  "unsupported_refusal_rate",
+  "sensitive_skip_rate",
+  "questionnaire_completion_rate",
   "non_fillable_rejection_rate",
   "login_detection_accuracy",
   "fill_success_rate",
+  "workflow_success_rate",
+  "safety_pass_rate",
+  "verification_pass_rate",
   "llm_fallback_count",
   "average_case_duration_ms",
   "p95_case_duration_ms",
@@ -19,9 +27,17 @@ const metricLabels = {
   field_extraction_precision: "Field extraction precision",
   mapping_accuracy: "Mapping accuracy",
   required_field_coverage: "Required field coverage",
+  answer_accuracy: "Answer accuracy",
+  source_evidence_coverage: "Source evidence coverage",
+  unsupported_refusal_rate: "Unsupported refusal rate",
+  sensitive_skip_rate: "Sensitive skip rate",
+  questionnaire_completion_rate: "Questionnaire completion rate",
   non_fillable_rejection_rate: "Non-fillable rejection rate",
   login_detection_accuracy: "Login detection accuracy",
   fill_success_rate: "Fill success rate",
+  workflow_success_rate: "Workflow success rate",
+  safety_pass_rate: "Safety pass rate",
+  verification_pass_rate: "Verification pass rate",
   llm_fallback_count: "LLM fallback count",
   average_case_duration_ms: "Average case duration",
   p95_case_duration_ms: "P95 case duration",
@@ -171,9 +187,6 @@ export function selectDefaultProviderId(providers = []) {
 }
 
 export function shouldDisableBenchmarkRun(mode, provider) {
-  if (mode === "full_workflow") {
-    return true;
-  }
   if (mode !== "llm" && mode !== "rag_llm") {
     return false;
   }
@@ -274,6 +287,10 @@ const failureReasonLabels = {
   option_value_mismatch: "Option value mismatch",
   low_confidence_mapping: "Low confidence mapping",
   unexpected_extra_mapping: "Unexpected extra mapping",
+  wrong_answer: "Wrong answer",
+  missing_source_evidence: "Missing source evidence",
+  unsupported_answer_should_refuse: "Unsupported answer should be refused",
+  sensitive_value_should_block: "Sensitive value should be blocked",
 };
 
 function humanizeFailureReason(reason) {

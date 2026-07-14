@@ -1,5 +1,25 @@
 import { API_BASE_URL } from "./api.js";
 
+function sourceSuggestionsFromCheckpoints(checkpoints = []) {
+  return checkpoints.flatMap((checkpoint) => {
+    const suggestions = checkpoint?.output?.source_suggestions;
+    return Array.isArray(suggestions) ? suggestions : [];
+  });
+}
+
+function safeCheckpointOutput(output) {
+  if (!output || typeof output !== "object" || !Array.isArray(output.source_suggestions)) {
+    return output;
+  }
+  return {
+    ...output,
+    source_suggestions: output.source_suggestions.map((suggestion) => {
+      const { suggested_value, ...safeSuggestion } = suggestion;
+      return safeSuggestion;
+    }),
+  };
+}
+
 export function generateDebugReport(task, profiles = [], screenshots = [], llmUsage = null, logs = [], checkpoints = [], verificationResults = []) {
   const profile = profiles.find((p) => p.id === task?.profile_id);
   const profileName = profile?.profile_name || task?.profile_id || "—";
@@ -48,7 +68,23 @@ export function generateDebugReport(task, profiles = [], screenshots = [], llmUs
         lines.push(`    Error: ${cp.error_message}`);
       }
       if (cp.output && typeof cp.output === "object") {
-        lines.push(`    Output: ${JSON.stringify(cp.output)}`);
+        lines.push(`    Output: ${JSON.stringify(safeCheckpointOutput(cp.output))}`);
+      }
+    });
+  }
+
+  const sourceSuggestions = sourceSuggestionsFromCheckpoints(checkpoints);
+  if (sourceSuggestions.length > 0) {
+    lines.push("");
+    lines.push("Suggestion evidence:");
+    sourceSuggestions.forEach((suggestion) => {
+      lines.push(`  Field: ${suggestion.field_label || suggestion.field_id || "Unknown field"}`);
+      lines.push(`    Source: ${suggestion.source || "Unknown source"}`);
+      if (suggestion.matched_section) {
+        lines.push(`    Section: ${suggestion.matched_section}`);
+      }
+      if (suggestion.status) {
+        lines.push(`    Status: ${suggestion.status}`);
       }
     });
   }

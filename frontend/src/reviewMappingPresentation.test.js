@@ -6,7 +6,9 @@ import {
   computeAttentionSummary,
   formatConfidence,
   formatMappingSummary,
+  formatSourceSuggestion,
   getFieldChoiceOptions,
+  getSourceSuggestionsByFieldId,
   hasFieldChoiceOptions,
   isLowConfidence,
   isRequiredMissing,
@@ -106,6 +108,59 @@ test("formatConfidence shows percentages and an unknown state", () => {
   assert.equal(formatConfidence(0.94), "94%");
   assert.equal(formatConfidence(1), "100%");
   assert.equal(formatConfidence(null), "Not scored");
+});
+
+test("source suggestion helpers expose checkpoint evidence by field id", () => {
+  const checkpoints = [
+    {
+      stage: "MAPPING",
+      output: {
+        source_suggestions: [
+          {
+            field_id: 10,
+            source: "mock-security-policy.md",
+            matched_section: "Encryption At Rest",
+            status: "needs_review",
+          },
+        ],
+      },
+    },
+  ];
+
+  const suggestions = getSourceSuggestionsByFieldId(checkpoints);
+
+  assert.equal(
+    formatSourceSuggestion(suggestions.get(10)),
+    "Source: mock-security-policy.md / Encryption At Rest (needs review)",
+  );
+  assert.equal(formatSourceSuggestion(null), "");
+});
+
+test("source suggestion helpers expose stale reviewed memory by field id", () => {
+  const checkpoints = [
+    {
+      stage: "MAPPING",
+      output: {
+        retrieval_suggestions: [
+          {
+            field_id: 11,
+            source_type: "reviewed_memory",
+            source_id: 7,
+            mapped_profile_key: "email",
+            stale: true,
+            governance_status: "stale_review_recommended",
+          },
+        ],
+      },
+    },
+  ];
+
+  const suggestions = getSourceSuggestionsByFieldId(checkpoints);
+
+  assert.equal(
+    formatSourceSuggestion(suggestions.get(11)),
+    "Reviewed memory #7 -> profile.email (stale; review recommended)",
+  );
 });
 
 test("field choice helpers expose structured select and radio options", () => {
