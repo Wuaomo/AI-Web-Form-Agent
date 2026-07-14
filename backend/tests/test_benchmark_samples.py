@@ -24,7 +24,7 @@ def test_benchmark_expected_files_are_complete() -> None:
     """Keep benchmark samples usable by the future metrics runner."""
 
     expected_files = sorted(EXPECTED_DIR.glob("*.json"))
-    assert len(expected_files) == 15
+    assert len(expected_files) == 16
 
     for expected_file in expected_files:
         data = json.loads(expected_file.read_text(encoding="utf-8"))

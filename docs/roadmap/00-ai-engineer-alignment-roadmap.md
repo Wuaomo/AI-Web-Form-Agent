@@ -62,6 +62,9 @@ Completed or mostly completed:
   mapping checkpoint, and show that evidence in Review Mapping.
 - Phase 3 evaluation baseline: local benchmark fixtures, rules/LLM/RAG-style
   modes, memory mode, regression comparison, and Markdown reports exist.
+- Phase 3 questionnaire evaluation: source-backed answer accuracy, source
+  evidence coverage, unsupported refusal, sensitive skip, and completion metrics
+  are measured in the benchmark suite.
 - Phase 4 observability baseline: action traces, workflow spans, screenshots,
   verification evidence, LLM usage, and debug reports exist.
 - Phase 5 packaging baseline: README, architecture, safety model, demo script,
@@ -69,7 +72,6 @@ Completed or mostly completed:
 
 Still missing from the revised direction:
 
-- answer-level refusal, source-evidence, and safety metrics;
 - memory governance beyond confirmed form-field mappings;
 - portfolio assets that show the questionnaire workflow.
 

@@ -25,13 +25,14 @@ Completed:
 - Benchmark reports include summary metrics, failures, top failure reasons, and
   regression/improvement comparison.
 - Markdown report export is implemented.
+- Security questionnaire benchmark fixture exists.
+- Source-backed questionnaire answer metrics are reported: answer accuracy,
+  source evidence coverage, unsupported-answer refusal rate, sensitive-field
+  skip rate, and questionnaire completion rate.
 
 Not complete yet:
 
 - full workflow benchmark mode;
-- source evidence coverage metric;
-- unsupported-answer refusal rate;
-- sensitive-field block rate beyond existing form safety cases;
 - approval-gate coverage metric;
 - browser execution success and verification pass metrics as first-class
   workflow reliability metrics.

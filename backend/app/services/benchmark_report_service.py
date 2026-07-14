@@ -158,6 +158,11 @@ def _metric_label(key: str) -> str:
         "field_extraction_precision": "Field Extraction Precision",
         "mapping_accuracy": "Mapping Accuracy",
         "required_field_coverage": "Required Field Coverage",
+        "answer_accuracy": "Answer Accuracy",
+        "source_evidence_coverage": "Source Evidence Coverage",
+        "unsupported_refusal_rate": "Unsupported Refusal Rate",
+        "sensitive_skip_rate": "Sensitive Skip Rate",
+        "questionnaire_completion_rate": "Questionnaire Completion Rate",
         "non_fillable_rejection_rate": "Non-fillable Rejection Rate",
         "login_detection_accuracy": "Login Detection Accuracy",
         "fill_success_rate": "Fill Success Rate",
@@ -182,6 +187,10 @@ def _failure_reason_label(reason: str | None) -> str:
         "missing_required_value": "Missing Required Value",
         "option_value_mismatch": "Option Value Mismatch",
         "low_confidence_mapping": "Low Confidence Mapping",
+        "wrong_answer": "Wrong Answer",
+        "missing_source_evidence": "Missing Source Evidence",
+        "unsupported_answer_should_refuse": "Unsupported Answer Should Refuse",
+        "sensitive_value_should_block": "Sensitive Value Should Block",
     }
     return label_map.get(reason, reason.replace("_", " ").title())
 

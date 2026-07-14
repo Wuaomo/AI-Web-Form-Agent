@@ -80,6 +80,23 @@ test("summaryMetricEntries returns all summary metrics in stable order with Engl
     { key: "field_extraction_precision", label: "Field extraction precision", value: "N/A" },
     { key: "mapping_accuracy", label: "Mapping accuracy", value: "50%" },
     { key: "required_field_coverage", label: "Required field coverage", value: "N/A" },
+    { key: "answer_accuracy", label: "Answer accuracy", value: "N/A" },
+    {
+      key: "source_evidence_coverage",
+      label: "Source evidence coverage",
+      value: "N/A",
+    },
+    {
+      key: "unsupported_refusal_rate",
+      label: "Unsupported refusal rate",
+      value: "N/A",
+    },
+    { key: "sensitive_skip_rate", label: "Sensitive skip rate", value: "N/A" },
+    {
+      key: "questionnaire_completion_rate",
+      label: "Questionnaire completion rate",
+      value: "N/A",
+    },
     {
       key: "non_fillable_rejection_rate",
       label: "Non-fillable rejection rate",

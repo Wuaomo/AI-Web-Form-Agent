@@ -27,7 +27,7 @@ from app.services.benchmark_runner import (
 def test_load_benchmark_cases_reads_all_expected_files() -> None:
     cases = load_benchmark_cases()
 
-    assert len(cases) == 15
+    assert len(cases) == 16
     assert cases[0].case_id == "01_clear_student_registration"
     assert cases[0].html_path.name == "01_clear_student_registration.html"
     assert cases[0].expected["login_required"] is False
@@ -109,6 +109,74 @@ def test_score_case_emits_stable_failure_reasons_with_details() -> None:
     assert isinstance(failures_by_selector["#email"]["detail"], str)
     assert failures_by_selector["#submit"]["reason"] == "unexpected_extra_mapping"
     assert isinstance(failures_by_selector["#submit"]["detail"], str)
+
+
+def test_score_case_measures_questionnaire_answer_evidence_and_refusal() -> None:
+    expected = {
+        "login_required": False,
+        "fields": [
+            {
+                "selector": "#mfa",
+                "profile_key": None,
+                "required": True,
+                "expected_answer": "Yes. MFA is required for administrative access.",
+                "source": "mock-security-policy.md",
+            },
+            {
+                "selector": "#encryption",
+                "profile_key": None,
+                "required": True,
+                "expected_answer": "yes",
+                "source": "mock-security-policy.md",
+            },
+            {
+                "selector": "#unsupported",
+                "profile_key": None,
+                "required": False,
+                "should_refuse": True,
+            },
+            {
+                "selector": "#password",
+                "profile_key": None,
+                "required": False,
+                "sensitive": True,
+            },
+        ],
+    }
+    actual = {
+        "login_required": False,
+        "fields": [
+            {
+                "selector": "#mfa",
+                "profile_key": "custom:mfa",
+                "value": "Yes. MFA is required for administrative access.",
+                "source": "mock-security-policy.md",
+                "matched_section": "Multi-Factor Authentication",
+                "required": True,
+            },
+            {
+                "selector": "#encryption",
+                "profile_key": "custom:encryption",
+                "value": "yes",
+                "source": "mock-security-policy.md",
+                "matched_section": "Encryption At Rest",
+                "required": True,
+            },
+            {"selector": "#unsupported", "profile_key": None, "value": None, "required": False},
+            {"selector": "#password", "profile_key": None, "value": None, "required": False},
+        ],
+        "llm_fallback_count": 0,
+        "fill_success": True,
+    }
+
+    result = score_case(expected, actual)
+
+    assert result["metrics"]["answer_accuracy"] == 1.0
+    assert result["metrics"]["source_evidence_coverage"] == 1.0
+    assert result["metrics"]["unsupported_refusal_rate"] == 1.0
+    assert result["metrics"]["sensitive_skip_rate"] == 1.0
+    assert result["metrics"]["questionnaire_completion_rate"] == 1.0
+    assert result["failures"] == []
 
 
 @pytest.fixture
@@ -469,6 +537,55 @@ def test_run_case_llm_mode_sets_llm_fallback_count_zero_when_not_used(db_session
         actual = _run_case(case, mode="llm", provider="openai", db=db_session)
 
     assert actual["llm_fallback_count"] == 0
+
+
+def test_run_case_rules_mode_adds_questionnaire_source_suggestions() -> None:
+    case = BenchmarkCase(
+        case_id="questionnaire",
+        title="Questionnaire",
+        html_path=Path("questionnaire.html"),
+        expected={
+            "login_required": False,
+            "fields": [
+                {
+                    "selector": "#mfa",
+                    "profile_key": None,
+                    "required": True,
+                    "expected_answer": "Yes. MFA is required for administrative access.",
+                },
+                {
+                    "selector": "#password",
+                    "profile_key": None,
+                    "required": False,
+                    "sensitive": True,
+                },
+            ],
+        },
+    )
+    raw_fields = [
+        {
+            "selector": "#mfa",
+            "label": "Do you enforce multi-factor authentication?",
+            "field_type": "textarea",
+            "required": True,
+        },
+        {
+            "selector": "#password",
+            "label": "Administrator password",
+            "field_type": "password",
+            "required": False,
+        },
+    ]
+
+    with patch("app.services.benchmark_runner._extract_case_page_state", return_value=(raw_fields, False)):
+        actual = _run_case(case, mode="rules")
+
+    fields_by_selector = {field["selector"]: field for field in actual["fields"]}
+    assert fields_by_selector["#mfa"]["value"] == "Yes. MFA is required for administrative access."
+    assert fields_by_selector["#mfa"]["source"] == "mock-security-policy.md"
+    assert fields_by_selector["#mfa"]["matched_section"] == "Multi-Factor Authentication"
+    assert fields_by_selector["#password"]["value"] is None
+    assert fields_by_selector["#password"]["profile_key"] is None
 
 
 def test_run_benchmarks_duration_is_positive() -> None:
