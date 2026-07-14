@@ -32,7 +32,7 @@ http://localhost:5173
 8. Confirm mappings so the browser execution can fill the form.
 9. Open the task detail page and show action logs, screenshot evidence, and verification status.
 10. Stop at final submit approval and explain that the app does not submit without the user's explicit decision.
-11. Open Evaluation and show how local benchmark runs track mapping quality.
+11. Open Evaluation and show how local benchmark runs track mapping quality, source evidence coverage, refusal rate, and sensitive-field skip rate.
 
 ## Security Questionnaire Variant
 
@@ -40,6 +40,7 @@ http://localhost:5173
 2. Analyze the page and generate mappings in rules mode.
 3. Open Review Mapping and show source-backed answers from `mock-security-policy.md`.
 4. Explain that the answers are suggestions with `needs review` status, then confirm only after inspection.
+5. Copy the debug report and point out that source evidence is included without raw suggested values.
 
 ## Reviewer Talking Points
 
@@ -48,6 +49,7 @@ http://localhost:5173
 - The app treats browser automation as a reviewed workflow, not an invisible bot.
 - Questionnaire answers can use local policy evidence without requiring an LLM key.
 - Screenshots, traces, and benchmark reports make behavior inspectable.
+- Evaluation measures answer accuracy, source coverage, unsupported refusal, and sensitive-field skip behavior.
 
 ## Teardown
 

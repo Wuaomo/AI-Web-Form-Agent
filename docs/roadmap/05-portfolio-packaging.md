@@ -30,13 +30,17 @@ Completed:
   docs exist.
 - README includes Docker/manual setup, test commands, optional LLM providers,
   and project boundaries.
+- README now includes the broader agent loop, memory/retrieval explanation,
+  security questionnaire walkthrough, evaluation methodology, observability
+  summary, latest local verification snapshot, and resume bullets.
+- Demo script includes the security questionnaire variant and reviewer talking
+  points.
 
 Needs updating:
 
-- README supported-template list should match the enabled workflow templates.
-- Add security questionnaire demo walkthrough to the README.
-- Add screenshots, short GIF/video, benchmark result table, memory improvement
-  result, and resume bullets based on the final demo.
+- Add screenshots, short GIF/video, and a captured benchmark result table from
+  a final demo run.
+- Add a measured memory improvement result after running paired benchmark demos.
 
 ## Required README Sections
 

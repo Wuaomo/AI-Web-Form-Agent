@@ -69,13 +69,14 @@ Completed or mostly completed:
   verification evidence, LLM usage, and debug reports exist.
 - Phase 4 source evidence reporting: debug reports include source-backed
   questionnaire suggestion evidence while omitting raw suggested values.
-- Phase 5 packaging baseline: README, architecture, safety model, demo script,
-  benchmark docs, and test commands exist.
+- Phase 5 portfolio packaging: README, architecture, safety model, demo script,
+  benchmark docs, test commands, verification snapshot, security questionnaire
+  walkthrough, observability summary, and resume bullets exist.
 
 Still missing from the revised direction:
 
 - memory governance beyond confirmed form-field mappings;
-- portfolio assets that show the questionnaire workflow.
+- portfolio screenshots/GIF assets that show the questionnaire workflow.
 
 ## Post-Portfolio Extensions
 
