@@ -167,7 +167,7 @@ def test_map_fields_requires_llm_provider_when_no_default_is_configured(
     monkeypatch.setattr(config, "LLM_PROVIDER", "")
     monkeypatch.setattr(config, "DEEPSEEK_API_KEY", "test-deepseek-key")
 
-    with patch("app.routers.tasks.map_fields_with_llm") as llm:
+    with patch("app.routers.tasks.map_fields_with_llm_result") as llm:
         response = client.post(f"/tasks/{task.id}/map-fields")
 
     assert response.status_code == 400
@@ -184,8 +184,8 @@ def test_map_fields_uses_selected_deepseek_provider(
     monkeypatch.setattr(config, "DEEPSEEK_API_KEY", "test-deepseek-key")
 
     with patch(
-        "app.routers.tasks.map_fields_with_llm",
-        return_value=[field],
+        "app.routers.tasks.map_fields_with_llm_result",
+        return_value=SimpleNamespace(fields=[field], retrieval_suggestions=[]),
     ) as llm:
         response = client.post(f"/tasks/{task.id}/map-fields?provider=deepseek")
 
@@ -202,13 +202,43 @@ def test_map_fields_passes_selected_llm_provider(
     monkeypatch.setattr(config, "GEMINI_API_KEY", "test-gemini-key")
 
     with patch(
-        "app.routers.tasks.map_fields_with_llm",
-        return_value=[field],
+        "app.routers.tasks.map_fields_with_llm_result",
+        return_value=SimpleNamespace(fields=[field], retrieval_suggestions=[]),
     ) as llm:
         response = client.post(f"/tasks/{task.id}/map-fields?provider=gemini")
 
     assert response.status_code == 200
     llm.assert_called_once_with(task.id, session, provider="gemini")
+
+
+def test_map_fields_writes_retrieval_suggestions_to_checkpoint(
+    test_environment: tuple[TestClient, Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    monkeypatch.setattr(config, "DEEPSEEK_API_KEY", "test-deepseek-key")
+    suggestion = {
+        "field_id": field.id,
+        "source_type": "reviewed_memory",
+        "source_id": 7,
+        "mapped_profile_key": "email",
+        "stale": True,
+        "governance_status": "stale_review_recommended",
+    }
+
+    with patch(
+        "app.routers.tasks.map_fields_with_llm_result",
+        return_value=SimpleNamespace(fields=[field], retrieval_suggestions=[suggestion]),
+    ):
+        response = client.post(f"/tasks/{task.id}/map-fields?provider=deepseek")
+
+    assert response.status_code == 200
+    checkpoint = session.scalar(
+        select(TaskCheckpoint).where(TaskCheckpoint.task_id == task.id)
+    )
+    assert checkpoint is not None
+    assert checkpoint.output["retrieval_suggestions"] == [suggestion]
 
 
 def test_map_fields_reports_missing_provider_api_key(
@@ -219,7 +249,7 @@ def test_map_fields_reports_missing_provider_api_key(
     task, _ = create_task_with_field(session)
     monkeypatch.setattr(config, "DEEPSEEK_API_KEY", None)
 
-    with patch("app.routers.tasks.map_fields_with_llm") as llm:
+    with patch("app.routers.tasks.map_fields_with_llm_result") as llm:
         response = client.post(f"/tasks/{task.id}/map-fields?provider=deepseek")
 
     assert response.status_code == 409
@@ -234,7 +264,7 @@ def test_map_fields_supports_developer_rule_mode(
     task, field = create_task_with_field(session)
 
     with (
-        patch("app.routers.tasks.map_fields_with_llm") as llm,
+        patch("app.routers.tasks.map_fields_with_llm_result") as llm,
         patch("app.routers.tasks.map_fields_by_rules", return_value=[field]) as rules,
     ):
         response = client.post(f"/tasks/{task.id}/map-fields?mode=rules")
@@ -1193,7 +1223,7 @@ def test_map_fields_failure_sets_task_status_and_checkpoint(
     monkeypatch.setattr(config, "DEEPSEEK_API_KEY", "test-deepseek-key")
 
     with patch(
-        "app.routers.tasks.map_fields_with_llm",
+        "app.routers.tasks.map_fields_with_llm_result",
         side_effect=Exception("LLM mapping failed"),
     ):
         response = client.post(f"/tasks/{task.id}/map-fields?provider=deepseek")

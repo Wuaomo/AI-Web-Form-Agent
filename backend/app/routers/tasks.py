@@ -64,7 +64,7 @@ from app.services.field_mapper import (
     CUSTOM_PROFILE_KEY_PREFIX,
     get_profile_value,
     map_fields_by_rules,
-    map_fields_with_llm,
+    map_fields_with_llm_result,
 )
 from app.services.form_extractor import ExtractedFormAnalysis, extract_form_analysis
 from app.services.page_extractor import extract_page
@@ -1344,9 +1344,16 @@ def map_task_fields(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=get_provider_setup_hint(selected_provider),
                 )
-            fields = map_fields_with_llm(task_id, db, provider=selected_provider)
+            mapping_result = map_fields_with_llm_result(
+                task_id,
+                db,
+                provider=selected_provider,
+            )
+            fields = mapping_result.fields
+            retrieval_suggestions = mapping_result.retrieval_suggestions
         else:
             fields = map_fields_by_rules(task_id, db)
+            retrieval_suggestions = []
 
         source_suggestions: list[dict[str, object]] = []
         if task.workflow_type == WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE:
@@ -1364,6 +1371,8 @@ def map_task_fields(
         }
         if source_suggestions:
             checkpoint_output["source_suggestions"] = source_suggestions
+        if retrieval_suggestions:
+            checkpoint_output["retrieval_suggestions"] = retrieval_suggestions
         write_checkpoint(
             task_id=task_id,
             stage=WORKFLOW_STAGE_MAPPING,

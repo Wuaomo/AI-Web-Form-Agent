@@ -25,12 +25,16 @@ Partially complete:
   timestamp, last-used timestamp, stale status, and governance status.
 - Stale reviewed memory is still visible as evidence, but is not used for
   automatic retrieval fallback mapping.
+- Mapping checkpoints now carry reviewed-memory retrieval suggestions, and
+  Review Mapping shows stale reviewed memory as requiring review.
+- Admin governance endpoints can list reviewed memory with stale status and
+  manually delete a memory item.
 
 Not complete yet:
 
 - source document evidence;
-- user-facing stale memory warnings;
-- manual delete or disable flow;
+- full user-facing memory management UI;
+- disable flow separate from delete;
 - unsupported-answer refusal for questionnaire answers;
 - reviewed-only governance for policy-document-derived answers.
 

@@ -62,6 +62,9 @@ def test_score_case_calculates_extraction_mapping_and_login_metrics() -> None:
     assert result["metrics"]["login_detection_accuracy"] == 1.0
     assert result["metrics"]["non_fillable_rejection_rate"] == 1.0
     assert result["metrics"]["fill_success_rate"] == 1.0
+    assert result["metrics"]["workflow_success_rate"] == 0.0
+    assert result["metrics"]["safety_pass_rate"] == 1.0
+    assert result["metrics"]["verification_pass_rate"] == 1.0
     assert result["metrics"]["llm_fallback_count"] == 1
     assert result["failures"] == [
         {
@@ -303,6 +306,9 @@ def test_run_benchmarks_averages_all_summary_metrics() -> None:
     assert summary.summary_metrics["non_fillable_rejection_rate"] == pytest.approx(1.0)
     assert summary.summary_metrics["login_detection_accuracy"] == pytest.approx(0.5)
     assert summary.summary_metrics["fill_success_rate"] == pytest.approx(0.5)
+    assert summary.summary_metrics["workflow_success_rate"] == pytest.approx(0.5)
+    assert summary.summary_metrics["safety_pass_rate"] == pytest.approx(1.0)
+    assert summary.summary_metrics["verification_pass_rate"] == pytest.approx(0.5)
     assert summary.summary_metrics["llm_fallback_count"] == pytest.approx(1.0)
 
 
@@ -909,9 +915,39 @@ def test_cache_cold_deletes_mapping_cache(db_session: Session) -> None:
     assert db_session.query(LLMMappingCache).count() == 0
 
 
-def test_run_benchmarks_rejects_full_workflow_mode() -> None:
-    with pytest.raises(ValueError, match="full_workflow evaluation is not implemented yet"):
-        run_benchmarks(mode="full_workflow")
+def test_run_benchmarks_full_workflow_mode_runs_local_reliability_suite() -> None:
+    case = BenchmarkCase(
+        case_id="case_1",
+        title="Case one",
+        html_path=Path("case_1.html"),
+        expected={
+            "login_required": False,
+            "fields": [
+                {"selector": "#name", "profile_key": "full_name", "required": True},
+            ],
+        },
+    )
+
+    actual = {
+        "login_required": False,
+        "fill_success": True,
+        "verification_passed": True,
+        "llm_fallback_count": 0,
+        "fields": [
+            {"selector": "#name", "profile_key": "full_name", "required": True},
+        ],
+    }
+
+    with (
+        patch("app.services.benchmark_runner.load_benchmark_cases", return_value=[case]),
+        patch("app.services.benchmark_runner._run_case", return_value=actual),
+    ):
+        summary = run_benchmarks(mode="full_workflow")
+
+    assert summary.mode == "full_workflow"
+    assert summary.provider is None
+    assert summary.summary_metrics["workflow_success_rate"] == 1.0
+    assert summary.summary_metrics["verification_pass_rate"] == 1.0
 
 
 def test_run_benchmarks_rejects_unknown_mode() -> None:

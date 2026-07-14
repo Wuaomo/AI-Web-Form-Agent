@@ -5,7 +5,7 @@ import logging
 import re
 import time
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
@@ -326,6 +326,7 @@ class LLMMappingResponse(BaseModel):
 class LlmMappingResult:
     fields: list[FormField]
     used_fallback: bool
+    retrieval_suggestions: list[dict[str, object]] = field(default_factory=list)
 
 
 def _normalize(value: str | None) -> str:
@@ -1193,6 +1194,15 @@ def _retrieval_fallback_mappings(
     return fallback_mappings
 
 
+def _retrieval_suggestions(
+    retrieval_top_by_field_id: dict[int, dict[str, object]],
+) -> list[dict[str, object]]:
+    return [
+        {"field_id": field_id, **suggestion}
+        for field_id, suggestion in sorted(retrieval_top_by_field_id.items())
+    ]
+
+
 def _apply_partial_mappings(
     fields: list[FormField],
     profile: dict[str, str],
@@ -1291,6 +1301,7 @@ def _map_fields_with_llm_result(
             return LlmMappingResult(
                 fields=_apply_llm_mappings(fields, profile, result, db),
                 used_fallback=False,
+                retrieval_suggestions=_retrieval_suggestions(retrieval_top_by_field_id),
             )
 
         cached_response = (
@@ -1328,6 +1339,7 @@ def _map_fields_with_llm_result(
             return LlmMappingResult(
                 fields=_apply_llm_mappings(fields, profile, result, db),
                 used_fallback=False,
+                retrieval_suggestions=_retrieval_suggestions(retrieval_top_by_field_id),
             )
 
         prompt = _build_llm_prompt(fields, profile, retrieved_examples=retrieval_examples)
@@ -1359,7 +1371,11 @@ def _map_fields_with_llm_result(
             task_id,
             len(result.mappings),
         )
-        return LlmMappingResult(fields=mapped_fields, used_fallback=False)
+        return LlmMappingResult(
+            fields=mapped_fields,
+            used_fallback=False,
+            retrieval_suggestions=_retrieval_suggestions(retrieval_top_by_field_id),
+        )
     except Exception as exc:
         latency_ms = int((time.perf_counter() - start_time) * 1000)
         db.rollback()
@@ -1411,7 +1427,11 @@ def _map_fields_with_llm_result(
             fallback_mappings,
             db,
         )
-        return LlmMappingResult(fields=mapped_fields, used_fallback=True)
+        return LlmMappingResult(
+            fields=mapped_fields,
+            used_fallback=True,
+            retrieval_suggestions=_retrieval_suggestions(retrieval_top_by_field_id),
+        )
 
 
 def _map_fields_with_llm(

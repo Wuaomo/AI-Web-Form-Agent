@@ -136,6 +136,33 @@ test("source suggestion helpers expose checkpoint evidence by field id", () => {
   assert.equal(formatSourceSuggestion(null), "");
 });
 
+test("source suggestion helpers expose stale reviewed memory by field id", () => {
+  const checkpoints = [
+    {
+      stage: "MAPPING",
+      output: {
+        retrieval_suggestions: [
+          {
+            field_id: 11,
+            source_type: "reviewed_memory",
+            source_id: 7,
+            mapped_profile_key: "email",
+            stale: true,
+            governance_status: "stale_review_recommended",
+          },
+        ],
+      },
+    },
+  ];
+
+  const suggestions = getSourceSuggestionsByFieldId(checkpoints);
+
+  assert.equal(
+    formatSourceSuggestion(suggestions.get(11)),
+    "Reviewed memory #7 -> profile.email (stale; review recommended)",
+  );
+});
+
 test("field choice helpers expose structured select and radio options", () => {
   const field = {
     field_type: "radio",

@@ -77,12 +77,16 @@ Completed or mostly completed:
   creation path.
 - Phase 7 retrieval governance baseline: reviewed memory retrieval includes
   source/governance metadata, stale status, and avoids automatic fallback
-  mapping from stale memory.
+  mapping from stale memory; mapping review can show stale reviewed-memory
+  evidence, and admin endpoints can list/delete memory items.
+- Phase 8 reliability benchmark baseline: local full-workflow evaluation runs
+  without LLM API keys and reports workflow success, safety pass, verification
+  pass, and failure-rate metrics.
 
 Still missing from the revised direction:
 
-- user-facing memory delete/disable controls and broader memory governance
-  beyond confirmed form-field mappings;
+- full user-facing memory management UI, disable controls, and broader memory
+  governance beyond confirmed form-field mappings;
 - portfolio screenshots/GIF assets that show the questionnaire workflow.
 
 ## Post-Portfolio Extensions

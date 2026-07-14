@@ -22,6 +22,8 @@ Additional cases (11-16) cover more realistic patterns:
 - Address and date fields that are intentionally unsupported by built-in profile keys.
 - Security questionnaire answers backed by local policy evidence, plus unsupported
   and sensitive-field refusal cases.
+- Full-workflow reliability mode that runs locally without LLM keys and reports
+  workflow success, safety pass, verification pass, and failure rate.
 
 Suggested metrics for a future benchmark runner:
 
@@ -34,4 +36,7 @@ Suggested metrics for a future benchmark runner:
 - Source evidence coverage.
 - Unsupported-answer refusal rate.
 - Sensitive-field skip rate.
-
+- Workflow success rate.
+- Safety pass rate.
+- Verification pass rate.
+- Failure rate.

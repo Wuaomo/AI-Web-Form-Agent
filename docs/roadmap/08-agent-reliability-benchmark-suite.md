@@ -22,15 +22,18 @@ Partially complete:
 - Mapping/extraction benchmark suite exists.
 - Regression comparison and Markdown reporting exist.
 - Memory-enabled benchmark configuration exists.
+- Local `full_workflow` benchmark mode now runs without LLM API keys.
+- Summary metrics include workflow success rate, safety pass rate, verification
+  pass rate, and failure rate.
+- Markdown reports include a Reliability Summary section.
+- The Evaluation Center can run `full_workflow` mode.
 
 Not complete yet:
 
-- full workflow benchmark mode;
-- questionnaire answer benchmark cases;
-- source evidence coverage;
-- refusal and sensitive-field block metrics for answer suggestions;
-- browser execution success and verification pass rate as report-level
-  reliability metrics.
+- real browser fill replay with field-level verification inside the benchmark
+  runner;
+- approval-gate coverage metrics;
+- recommended-fix generation in reports.
 
 ## Benchmark Areas
 

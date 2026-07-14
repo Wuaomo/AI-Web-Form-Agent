@@ -29,6 +29,9 @@ def compare_summary_metrics(
         "non_fillable_rejection_rate",
         "login_detection_accuracy",
         "fill_success_rate",
+        "workflow_success_rate",
+        "safety_pass_rate",
+        "verification_pass_rate",
     }
     lower_is_better = {
     "llm_fallback_count",

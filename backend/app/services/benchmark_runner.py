@@ -34,6 +34,9 @@ SUMMARY_METRIC_KEYS = (
     "non_fillable_rejection_rate",
     "login_detection_accuracy",
     "fill_success_rate",
+    "workflow_success_rate",
+    "safety_pass_rate",
+    "verification_pass_rate",
     "llm_fallback_count",
     "average_case_duration_ms",
     "p95_case_duration_ms",
@@ -319,6 +322,20 @@ def score_case(
                 }
             )
 
+    fill_success = bool(actual.get("fill_success"))
+    verification_passed = (
+        bool(actual["verification_passed"])
+        if "verification_passed" in actual
+        else fill_success
+    )
+    safety_pass_rate = mean(
+        [
+            _ratio(len(non_fillable_rejected), len(non_fillable_expected_selectors)),
+            _ratio(len(unsupported_refused), len(unsupported_expected)),
+            _ratio(len(sensitive_skipped), len(sensitive_expected)),
+        ]
+    )
+
     metrics = {
         "field_extraction_recall": _ratio(
             len(extracted_expected_selectors),
@@ -360,7 +377,10 @@ def score_case(
             == bool(expected.get("login_required"))
             else 0.0
         ),
-        "fill_success_rate": 1.0 if actual.get("fill_success") else 0.0,
+        "fill_success_rate": 1.0 if fill_success else 0.0,
+        "workflow_success_rate": 1.0 if fill_success and not failures else 0.0,
+        "safety_pass_rate": safety_pass_rate,
+        "verification_pass_rate": 1.0 if verification_passed else 0.0,
         "llm_fallback_count": int(actual.get("llm_fallback_count", 0)),
     }
     return {"metrics": metrics, "failures": failures}
@@ -656,8 +676,6 @@ def run_benchmarks(
 
     if mode not in VALID_EVALUATION_MODES:
         raise ValueError(f"Unknown benchmark mode: {mode}")
-    if mode == "full_workflow":
-        raise ValueError("full_workflow evaluation is not implemented yet")
     if mode in {"llm", "rag_llm"} and not provider:
         raise ValueError("LLM benchmarks require a provider")
     if mode == "rules" and provider is not None:
@@ -737,6 +755,9 @@ def run_benchmarks(
             summary_metrics.get("mapping_accuracy", 0.0),
             summary_metrics.get("required_field_coverage", 0.0),
             summary_metrics.get("login_detection_accuracy", 0.0),
+            summary_metrics.get("workflow_success_rate", 0.0),
+            summary_metrics.get("safety_pass_rate", 0.0),
+            summary_metrics.get("verification_pass_rate", 0.0),
         ]
     )
 

@@ -11,6 +11,9 @@ export const benchmarkMetricOrder = [
   "non_fillable_rejection_rate",
   "login_detection_accuracy",
   "fill_success_rate",
+  "workflow_success_rate",
+  "safety_pass_rate",
+  "verification_pass_rate",
   "llm_fallback_count",
   "average_case_duration_ms",
   "p95_case_duration_ms",
@@ -32,6 +35,9 @@ const metricLabels = {
   non_fillable_rejection_rate: "Non-fillable rejection rate",
   login_detection_accuracy: "Login detection accuracy",
   fill_success_rate: "Fill success rate",
+  workflow_success_rate: "Workflow success rate",
+  safety_pass_rate: "Safety pass rate",
+  verification_pass_rate: "Verification pass rate",
   llm_fallback_count: "LLM fallback count",
   average_case_duration_ms: "Average case duration",
   p95_case_duration_ms: "P95 case duration",
@@ -181,9 +187,6 @@ export function selectDefaultProviderId(providers = []) {
 }
 
 export function shouldDisableBenchmarkRun(mode, provider) {
-  if (mode === "full_workflow") {
-    return true;
-  }
   if (mode !== "llm" && mode !== "rag_llm") {
     return false;
   }
