@@ -1,4 +1,4 @@
-"""Tests for admin workflow memory management endpoints."""
+"""Tests for admin workflow memory governance endpoints."""
 
 from collections.abc import Generator
 from datetime import datetime, timedelta, timezone
@@ -14,6 +14,7 @@ from app import config
 from app.database import Base, get_db
 from app.models import WorkflowMemoryItem
 from app.routers.admin import router as admin_router
+from app.services.retrieval_service import MEMORY_STALE_AFTER_DAYS
 from app.workflow_constants import MEMORY_TYPE_CONFIRMED_MAPPING
 
 
@@ -45,11 +46,11 @@ def test_environment(
     engine.dispose()
 
 
-def test_list_workflow_memory_shows_stale_items(
+def test_list_workflow_memory_shows_stale_governance(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     client, session = test_environment
-    old_timestamp = datetime.now(timezone.utc) - timedelta(days=91)
+    old_timestamp = datetime.now(timezone.utc) - timedelta(days=MEMORY_STALE_AFTER_DAYS + 1)
     item = WorkflowMemoryItem(
         memory_type=MEMORY_TYPE_CONFIRMED_MAPPING,
         workflow_type="form_fill",
@@ -72,7 +73,9 @@ def test_list_workflow_memory_shows_stale_items(
     assert response.json()[0]["id"] == item.id
     assert response.json()[0]["mapped_profile_key"] == "github"
     assert response.json()[0]["source_domain"] == "example.com"
+    assert response.json()[0]["source_type"] == "reviewed_memory"
     assert response.json()[0]["stale"] is True
+    assert response.json()[0]["governance_status"] == "stale_review_recommended"
 
 
 def test_delete_workflow_memory_removes_item(

@@ -26,6 +26,29 @@ export function dockerDemoFormUrl() {
   return "file:///app/examples/llm-registration.html";
 }
 
+export function dockerDemoUrlForWorkflow(workflowType) {
+  if (workflowType === "security_questionnaire") {
+    return "file:///app/examples/security-questionnaire.html";
+  }
+  if (workflowType === "vendor_onboarding") {
+    return "file:///app/examples/vendor-onboarding.html";
+  }
+  return dockerDemoFormUrl();
+}
+
+export function requiresLlmProviderForCreate(workflowType) {
+  return ![
+    "web_data_extract",
+    "job_research_summary",
+    "security_questionnaire",
+    "vendor_onboarding",
+  ].includes(workflowType);
+}
+
+export function mappingModeForWorkflow(workflowType) {
+  return requiresLlmProviderForCreate(workflowType) ? "llm" : "rules";
+}
+
 export function resolveWorkflowTypeSelection(
   templates = [],
   requestedWorkflowType,

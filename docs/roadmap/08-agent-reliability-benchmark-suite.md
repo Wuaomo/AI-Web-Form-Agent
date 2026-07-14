@@ -2,24 +2,73 @@
 
 ## Goal
 
-Measure whether the workflow can execute in a real browser and verify its
-results, not only whether mapping labels look correct.
+Turn the project into a measurable AI workflow system with regression evidence,
+not a demo that only works on one happy path.
+
+## Why
+
+For AI engineering interviews, the strongest proof is not that the app calls an
+LLM. It is that the app measures correctness, refusal behavior, safety gates,
+and end-to-end workflow success.
+
+## Scope
+
+Expand benchmarks from mapping quality into full workflow reliability.
 
 ## Current Status
 
-Implemented in this branch:
+Partially complete:
 
-- `full_workflow` benchmark mode now runs locally without LLM API keys.
-- The benchmark opens local HTML fixtures in Playwright.
-- Rules-based mapping values are filled into the DOM.
-- Filled values are read back through the existing browser verification helper.
-- Summary metrics include workflow success, safety pass, verification pass, and
-  failure rate signals.
+- Mapping/extraction benchmark suite exists.
+- Regression comparison and Markdown reporting exist.
+- Memory-enabled benchmark configuration exists.
+- Local `full_workflow` benchmark mode now runs without LLM API keys.
+- `full_workflow` opens local HTML fixtures in Playwright, maps fields, fills
+  the DOM, and reads back browser verification results.
+- Summary metrics include workflow success rate, safety pass rate, verification
+  pass rate, and failure rate.
+- Markdown reports include a Reliability Summary section.
 - The Evaluation Center can run `full_workflow` mode.
 
-Still not included:
+Not complete yet:
 
-- Real submit replay. The safety boundary still stops before final submission.
-- Approval-gate coverage metrics.
-- Recommended fixes generated from benchmark failure reasons.
+- real submit replay;
+- approval-gate coverage metrics;
+- recommended-fix generation in reports.
 
+## Benchmark Areas
+
+- extraction quality
+- mapping accuracy
+- memory retrieval hit rate
+- source evidence coverage
+- unsupported-answer refusal rate
+- sensitive-field block rate
+- approval-gate coverage
+- browser execution success rate
+- verification pass rate
+- regression count
+
+## Reports
+
+Reports should compare:
+
+- rules only
+- rules + reviewed memory
+- LLM-assisted mapping
+- LLM + reviewed memory
+
+Each report should include:
+
+- metric table
+- top failures
+- safety pass rate
+- regression summary
+- recommended fixes
+
+## Acceptance Criteria
+
+- A local benchmark run works without LLM API keys.
+- Memory-enabled runs can be compared with rules-only runs.
+- Safety regressions are visible.
+- Reports are clear enough to include in the portfolio README.

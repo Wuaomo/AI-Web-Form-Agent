@@ -1,6 +1,7 @@
 """Tests for lexical retrieval scoring over workflow memory items."""
 
 from collections.abc import Generator
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import create_engine
@@ -10,6 +11,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base
 from app.models import WorkflowMemoryItem
 from app.services.retrieval_service import (
+    MEMORY_STALE_AFTER_DAYS,
     jaccard_similarity,
     search_similar_field_mappings,
     tokenize,
@@ -125,3 +127,35 @@ def test_search_similar_field_mappings_ignores_non_confirmed_memory_types(sessio
 
     assert len(results) == 1
     assert results[0]["success_count"] == 1
+
+
+def test_search_similar_field_mappings_returns_source_and_stale_governance(session: Session) -> None:
+    old_timestamp = datetime.now(timezone.utc) - timedelta(days=MEMORY_STALE_AFTER_DAYS + 1)
+    item = WorkflowMemoryItem(
+        memory_type=MEMORY_TYPE_CONFIRMED_MAPPING,
+        workflow_type="form_fill",
+        source_domain="example.com",
+        field_signature="sig_confirmed",
+        field_text="label: GitHub\nname: github_url\ntype: url\noptions: []",
+        mapped_profile_key="github",
+        success_count=2,
+        created_at=old_timestamp,
+        last_used_at=old_timestamp,
+    )
+    session.add(item)
+    session.commit()
+
+    results = search_similar_field_mappings(
+        session,
+        field_text="label: GitHub\nname: github_profile\ntype: url\noptions: []",
+        workflow_type="form_fill",
+        source_domain="example.com",
+        limit=5,
+    )
+
+    assert results[0]["source_type"] == "reviewed_memory"
+    assert results[0]["source_id"] == item.id
+    assert results[0]["reviewed_at"] == old_timestamp.isoformat()
+    assert results[0]["last_used_at"] == old_timestamp.isoformat()
+    assert results[0]["stale"] is True
+    assert results[0]["governance_status"] == "stale_review_recommended"

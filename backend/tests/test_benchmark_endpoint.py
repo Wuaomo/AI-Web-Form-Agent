@@ -326,7 +326,7 @@ def test_run_benchmark_full_workflow_runs_without_provider(
         provider=None,
         total_cases=0,
         average_score=1.0,
-        summary_metrics={"verification_pass_rate": 1.0},
+        summary_metrics={"workflow_success_rate": 1.0, "verification_pass_rate": 1.0},
         case_results=[],
     )
 

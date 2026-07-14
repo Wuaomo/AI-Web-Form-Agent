@@ -1,7 +1,5 @@
 """Admin-only observability endpoints."""
 
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -10,9 +8,9 @@ from app import config
 from app.database import get_db
 from app.models import Task, TaskActionTrace, WorkflowMemoryItem
 from app.schemas import TaskActionTraceResponse
+from app.services.retrieval_service import _is_stale, _isoformat
 
 router = APIRouter(prefix="/admin", tags=["admin"])
-MEMORY_STALE_AFTER_DAYS = 90
 
 
 def require_admin_token(x_admin_token: str | None = Header(default=None)) -> None:
@@ -27,29 +25,25 @@ def require_admin_token(x_admin_token: str | None = Header(default=None)) -> Non
         )
 
 
-def _as_aware_utc(value):
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
-
-
 def _workflow_memory_response(item: WorkflowMemoryItem) -> dict[str, object]:
-    reviewed_at = _as_aware_utc(item.last_used_at or item.created_at)
-    stale = False
-    if reviewed_at is not None:
-        stale = (datetime.now(timezone.utc) - reviewed_at).days > MEMORY_STALE_AFTER_DAYS
+    reviewed_at = item.last_used_at or item.created_at
+    stale = _is_stale(reviewed_at)
     return {
         "id": item.id,
+        "source_type": "reviewed_memory",
         "memory_type": item.memory_type,
         "workflow_type": item.workflow_type,
         "source_domain": item.source_domain,
         "field_text": item.field_text,
         "mapped_profile_key": item.mapped_profile_key,
+        "value_kind": item.value_kind,
+        "confidence": item.confidence,
         "success_count": item.success_count,
-        "reviewed_at": reviewed_at.isoformat() if reviewed_at else None,
+        "reviewed_at": _isoformat(item.created_at),
+        "last_used_at": _isoformat(item.last_used_at),
         "stale": stale,
+        "governance_status": "stale_review_recommended" if stale else "reviewed",
+        "created_at": _isoformat(item.created_at),
     }
 
 
@@ -60,7 +54,7 @@ def _workflow_memory_response(item: WorkflowMemoryItem) -> dict[str, object]:
 def list_workflow_memory(
     db: Session = Depends(get_db),
 ) -> list[dict[str, object]]:
-    """Return reviewed workflow memory items."""
+    """Return reviewed workflow memory with governance metadata."""
 
     items = db.scalars(
         select(WorkflowMemoryItem).order_by(WorkflowMemoryItem.created_at.desc())

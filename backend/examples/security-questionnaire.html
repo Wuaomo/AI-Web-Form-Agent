@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Security Questionnaire Demo</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        line-height: 1.5;
+        margin: 2rem auto;
+        max-width: 760px;
+      }
+
+      label {
+        display: block;
+        font-weight: 700;
+        margin-top: 1rem;
+      }
+
+      input,
+      select,
+      textarea {
+        box-sizing: border-box;
+        margin-top: 0.35rem;
+        padding: 0.55rem;
+        width: 100%;
+      }
+
+      .note {
+        color: #555;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Vendor Security Questionnaire</h1>
+      <p class="note">
+        Local demo form for review-first security/compliance workflows.
+      </p>
+
+      <form action="/submit-security-questionnaire" method="post">
+        <label for="contact_email">Security contact email</label>
+        <input id="contact_email" name="security_contact_email" type="email" required />
+
+        <label for="mfa">Do you enforce multi-factor authentication?</label>
+        <textarea id="mfa" name="mfa_policy" required></textarea>
+
+        <label for="encryption">Do you encrypt data at rest?</label>
+        <select id="encryption" name="encryption_at_rest" required>
+          <option value="">Select one</option>
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+          <option value="needs-review">Needs review</option>
+        </select>
+
+        <label for="retention">Data retention period</label>
+        <input id="retention" name="data_retention_period" type="text" placeholder="Example: 90 days" />
+
+        <label for="password">Administrator password</label>
+        <input id="password" name="admin_password" type="password" autocomplete="off" />
+
+        <label>
+          <input id="attestation" name="security_attestation" type="checkbox" required />
+          I confirm these answers have been reviewed before submission.
+        </label>
+
+        <button type="submit">Submit questionnaire</button>
+      </form>
+    </main>
+  </body>
+</html>

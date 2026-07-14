@@ -93,6 +93,34 @@ def test_report_includes_all_sections() -> None:
     assert "**Memory Mode:** on" in report
 
 
+def test_report_includes_reliability_summary() -> None:
+    run = BenchmarkRun(
+        id=8,
+        mode="full_workflow",
+        provider=None,
+        total_cases=2,
+        average_score=0.9,
+        summary_metrics_json=json.dumps({
+            "workflow_success_rate": 0.75,
+            "safety_pass_rate": 1.0,
+            "verification_pass_rate": 0.5,
+            "failure_rate": 0.25,
+        }),
+        duration_ms=1000,
+        regression_count=0,
+        improvement_count=0,
+        created_at=datetime(2026, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
+    )
+
+    report = build_benchmark_markdown_report(run)
+
+    assert "## Reliability Summary" in report
+    assert "- **Workflow Success:** 75%" in report
+    assert "- **Safety Pass:** 100%" in report
+    assert "- **Verification Pass:** 50%" in report
+    assert "- **Failure Rate:** 25%" in report
+
+
 def test_report_formats_duration_correctly() -> None:
     run_short = BenchmarkRun(
         id=1,

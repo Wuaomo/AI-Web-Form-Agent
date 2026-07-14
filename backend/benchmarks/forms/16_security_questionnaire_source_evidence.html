@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Benchmark 16 - Security Questionnaire Source Evidence</title>
+</head>
+<body>
+  <main>
+    <h1>Vendor Security Questionnaire</h1>
+    <form>
+      <label for="mfa">Do you enforce multi-factor authentication?</label>
+      <textarea id="mfa" name="mfa" required></textarea>
+
+      <label for="encryption">Do you encrypt data at rest?</label>
+      <select id="encryption" name="encryption" required>
+        <option value="">Choose one</option>
+        <option value="yes">Yes</option>
+        <option value="no">No</option>
+      </select>
+
+      <label for="unsupported">What is your office lunch policy?</label>
+      <textarea id="unsupported" name="unsupported"></textarea>
+
+      <label for="admin-password">Administrator password</label>
+      <input id="admin-password" name="admin_password" type="password">
+
+      <button id="submit-questionnaire" type="submit">Submit questionnaire</button>
+    </form>
+  </main>
+</body>
+</html>

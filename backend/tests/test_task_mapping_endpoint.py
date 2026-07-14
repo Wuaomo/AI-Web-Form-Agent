@@ -167,7 +167,7 @@ def test_map_fields_requires_llm_provider_when_no_default_is_configured(
     monkeypatch.setattr(config, "LLM_PROVIDER", "")
     monkeypatch.setattr(config, "DEEPSEEK_API_KEY", "test-deepseek-key")
 
-    with patch("app.routers.tasks.map_fields_with_llm") as llm:
+    with patch("app.routers.tasks.map_fields_with_llm_result") as llm:
         response = client.post(f"/tasks/{task.id}/map-fields")
 
     assert response.status_code == 400
@@ -184,8 +184,8 @@ def test_map_fields_uses_selected_deepseek_provider(
     monkeypatch.setattr(config, "DEEPSEEK_API_KEY", "test-deepseek-key")
 
     with patch(
-        "app.routers.tasks.map_fields_with_llm",
-        return_value=[field],
+        "app.routers.tasks.map_fields_with_llm_result",
+        return_value=SimpleNamespace(fields=[field], retrieval_suggestions=[]),
     ) as llm:
         response = client.post(f"/tasks/{task.id}/map-fields?provider=deepseek")
 
@@ -202,13 +202,43 @@ def test_map_fields_passes_selected_llm_provider(
     monkeypatch.setattr(config, "GEMINI_API_KEY", "test-gemini-key")
 
     with patch(
-        "app.routers.tasks.map_fields_with_llm",
-        return_value=[field],
+        "app.routers.tasks.map_fields_with_llm_result",
+        return_value=SimpleNamespace(fields=[field], retrieval_suggestions=[]),
     ) as llm:
         response = client.post(f"/tasks/{task.id}/map-fields?provider=gemini")
 
     assert response.status_code == 200
     llm.assert_called_once_with(task.id, session, provider="gemini")
+
+
+def test_map_fields_writes_retrieval_suggestions_to_checkpoint(
+    test_environment: tuple[TestClient, Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    monkeypatch.setattr(config, "DEEPSEEK_API_KEY", "test-deepseek-key")
+    suggestion = {
+        "field_id": field.id,
+        "source_type": "reviewed_memory",
+        "source_id": 7,
+        "mapped_profile_key": "email",
+        "stale": True,
+        "governance_status": "stale_review_recommended",
+    }
+
+    with patch(
+        "app.routers.tasks.map_fields_with_llm_result",
+        return_value=SimpleNamespace(fields=[field], retrieval_suggestions=[suggestion]),
+    ):
+        response = client.post(f"/tasks/{task.id}/map-fields?provider=deepseek")
+
+    assert response.status_code == 200
+    checkpoint = session.scalar(
+        select(TaskCheckpoint).where(TaskCheckpoint.task_id == task.id)
+    )
+    assert checkpoint is not None
+    assert checkpoint.output["retrieval_suggestions"] == [suggestion]
 
 
 def test_map_fields_reports_missing_provider_api_key(
@@ -219,7 +249,7 @@ def test_map_fields_reports_missing_provider_api_key(
     task, _ = create_task_with_field(session)
     monkeypatch.setattr(config, "DEEPSEEK_API_KEY", None)
 
-    with patch("app.routers.tasks.map_fields_with_llm") as llm:
+    with patch("app.routers.tasks.map_fields_with_llm_result") as llm:
         response = client.post(f"/tasks/{task.id}/map-fields?provider=deepseek")
 
     assert response.status_code == 409
@@ -234,7 +264,7 @@ def test_map_fields_supports_developer_rule_mode(
     task, field = create_task_with_field(session)
 
     with (
-        patch("app.routers.tasks.map_fields_with_llm") as llm,
+        patch("app.routers.tasks.map_fields_with_llm_result") as llm,
         patch("app.routers.tasks.map_fields_by_rules", return_value=[field]) as rules,
     ):
         response = client.post(f"/tasks/{task.id}/map-fields?mode=rules")
@@ -619,6 +649,151 @@ def test_analyze_reuses_cached_form_analysis_for_same_url(
     assert extract_analysis.await_count == 1
     assert first_response.json()["form_fields"][0]["selector"] == "#email"
     assert second_response.json()["form_fields"][0]["selector"] == "#email"
+
+
+def test_analyze_supports_security_questionnaire_workflow(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify security questionnaires reuse the review-first form analysis path."""
+
+    client, session = test_environment
+    task = create_task_without_fields(session)
+    task.workflow_type = "security_questionnaire"
+    session.commit()
+    extracted_field = ExtractedFormField(
+        element_ref="field_1",
+        form_title="Security questionnaire",
+        section_title="Access control",
+        label="Do you enforce multi-factor authentication?",
+        selector="#mfa",
+        field_type="text",
+        placeholder=None,
+        name="mfa",
+        html_id="mfa",
+        current_value=None,
+        required=True,
+        options=[],
+    )
+
+    with patch(
+        "app.routers.tasks.extract_form_analysis",
+        new=AsyncMock(
+            return_value=SimpleNamespace(
+                fields=[extracted_field],
+                login_required=False,
+            ),
+        ),
+    ):
+        response = client.post(f"/tasks/{task.id}/analyze")
+
+    assert response.status_code == 200
+    assert response.json()["workflow_type"] == "security_questionnaire"
+    assert response.json()["status"] == "MAPPING_READY"
+    assert response.json()["form_fields"][0]["label"] == "Do you enforce multi-factor authentication?"
+
+
+def test_analyze_supports_vendor_onboarding_workflow(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify vendor onboarding reuses the review-first form analysis path."""
+
+    client, session = test_environment
+    task = create_task_without_fields(session)
+    task.workflow_type = "vendor_onboarding"
+    session.commit()
+    extracted_field = ExtractedFormField(
+        element_ref="field_1",
+        form_title="Vendor onboarding",
+        section_title="Company profile",
+        label="Vendor legal name",
+        selector="#vendor-name",
+        field_type="text",
+        placeholder=None,
+        name="vendor_name",
+        html_id="vendor-name",
+        current_value=None,
+        required=True,
+        options=[],
+    )
+
+    with patch(
+        "app.routers.tasks.extract_form_analysis",
+        new=AsyncMock(
+            return_value=SimpleNamespace(
+                fields=[extracted_field],
+                login_required=False,
+            ),
+        ),
+    ):
+        response = client.post(f"/tasks/{task.id}/analyze")
+
+    assert response.status_code == 200
+    assert response.json()["workflow_type"] == "vendor_onboarding"
+    assert response.json()["status"] == "MAPPING_READY"
+    assert response.json()["form_fields"][0]["label"] == "Vendor legal name"
+
+
+def test_rules_mapping_adds_source_backed_security_questionnaire_answers(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify Phase 2 source-backed suggestions are persisted for review."""
+
+    client, session = test_environment
+    profile = Profile(
+        profile_name="Security profile",
+        full_name="Ada Lovelace",
+        email="security@example.com",
+    )
+    task = Task(
+        url="file:///app/examples/security-questionnaire.html",
+        profile=profile,
+        status="MAPPING_READY",
+        workflow_status="MAPPING_READY",
+        workflow_type="security_questionnaire",
+    )
+    fields = [
+        FormField(
+            task=task,
+            label="Do you enforce multi-factor authentication?",
+            selector="#mfa",
+            field_type="textarea",
+            required=True,
+        ),
+        FormField(
+            task=task,
+            label="Do you encrypt data at rest?",
+            selector="#encryption",
+            field_type="select",
+            required=True,
+            options=[
+                {"label": "Yes", "value": "yes", "selector": "#encryption"},
+                {"label": "No", "value": "no", "selector": "#encryption"},
+            ],
+        ),
+        FormField(
+            task=task,
+            label="Administrator password",
+            selector="#password",
+            field_type="password",
+            required=False,
+        ),
+    ]
+    session.add_all([task, *fields])
+    session.commit()
+
+    response = client.post(f"/tasks/{task.id}/map-fields?mode=rules")
+
+    assert response.status_code == 200
+    payload_by_label = {field["label"]: field for field in response.json()}
+    assert payload_by_label["Do you enforce multi-factor authentication?"]["mapped_value"].startswith("Yes.")
+    assert payload_by_label["Do you encrypt data at rest?"]["mapped_value"] == "yes"
+    assert payload_by_label["Administrator password"]["mapped_value"] is None
+
+    checkpoints = client.get(f"/tasks/{task.id}/checkpoints").json()
+    mapping_checkpoint = next(item for item in checkpoints if item["stage"] == "MAPPING")
+    suggestions = mapping_checkpoint["output"]["source_suggestions"]
+    assert suggestions[0]["source"] == "mock-security-policy.md"
+    assert suggestions[0]["status"] == "needs_review"
 
 
 def test_login_and_analyze_retries_original_url_after_manual_login(
@@ -1048,7 +1223,7 @@ def test_map_fields_failure_sets_task_status_and_checkpoint(
     monkeypatch.setattr(config, "DEEPSEEK_API_KEY", "test-deepseek-key")
 
     with patch(
-        "app.routers.tasks.map_fields_with_llm",
+        "app.routers.tasks.map_fields_with_llm_result",
         side_effect=Exception("LLM mapping failed"),
     ):
         response = client.post(f"/tasks/{task.id}/map-fields?provider=deepseek")

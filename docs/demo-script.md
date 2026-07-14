@@ -24,7 +24,7 @@ http://localhost:5173
 
 1. Open the Runs dashboard and point out the backend health badge.
 2. Open Profiles and show `Demo Applicant`.
-3. Open Workflows and show that the Form Fill Workflow is enabled while other templates are staged for future use.
+3. Open Workflows and show the enabled Form Fill, extraction, job summary, security questionnaire, and vendor onboarding workflows.
 4. Create a run from a local or simple test form URL and select the demo profile.
 5. Analyze the form and show extracted fields.
 6. Generate mappings and open Review Mapping.
@@ -32,14 +32,32 @@ http://localhost:5173
 8. Confirm mappings so the browser execution can fill the form.
 9. Open the task detail page and show action logs, screenshot evidence, and verification status.
 10. Stop at final submit approval and explain that the app does not submit without the user's explicit decision.
-11. Open Evaluation and show how local benchmark runs track mapping quality.
+11. Open Evaluation and show how local benchmark runs track mapping quality, source evidence coverage, refusal rate, and sensitive-field skip rate.
+
+## Security Questionnaire Variant
+
+1. Create a Security Questionnaire Workflow run with the Docker demo URL.
+2. Analyze the page and generate mappings in rules mode.
+3. Open Review Mapping and show source-backed answers from `mock-security-policy.md`.
+4. Explain that the answers are suggestions with `needs review` status, then confirm only after inspection.
+5. Copy the debug report and point out that source evidence is included without raw suggested values.
+
+## Vendor Onboarding Variant
+
+1. Create a Vendor Onboarding Workflow run with the Docker demo URL.
+2. Analyze the page and generate mappings in rules mode.
+3. Open Review Mapping and show that safe contact fields can be reviewed while vendor-specific or sensitive fields stay under human control.
+4. Confirm mappings, fill the page, inspect verification evidence, and stop before final submit approval.
 
 ## Reviewer Talking Points
 
 - The default demo uses local data and does not require LLM API keys.
 - Optional providers can improve semantic mapping, but the rule-based path keeps the demo deterministic.
 - The app treats browser automation as a reviewed workflow, not an invisible bot.
+- Questionnaire answers can use local policy evidence without requiring an LLM key.
+- Vendor onboarding demonstrates a second domain workflow using the same reviewed browser execution path.
 - Screenshots, traces, and benchmark reports make behavior inspectable.
+- Evaluation measures answer accuracy, source coverage, unsupported refusal, and sensitive-field skip behavior.
 
 ## Teardown
 

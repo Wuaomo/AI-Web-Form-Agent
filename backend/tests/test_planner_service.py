@@ -109,6 +109,50 @@ def test_build_job_research_summary_plan_uses_expected_step_order() -> None:
     ]
 
 
+def test_build_security_questionnaire_plan_reuses_review_first_form_flow() -> None:
+    """Verify the questionnaire planner keeps human review before browser execution."""
+
+    plan = build_plan(
+        workflow_type="security_questionnaire",
+        goal="Complete security questionnaire",
+    )
+
+    assert plan.workflow_type == "security_questionnaire"
+    assert [step.step_id for step in plan.steps] == [
+        "open_url",
+        "extract_form",
+        "map_fields",
+        "review_mapping",
+        "fill_form",
+        "verify_fields",
+        "submit_form",
+    ]
+    assert next(step for step in plan.steps if step.step_id == "review_mapping").requires_approval is True
+    assert next(step for step in plan.steps if step.step_id == "submit_form").requires_approval is True
+
+
+def test_build_vendor_onboarding_plan_reuses_review_first_form_flow() -> None:
+    """Verify vendor onboarding keeps the same review and approval gates."""
+
+    plan = build_plan(
+        workflow_type="vendor_onboarding",
+        goal="Complete vendor onboarding",
+    )
+
+    assert plan.workflow_type == "vendor_onboarding"
+    assert [step.step_id for step in plan.steps] == [
+        "open_url",
+        "extract_form",
+        "map_fields",
+        "review_mapping",
+        "fill_form",
+        "verify_fields",
+        "submit_form",
+    ]
+    assert next(step for step in plan.steps if step.step_id == "review_mapping").requires_approval is True
+    assert next(step for step in plan.steps if step.step_id == "submit_form").requires_approval is True
+
+
 def test_build_plan_rejects_unsupported_workflow_type() -> None:
     """Verify planner scope remains bounded to supported workflow types."""
 

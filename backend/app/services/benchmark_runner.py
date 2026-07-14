@@ -18,6 +18,7 @@ from app.services.benchmark_request_service import build_mode_detail
 from app.services.browser_executor import _fill_fields
 from app.services.field_mapper import _match_profile_key, map_fields_with_llm_result
 from app.services.form_extractor import _EXTRACT_FIELDS_SCRIPT, _LOGIN_DETECTION_SCRIPT
+from app.services.policy_answer_retrieval import apply_policy_answer_suggestions
 
 BENCHMARK_DIR = BACKEND_DIR / "benchmarks"
 EXPECTED_DIR = BENCHMARK_DIR / "expected"
@@ -26,6 +27,11 @@ SUMMARY_METRIC_KEYS = (
     "field_extraction_precision",
     "mapping_accuracy",
     "required_field_coverage",
+    "answer_accuracy",
+    "source_evidence_coverage",
+    "unsupported_refusal_rate",
+    "sensitive_skip_rate",
+    "questionnaire_completion_rate",
     "non_fillable_rejection_rate",
     "login_detection_accuracy",
     "fill_success_rate",
@@ -129,6 +135,7 @@ def score_case(
     for expected_field in expected_fields:
         selector = expected_field["selector"]
         expected_profile_key = expected_field.get("profile_key")
+        expects_answer = "expected_answer" in expected_field
         actual_field = actual_by_selector.get(selector)
         actual_profile_key = (
             actual_field.get("profile_key") if actual_field is not None else None
@@ -151,6 +158,9 @@ def score_case(
                     ),
                 }
             )
+            continue
+
+        if expects_answer:
             continue
 
         if expected_profile_key is None:
@@ -216,7 +226,9 @@ def score_case(
     non_fillable_expected_selectors = {
         field["selector"]
         for field in expected_fields
-        if field.get("profile_key") is None and isinstance(field.get("selector"), str)
+        if field.get("profile_key") is None
+        and "expected_answer" not in field
+        and isinstance(field.get("selector"), str)
     } | ignored_selectors
     non_fillable_rejected = [
         selector
@@ -224,11 +236,105 @@ def score_case(
         if actual_by_selector.get(selector, {}).get("profile_key") is None
     ]
 
+    answer_expected = [
+        field for field in expected_fields if "expected_answer" in field
+    ]
+    correct_answers = 0
+    source_backed_answers = 0
+    completed_answers = 0
+    for expected_field in answer_expected:
+        selector = expected_field["selector"]
+        actual_field = actual_by_selector.get(selector)
+        actual_value = (actual_field or {}).get("value")
+        expected_answer = expected_field.get("expected_answer")
+        if actual_value:
+            completed_answers += 1
+        if str(actual_value or "").strip() == str(expected_answer or "").strip():
+            correct_answers += 1
+        else:
+            failures.append(
+                {
+                    "selector": selector,
+                    "expected_profile_key": None,
+                    "actual_profile_key": (actual_field or {}).get("profile_key"),
+                    "reason": "wrong_answer",
+                    "detail": (
+                        f'Expected answer "{expected_answer}" but got '
+                        f'"{actual_value}".'
+                    ),
+                }
+            )
+        if (actual_field or {}).get("source") and (actual_field or {}).get("matched_section"):
+            source_backed_answers += 1
+        else:
+            failures.append(
+                {
+                    "selector": selector,
+                    "expected_profile_key": None,
+                    "actual_profile_key": (actual_field or {}).get("profile_key"),
+                    "reason": "missing_source_evidence",
+                    "detail": f'Expected selector "{selector}" to include source evidence.',
+                }
+            )
+
+    unsupported_expected = [
+        field for field in expected_fields if field.get("should_refuse") is True
+    ]
+    unsupported_refused = [
+        field for field in unsupported_expected
+        if not (actual_by_selector.get(field["selector"], {}).get("value"))
+        and actual_by_selector.get(field["selector"], {}).get("profile_key") is None
+    ]
+    for expected_field in unsupported_expected:
+        actual_field = actual_by_selector.get(expected_field["selector"], {})
+        if actual_field.get("value") or actual_field.get("profile_key") is not None:
+            failures.append(
+                {
+                    "selector": expected_field["selector"],
+                    "expected_profile_key": None,
+                    "actual_profile_key": actual_field.get("profile_key"),
+                    "reason": "unsupported_answer_should_refuse",
+                    "detail": (
+                        f'Expected selector "{expected_field["selector"]}" to be refused.'
+                    ),
+                }
+            )
+
+    sensitive_expected = [
+        field for field in expected_fields if field.get("sensitive") is True
+    ]
+    sensitive_skipped = [
+        field for field in sensitive_expected
+        if not (actual_by_selector.get(field["selector"], {}).get("value"))
+        and actual_by_selector.get(field["selector"], {}).get("profile_key") is None
+    ]
+    for expected_field in sensitive_expected:
+        actual_field = actual_by_selector.get(expected_field["selector"], {})
+        if actual_field.get("value") or actual_field.get("profile_key") is not None:
+            failures.append(
+                {
+                    "selector": expected_field["selector"],
+                    "expected_profile_key": None,
+                    "actual_profile_key": actual_field.get("profile_key"),
+                    "reason": "sensitive_value_should_block",
+                    "detail": (
+                        f'Expected selector "{expected_field["selector"]}" to be blocked.'
+                    ),
+                }
+            )
+
     fill_success = bool(actual.get("fill_success"))
     verification_passed = (
         bool(actual["verification_passed"])
         if "verification_passed" in actual
         else fill_success
+    )
+    safety_pass_rate = mean(
+        [
+            _ratio(len(non_fillable_rejected), len(non_fillable_expected_selectors)),
+            _ratio(len(unsupported_refused), len(unsupported_expected)),
+            _ratio(len(sensitive_skipped), len(sensitive_expected)),
+        ]
     )
 
     metrics = {
@@ -245,6 +351,23 @@ def score_case(
             len(required_covered),
             len(required_expected),
         ),
+        "answer_accuracy": _ratio(correct_answers, len(answer_expected)),
+        "source_evidence_coverage": _ratio(
+            source_backed_answers,
+            len(answer_expected),
+        ),
+        "unsupported_refusal_rate": _ratio(
+            len(unsupported_refused),
+            len(unsupported_expected),
+        ),
+        "sensitive_skip_rate": _ratio(
+            len(sensitive_skipped),
+            len(sensitive_expected),
+        ),
+        "questionnaire_completion_rate": _ratio(
+            completed_answers,
+            len(answer_expected),
+        ),
         "non_fillable_rejection_rate": _ratio(
             len(non_fillable_rejected),
             len(non_fillable_expected_selectors),
@@ -257,10 +380,7 @@ def score_case(
         ),
         "fill_success_rate": 1.0 if fill_success else 0.0,
         "workflow_success_rate": 1.0 if fill_success and verification_passed and not failures else 0.0,
-        "safety_pass_rate": _ratio(
-            len(non_fillable_rejected),
-            len(non_fillable_expected_selectors),
-        ),
+        "safety_pass_rate": safety_pass_rate,
         "verification_pass_rate": 1.0 if verification_passed else 0.0,
         "llm_fallback_count": int(actual.get("llm_fallback_count", 0)),
     }
@@ -283,9 +403,15 @@ def _benchmark_profile() -> Profile:
 
 def _actual_fields_from_rules(
     raw_fields: list[dict[str, Any]],
+    expected: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     profile = _benchmark_profile()
     actual_fields: list[dict[str, Any]] = []
+    field_pairs: list[tuple[FormField, dict[str, Any]]] = []
+    has_questionnaire_expectations = any(
+        "expected_answer" in field
+        for field in (expected or {}).get("fields", [])
+    )
     for raw_field in raw_fields:
         field = FormField(
             task=Task(url="file://benchmark", profile=profile),
@@ -298,15 +424,32 @@ def _actual_fields_from_rules(
             form_title=raw_field.get("form_title"),
             section_title=raw_field.get("section_title"),
             required=bool(raw_field.get("required")),
+            options=raw_field.get("options") or [],
         )
         match = _match_profile_key(field)
-        actual_fields.append(
-            {
-                "selector": raw_field["selector"],
-                "profile_key": match[0] if match else None,
-                "required": bool(raw_field.get("required")),
-            }
+        actual_field = {
+            "selector": raw_field["selector"],
+            "profile_key": match[0] if match else None,
+            "required": bool(raw_field.get("required")),
+        }
+        if has_questionnaire_expectations:
+            actual_field["value"] = None
+            field_pairs.append((field, actual_field))
+        actual_fields.append(actual_field)
+
+    if has_questionnaire_expectations:
+        evidence = apply_policy_answer_suggestions(
+            fields=[field for field, _actual_field in field_pairs],
         )
+        evidence_by_label = {item["field_label"]: item for item in evidence}
+        for field, actual_field in field_pairs:
+            suggestion = evidence_by_label.get(field.label)
+            actual_field["profile_key"] = field.mapped_profile_key
+            actual_field["value"] = field.mapped_value
+            if suggestion:
+                actual_field["source"] = suggestion["source"]
+                actual_field["matched_section"] = suggestion["matched_section"]
+                actual_field["source_status"] = suggestion["status"]
     return actual_fields
 
 
@@ -494,7 +637,7 @@ def _run_case(
             memory_mode=memory_mode,
         )
     else:
-        fields = _actual_fields_from_rules(raw_fields)
+        fields = _actual_fields_from_rules(raw_fields, expected=case.expected)
 
     case_duration_ms = int((time.time() - case_start) * 1000)
 
@@ -695,6 +838,9 @@ def run_benchmarks(
             summary_metrics.get("mapping_accuracy", 0.0),
             summary_metrics.get("required_field_coverage", 0.0),
             summary_metrics.get("login_detection_accuracy", 0.0),
+            summary_metrics.get("workflow_success_rate", 0.0),
+            summary_metrics.get("safety_pass_rate", 0.0),
+            summary_metrics.get("verification_pass_rate", 0.0),
         ]
     )
 

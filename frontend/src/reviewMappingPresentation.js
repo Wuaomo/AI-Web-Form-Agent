@@ -157,6 +157,54 @@ export function formatMappingSummary(field) {
   return `${source} -> ${value}`;
 }
 
+export function getSourceSuggestionsByFieldId(checkpoints = []) {
+  const suggestionsByFieldId = new Map();
+  checkpoints.forEach((checkpoint) => {
+    if (checkpoint?.stage !== "MAPPING") {
+      return;
+    }
+    const retrievalSuggestions = checkpoint?.output?.retrieval_suggestions;
+    if (Array.isArray(retrievalSuggestions)) {
+      retrievalSuggestions.forEach((suggestion) => {
+        if (suggestion?.field_id !== null && suggestion?.field_id !== undefined) {
+          suggestionsByFieldId.set(Number(suggestion.field_id), suggestion);
+        }
+      });
+    }
+    const suggestions = checkpoint?.output?.source_suggestions;
+    if (!Array.isArray(suggestions)) {
+      return;
+    }
+    suggestions.forEach((suggestion) => {
+      if (suggestion?.field_id !== null && suggestion?.field_id !== undefined) {
+        suggestionsByFieldId.set(Number(suggestion.field_id), suggestion);
+      }
+    });
+  });
+  return suggestionsByFieldId;
+}
+
+export function formatSourceSuggestion(suggestion) {
+  if (!suggestion) {
+    return "";
+  }
+  if (suggestion.source_type === "reviewed_memory") {
+    const sourceId = suggestion.source_id ? ` #${suggestion.source_id}` : "";
+    const key = suggestion.mapped_profile_key
+      ? ` -> profile.${suggestion.mapped_profile_key}`
+      : "";
+    const status = suggestion.stale ? "stale; review recommended" : "reviewed";
+    return `Reviewed memory${sourceId}${key} (${status})`;
+  }
+  const source = suggestion.source || "unknown source";
+  const section = suggestion.matched_section ? ` / ${suggestion.matched_section}` : "";
+  const status =
+    suggestion.status === "needs_review" ? "needs review" : suggestion.status;
+  return status
+    ? `Source: ${source}${section} (${status})`
+    : `Source: ${source}${section}`;
+}
+
 export function suggestProfileCustomKey(field) {
   const key = fieldDisplayName(field)
     .toLowerCase()

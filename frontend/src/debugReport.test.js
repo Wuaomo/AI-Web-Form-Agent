@@ -44,6 +44,36 @@ test("generateDebugReport shows failure evidence for failed checkpoints", () => 
   assert.ok(report.includes("API timeout"));
 });
 
+test("generateDebugReport includes source suggestion evidence without raw suggested values", () => {
+  const checkpoints = [
+    {
+      stage: "MAPPING",
+      status: "SUCCESS",
+      output: {
+        source_suggestions: [
+          {
+            field_label: "Do you enforce multi-factor authentication?",
+            suggested_value: "Yes. MFA is required for administrative access.",
+            source: "mock-security-policy.md",
+            matched_section: "Multi-Factor Authentication",
+            status: "needs_review",
+          },
+        ],
+      },
+    },
+  ];
+
+  const report = generateDebugReport(baseTask, profiles, [], null, [], checkpoints);
+
+  assert.ok(report.includes("Suggestion evidence:"));
+  assert.ok(report.includes("Do you enforce multi-factor authentication?"));
+  assert.ok(report.includes("Source: mock-security-policy.md"));
+  assert.ok(report.includes("Section: Multi-Factor Authentication"));
+  assert.ok(report.includes("Status: needs_review"));
+  assert.ok(!report.includes("suggested_value"));
+  assert.ok(!report.includes("Yes. MFA is required"));
+});
+
 test("generateDebugReport handles checkpoints without output", () => {
   const checkpoints = [
     { stage: "ANALYSIS", status: "SUCCESS" },
