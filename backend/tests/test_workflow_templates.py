@@ -40,6 +40,17 @@ def test_require_enabled_template_accepts_form_fill() -> None:
     assert template["id"] == "form_fill"
 
 
+def test_security_questionnaire_template_is_enabled_for_phase_one_demo() -> None:
+    """Verify the Phase 1 questionnaire workflow is available for local demo tasks."""
+
+    template = require_enabled_template("security_questionnaire")
+
+    assert template["id"] == "security_questionnaire"
+    assert template["enabled"] is True
+    assert template["approval_policy"]["submit"] == "always_required"
+    assert template["approval_policy"]["password"] == "blocked"
+
+
 def test_require_enabled_template_rejects_disabled_template() -> None:
     """Verify disabled templates cannot be used to create tasks."""
 

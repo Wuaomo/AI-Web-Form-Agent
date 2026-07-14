@@ -8,7 +8,8 @@ import {
 } from "../llmProviderPreference";
 import Message from "../components/Message";
 import {
-  dockerDemoFormUrl,
+  dockerDemoUrlForWorkflow,
+  requiresLlmProviderForCreate,
   resolveWorkflowTypeSelection,
   sortWorkflowTemplates,
 } from "../workflowTemplatePresentation";
@@ -106,8 +107,11 @@ function CreateTask() {
         return;
       }
       await api.mapTaskFields(task.id, {
-        mode: "llm",
-        provider: selectedLlmProvider,
+        mode: form.workflow_type === "security_questionnaire" ? "rules" : "llm",
+        provider:
+          form.workflow_type === "security_questionnaire"
+            ? undefined
+            : selectedLlmProvider,
       });
       navigate(`/tasks/${task.id}/review-mapping`);
     } catch (requestError) {
@@ -128,10 +132,9 @@ function CreateTask() {
   const selectedWorkflow = workflowTemplates.find(
     (workflow) => workflow.id === form.workflow_type,
   );
+  const needsLlmProvider = requiresLlmProviderForCreate(form.workflow_type);
   const mappingUnavailable =
-    form.workflow_type !== "web_data_extract" &&
-    form.workflow_type !== "job_research_summary" &&
-    (!selectedLlmProvider || !selectedProvider?.configured);
+    needsLlmProvider && (!selectedLlmProvider || !selectedProvider?.configured);
   const workflowUnavailable = !selectedWorkflow?.enabled;
 
   return (
@@ -191,7 +194,9 @@ function CreateTask() {
         <button
           type="button"
           className="text-button"
-          onClick={() => setForm({ ...form, url: dockerDemoFormUrl() })}
+          onClick={() =>
+            setForm({ ...form, url: dockerDemoUrlForWorkflow(form.workflow_type) })
+          }
         >
           Use Docker demo form
         </button>
@@ -223,7 +228,7 @@ function CreateTask() {
           />
         </label>
 
-        {form.workflow_type !== "web_data_extract" && form.workflow_type !== "job_research_summary" && (
+        {needsLlmProvider && (
           <>
             <label>
               Large model

@@ -621,6 +621,47 @@ def test_analyze_reuses_cached_form_analysis_for_same_url(
     assert second_response.json()["form_fields"][0]["selector"] == "#email"
 
 
+def test_analyze_supports_security_questionnaire_workflow(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify security questionnaires reuse the review-first form analysis path."""
+
+    client, session = test_environment
+    task = create_task_without_fields(session)
+    task.workflow_type = "security_questionnaire"
+    session.commit()
+    extracted_field = ExtractedFormField(
+        element_ref="field_1",
+        form_title="Security questionnaire",
+        section_title="Access control",
+        label="Do you enforce multi-factor authentication?",
+        selector="#mfa",
+        field_type="text",
+        placeholder=None,
+        name="mfa",
+        html_id="mfa",
+        current_value=None,
+        required=True,
+        options=[],
+    )
+
+    with patch(
+        "app.routers.tasks.extract_form_analysis",
+        new=AsyncMock(
+            return_value=SimpleNamespace(
+                fields=[extracted_field],
+                login_required=False,
+            ),
+        ),
+    ):
+        response = client.post(f"/tasks/{task.id}/analyze")
+
+    assert response.status_code == 200
+    assert response.json()["workflow_type"] == "security_questionnaire"
+    assert response.json()["status"] == "MAPPING_READY"
+    assert response.json()["form_fields"][0]["label"] == "Do you enforce multi-factor authentication?"
+
+
 def test_login_and_analyze_retries_original_url_after_manual_login(
     test_environment: tuple[TestClient, Session],
 ) -> None:

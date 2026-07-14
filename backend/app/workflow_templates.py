@@ -7,6 +7,7 @@ from app.workflow_constants import (
     WORKFLOW_TYPE_FORM_FILL,
     WORKFLOW_TYPE_JOB_APPLICATION,
     WORKFLOW_TYPE_JOB_RESEARCH_SUMMARY,
+    WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
     WORKFLOW_TYPE_WEB_DATA_EXTRACT,
 )
 
@@ -66,6 +67,35 @@ WORKFLOW_TEMPLATES: dict[str, dict[str, object]] = {
         ],
         "approval_policy": {
             "external_navigation": "review_required",
+        },
+    },
+    WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE: {
+        "id": WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
+        "name": "Security Questionnaire Workflow",
+        "description": (
+            "Extract security/compliance questionnaire fields, map reusable "
+            "profile answers, require review, fill safe fields, verify, and "
+            "wait for submit approval."
+        ),
+        "enabled": True,
+        "steps": [
+            "open_url",
+            "extract_form",
+            "map_fields",
+            "review_mapping",
+            "confirm_mapping",
+            "fill_form",
+            "verify_fields",
+            "wait_for_submit_approval",
+            "submit_form",
+        ],
+        "approval_policy": {
+            "submit": "always_required",
+            "password": "blocked",
+            "otp": "blocked",
+            "payment": "blocked",
+            "sensitive_or_unsupported_answer": "review_required",
+            "low_confidence_mapping": "review_required",
         },
     },
     WORKFLOW_TYPE_DATA_ENTRY: {

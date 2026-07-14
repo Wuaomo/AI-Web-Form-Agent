@@ -43,7 +43,9 @@ Create Profile
 ## Supported Templates
 
 - Form Fill Workflow: enabled for the local demo.
-- Web Data Extraction Workflow: registered but disabled.
+- Web Data Extraction Workflow: enabled.
+- Job Research Summary Workflow: enabled.
+- Security Questionnaire Workflow: enabled for the Phase 1 local demo.
 - Data Entry Workflow: registered but disabled.
 - Job Application Workflow: registered but disabled.
 

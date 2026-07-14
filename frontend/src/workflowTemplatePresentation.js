@@ -26,6 +26,21 @@ export function dockerDemoFormUrl() {
   return "file:///app/examples/llm-registration.html";
 }
 
+export function dockerDemoUrlForWorkflow(workflowType) {
+  if (workflowType === "security_questionnaire") {
+    return "file:///app/examples/security-questionnaire.html";
+  }
+  return dockerDemoFormUrl();
+}
+
+export function requiresLlmProviderForCreate(workflowType) {
+  return ![
+    "web_data_extract",
+    "job_research_summary",
+    "security_questionnaire",
+  ].includes(workflowType);
+}
+
 export function resolveWorkflowTypeSelection(
   templates = [],
   requestedWorkflowType,

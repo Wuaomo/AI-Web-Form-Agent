@@ -2,7 +2,8 @@
 
 ## Goal
 
-Make every workflow debuggable through traces, tool calls, screenshots, and failure reports.
+Make every workflow explainable through traces, tool calls, screenshots, source
+evidence, and failure reports.
 
 ## Why
 
@@ -10,7 +11,25 @@ Modern AI Engineer roles increasingly expect evaluation plus observability, espe
 
 ## Scope
 
-Improve Task Detail and Evaluation failure drilldown.
+Improve Task Detail and Evaluation failure drilldown. Avoid making
+observability the main UI experience.
+
+## Current Status
+
+Completed:
+
+- Task Detail shows screenshots, verification evidence, workflow trace spans,
+  agent reviews, LLM usage, background jobs, and debug report copy action.
+- Advanced/debug data is collapsed by default unless the run state needs it.
+- Workflow spans persist provider/model/token/cost/latency fields.
+- Action traces and admin trace endpoints exist.
+
+Not complete yet:
+
+- suggestion evidence trace for every mapping or questionnaire answer;
+- direct links from benchmark failures to trace spans and screenshots;
+- refusal/source explanations for questionnaire answers;
+- debug reports that include source-backed suggestion evidence.
 
 ## Features
 
@@ -26,6 +45,17 @@ For each tool/action, record:
 - latency
 - error message
 - screenshot id if available
+
+### Suggestion Evidence Trace
+
+For each suggested mapping or answer, record:
+
+- source type
+- source id
+- matched label, question, or policy snippet
+- match reason
+- policy decision
+- approval status
 
 ### LLM Trace
 
@@ -57,6 +87,7 @@ Generate one report containing:
 
 - task status
 - workflow timeline
+- suggestion evidence
 - failed fields
 - LLM usage
 - recent tool calls
@@ -67,6 +98,7 @@ Generate one report containing:
 
 - Task Detail shows trace timeline clearly.
 - Benchmark failures can be traced to evidence.
+- Suggested answers explain their source or refusal reason.
 - Debug report avoids sensitive raw values.
 - Trace data helps explain both model and system failures.
 

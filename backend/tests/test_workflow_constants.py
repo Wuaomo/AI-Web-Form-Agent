@@ -11,6 +11,7 @@ def test_workflow_type_constants_exist_and_are_unique():
         WORKFLOW_TYPE_FORM_FILL,
         WORKFLOW_TYPE_JOB_APPLICATION,
         WORKFLOW_TYPE_JOB_RESEARCH_SUMMARY,
+        WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
         WORKFLOW_TYPE_WEB_DATA_EXTRACT,
         WORKFLOW_TYPES,
     )
@@ -21,10 +22,11 @@ def test_workflow_type_constants_exist_and_are_unique():
         WORKFLOW_TYPE_DATA_ENTRY,
         WORKFLOW_TYPE_JOB_APPLICATION,
         WORKFLOW_TYPE_JOB_RESEARCH_SUMMARY,
+        WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
     }
 
     assert WORKFLOW_TYPES == workflow_types
-    assert len(workflow_types) == 5
+    assert len(workflow_types) == 6
 
 
 def test_workflow_status_constants_exist_and_are_unique():

@@ -27,6 +27,12 @@ The new JD-aligned project direction is:
 4. Agent Observability
 5. Portfolio Packaging
 
+Post-portfolio extension order:
+
+6. Domain Workflow Templates
+7. Retrieval Quality and Memory Governance
+8. Agent Reliability Benchmark Suite
+
 Do not resurrect the old `docs/trae-upgrade`, `docs/superpowers/plans`, or
 `docs/superpowers/specs` phase systems.
 
@@ -55,9 +61,11 @@ The system should remain focused on:
 - clear user workflows before diagnostic panels;
 - dynamic form discovery;
 - page extraction and structured summaries;
+- security/compliance-style questionnaire workflows;
 - reusable profile data;
 - user-reviewed mappings;
 - retrieval-backed memory from reviewed corrections;
+- source-backed suggestions from reviewed memory or local policy fixtures;
 - deterministic planning and tool selection;
 - policy and approval gates;
 - safe browser execution;
@@ -191,3 +199,6 @@ Keep the project focused and portfolio-ready:
 3. Evaluation Workbench: prove rules, LLM, and memory behavior with metrics.
 4. Agent Observability: improve trace/debug only after the user path is clear.
 5. Portfolio Packaging: make the project easy to run, explain, and discuss.
+6. Domain Workflow Templates: add narrow, review-first workflow demos.
+7. Retrieval Quality and Memory Governance: make memory reuse trustworthy.
+8. Agent Reliability Benchmark Suite: measure end-to-end workflow reliability.

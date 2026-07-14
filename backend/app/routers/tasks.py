@@ -139,8 +139,9 @@ from app.workflow_constants import (
     WORKFLOW_STAGE_FILL,
     WORKFLOW_STAGE_MAPPING,
     WORKFLOW_TYPE_FORM_FILL,
-    WORKFLOW_TYPE_WEB_DATA_EXTRACT,
     WORKFLOW_TYPE_JOB_RESEARCH_SUMMARY,
+    WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
+    WORKFLOW_TYPE_WEB_DATA_EXTRACT,
 )
 
 logger = logging.getLogger(__name__)
@@ -352,7 +353,10 @@ def build_and_save_task_plan(db: Session, task: Task, *, goal: str) -> dict[str,
 def ensure_form_fill_workflow(task: Task) -> None:
     """Reject execution for workflow types that are not implemented yet."""
 
-    if task.workflow_type != WORKFLOW_TYPE_FORM_FILL:
+    if task.workflow_type not in {
+        WORKFLOW_TYPE_FORM_FILL,
+        WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
+    }:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Workflow type not executable yet: {task.workflow_type}",
