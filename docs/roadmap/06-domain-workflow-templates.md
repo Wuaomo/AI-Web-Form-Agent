@@ -28,14 +28,16 @@ Add domain templates only when they reuse the existing workflow pipeline:
 Completed:
 
 - Security Questionnaire Workflow exists as an enabled Phase 1 domain template.
+- Vendor Onboarding Workflow exists as an enabled Phase 6 domain template with
+  a local Docker fixture and the same review-first form execution path.
 - Job Application Workflow exists as a disabled template.
 - Web Data Extraction and Job / Research Summary already prove the template
   registry can support non-form-fill workflows.
 
 Not complete yet:
 
-- Vendor Onboarding Workflow template.
-- Safety/test/UI review path for any newly enabled domain template.
+- Domain-specific retrieval beyond the security questionnaire policy fixture.
+- Dedicated benchmark cases for vendor onboarding.
 
 ## Candidate Templates
 
@@ -46,8 +48,9 @@ next narrow template that reuses the same safety and review path:
 2. Job Application Workflow
 3. Vendor Onboarding Workflow
 
-Only one template should be enabled by default until its safety model, tests,
-and UI review path are complete.
+Only enable templates that reuse the existing review-first safety model and
+have tests for planner, template registry, UI creation behavior, and the form
+analysis path.
 
 ## Security Questionnaire Workflow
 
@@ -74,3 +77,19 @@ The workflow should:
   services.
 - Unsupported or sensitive answers are not guessed.
 - The demo explains why each suggested answer was used.
+
+## Vendor Onboarding Workflow
+
+Use local mock asset:
+
+- `examples/vendor-onboarding.html`
+
+The workflow should:
+
+- extract vendor contact, service, security review, and sensitive payment-token
+  fields;
+- map safe reusable profile values in rules mode for the local demo;
+- leave unsupported values for human review;
+- block password/payment-like fields through the existing policy path;
+- fill only after Review Mapping confirmation;
+- stop before final submission.

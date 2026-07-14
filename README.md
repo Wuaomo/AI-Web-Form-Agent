@@ -62,6 +62,7 @@ Create Profile
 - Web Data Extraction Workflow: enabled.
 - Job Research Summary Workflow: enabled.
 - Security Questionnaire Workflow: enabled for source-backed compliance-style questionnaires.
+- Vendor Onboarding Workflow: enabled for review-first vendor intake forms.
 - Data Entry Workflow: registered but disabled.
 - Job Application Workflow: registered but disabled.
 
@@ -237,13 +238,20 @@ Security questionnaire path:
 3. Open Review Mapping and inspect answers suggested from `mock-security-policy.md`.
 4. Confirm only after reviewing the source evidence.
 
+Vendor onboarding path:
+
+1. Create a Vendor Onboarding Workflow run with the Docker demo URL.
+2. Generate mappings in rules mode.
+3. Review safe contact mappings and leave unsupported vendor-specific fields for manual review.
+4. Confirm mappings, fill, verify, and stop before final submit approval.
+
 ## Latest Local Verification
 
 Last checked on this branch:
 
 ```text
-backend:  python -m pytest       -> 405 passed, 1 warning
-frontend: npm test               -> 188 passed
+backend:  python -m pytest       -> 408 passed, 1 warning
+frontend: npm test               -> 190 passed
 frontend: npm run build          -> passed
 ```
 

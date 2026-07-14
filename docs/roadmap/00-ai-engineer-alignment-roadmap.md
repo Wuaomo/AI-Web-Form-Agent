@@ -72,6 +72,9 @@ Completed or mostly completed:
 - Phase 5 portfolio packaging: README, architecture, safety model, demo script,
   benchmark docs, test commands, verification snapshot, security questionnaire
   walkthrough, observability summary, and resume bullets exist.
+- Phase 6 domain templates: Vendor Onboarding is enabled with a local fixture
+  and reuses the same review-first form workflow, planner, safety gates, and UI
+  creation path.
 
 Still missing from the revised direction:
 

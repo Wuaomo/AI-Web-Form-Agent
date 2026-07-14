@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Vendor Onboarding Demo</title>
+</head>
+<body>
+  <main>
+    <h1>Vendor Onboarding</h1>
+    <form>
+      <fieldset>
+        <legend>Vendor contact</legend>
+        <label for="vendor-name">Vendor legal name</label>
+        <input id="vendor-name" name="vendor_name" type="text" required>
+
+        <label for="primary-contact">Primary contact name</label>
+        <input id="primary-contact" name="primary_contact" type="text" required>
+
+        <label for="contact-email">Primary contact email</label>
+        <input id="contact-email" name="contact_email" type="email" required>
+
+        <label for="contact-phone">Primary contact phone</label>
+        <input id="contact-phone" name="contact_phone" type="tel">
+      </fieldset>
+
+      <fieldset>
+        <legend>Review fields</legend>
+        <label for="service-summary">Services provided</label>
+        <textarea id="service-summary" name="service_summary" required></textarea>
+
+        <label for="security-review">Security review required?</label>
+        <select id="security-review" name="security_review" required>
+          <option value="">Choose one</option>
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+        </select>
+
+        <label for="payment-token">Payment token</label>
+        <input id="payment-token" name="payment_token" type="password">
+      </fieldset>
+
+      <label>
+        <input id="terms" name="terms" type="checkbox" required>
+        I confirm the vendor information is ready for review.
+      </label>
+
+      <button id="save-draft" type="button">Save draft</button>
+      <button id="submit-onboarding" type="submit">Submit onboarding</button>
+    </form>
+  </main>
+</body>
+</html>

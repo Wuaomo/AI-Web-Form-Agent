@@ -6,6 +6,7 @@ import {
   dockerDemoFormUrl,
   dockerDemoUrlForWorkflow,
   isTemplateEnabled,
+  mappingModeForWorkflow,
   requiresLlmProviderForCreate,
   resolveWorkflowTypeSelection,
   sortWorkflowTemplates,
@@ -55,10 +56,24 @@ test("dockerDemoUrlForWorkflow uses the questionnaire fixture for security workf
   assert.equal(dockerDemoUrlForWorkflow("form_fill"), dockerDemoFormUrl());
 });
 
+test("dockerDemoUrlForWorkflow uses the vendor onboarding fixture", () => {
+  assert.equal(
+    dockerDemoUrlForWorkflow("vendor_onboarding"),
+    "file:///app/examples/vendor-onboarding.html",
+  );
+});
+
 test("security questionnaire creation can run without an LLM provider", () => {
   assert.equal(requiresLlmProviderForCreate("security_questionnaire"), false);
+  assert.equal(requiresLlmProviderForCreate("vendor_onboarding"), false);
   assert.equal(requiresLlmProviderForCreate("form_fill"), true);
   assert.equal(requiresLlmProviderForCreate("web_data_extract"), false);
+});
+
+test("mappingModeForWorkflow uses rules for local no-provider workflows", () => {
+  assert.equal(mappingModeForWorkflow("security_questionnaire"), "rules");
+  assert.equal(mappingModeForWorkflow("vendor_onboarding"), "rules");
+  assert.equal(mappingModeForWorkflow("form_fill"), "llm");
 });
 
 test("resolveWorkflowTypeSelection falls back to form_fill for disabled requests", () => {

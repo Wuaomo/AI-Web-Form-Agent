@@ -662,6 +662,47 @@ def test_analyze_supports_security_questionnaire_workflow(
     assert response.json()["form_fields"][0]["label"] == "Do you enforce multi-factor authentication?"
 
 
+def test_analyze_supports_vendor_onboarding_workflow(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify vendor onboarding reuses the review-first form analysis path."""
+
+    client, session = test_environment
+    task = create_task_without_fields(session)
+    task.workflow_type = "vendor_onboarding"
+    session.commit()
+    extracted_field = ExtractedFormField(
+        element_ref="field_1",
+        form_title="Vendor onboarding",
+        section_title="Company profile",
+        label="Vendor legal name",
+        selector="#vendor-name",
+        field_type="text",
+        placeholder=None,
+        name="vendor_name",
+        html_id="vendor-name",
+        current_value=None,
+        required=True,
+        options=[],
+    )
+
+    with patch(
+        "app.routers.tasks.extract_form_analysis",
+        new=AsyncMock(
+            return_value=SimpleNamespace(
+                fields=[extracted_field],
+                login_required=False,
+            ),
+        ),
+    ):
+        response = client.post(f"/tasks/{task.id}/analyze")
+
+    assert response.status_code == 200
+    assert response.json()["workflow_type"] == "vendor_onboarding"
+    assert response.json()["status"] == "MAPPING_READY"
+    assert response.json()["form_fields"][0]["label"] == "Vendor legal name"
+
+
 def test_rules_mapping_adds_source_backed_security_questionnaire_answers(
     test_environment: tuple[TestClient, Session],
 ) -> None:

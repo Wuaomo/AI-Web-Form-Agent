@@ -8,6 +8,7 @@ from app.workflow_constants import (
     WORKFLOW_TYPE_JOB_APPLICATION,
     WORKFLOW_TYPE_JOB_RESEARCH_SUMMARY,
     WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
+    WORKFLOW_TYPE_VENDOR_ONBOARDING,
     WORKFLOW_TYPE_WEB_DATA_EXTRACT,
 )
 
@@ -95,6 +96,35 @@ WORKFLOW_TEMPLATES: dict[str, dict[str, object]] = {
             "otp": "blocked",
             "payment": "blocked",
             "sensitive_or_unsupported_answer": "review_required",
+            "low_confidence_mapping": "review_required",
+        },
+    },
+    WORKFLOW_TYPE_VENDOR_ONBOARDING: {
+        "id": WORKFLOW_TYPE_VENDOR_ONBOARDING,
+        "name": "Vendor Onboarding Workflow",
+        "description": (
+            "Prepare a vendor onboarding form with reusable company/profile "
+            "data, human review, safe browser fill, verification, and submit "
+            "approval."
+        ),
+        "enabled": True,
+        "steps": [
+            "open_url",
+            "extract_form",
+            "map_fields",
+            "review_mapping",
+            "confirm_mapping",
+            "fill_form",
+            "verify_fields",
+            "wait_for_submit_approval",
+            "submit_form",
+        ],
+        "approval_policy": {
+            "submit": "always_required",
+            "password": "blocked",
+            "otp": "blocked",
+            "payment": "blocked",
+            "destructive_action": "blocked",
             "low_confidence_mapping": "review_required",
         },
     },

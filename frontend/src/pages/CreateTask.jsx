@@ -9,6 +9,7 @@ import {
 import Message from "../components/Message";
 import {
   dockerDemoUrlForWorkflow,
+  mappingModeForWorkflow,
   requiresLlmProviderForCreate,
   resolveWorkflowTypeSelection,
   sortWorkflowTemplates,
@@ -106,10 +107,11 @@ function CreateTask() {
         });
         return;
       }
+      const mappingMode = mappingModeForWorkflow(form.workflow_type);
       await api.mapTaskFields(task.id, {
-        mode: form.workflow_type === "security_questionnaire" ? "rules" : "llm",
+        mode: mappingMode,
         provider:
-          form.workflow_type === "security_questionnaire"
+          mappingMode === "rules"
             ? undefined
             : selectedLlmProvider,
       });

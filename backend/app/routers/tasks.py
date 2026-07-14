@@ -142,6 +142,7 @@ from app.workflow_constants import (
     WORKFLOW_TYPE_FORM_FILL,
     WORKFLOW_TYPE_JOB_RESEARCH_SUMMARY,
     WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
+    WORKFLOW_TYPE_VENDOR_ONBOARDING,
     WORKFLOW_TYPE_WEB_DATA_EXTRACT,
 )
 
@@ -357,6 +358,7 @@ def ensure_form_fill_workflow(task: Task) -> None:
     if task.workflow_type not in {
         WORKFLOW_TYPE_FORM_FILL,
         WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
+        WORKFLOW_TYPE_VENDOR_ONBOARDING,
     }:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
