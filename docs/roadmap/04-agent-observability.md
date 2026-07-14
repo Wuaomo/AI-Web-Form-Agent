@@ -23,13 +23,15 @@ Completed:
 - Advanced/debug data is collapsed by default unless the run state needs it.
 - Workflow spans persist provider/model/token/cost/latency fields.
 - Action traces and admin trace endpoints exist.
+- Debug reports include source-backed suggestion evidence from mapping
+  checkpoints without copying raw suggested values.
 
 Not complete yet:
 
 - suggestion evidence trace for every mapping or questionnaire answer;
 - direct links from benchmark failures to trace spans and screenshots;
 - refusal/source explanations for questionnaire answers;
-- debug reports that include source-backed suggestion evidence.
+- dedicated source-evidence trace spans separate from mapping checkpoints.
 
 ## Features
 

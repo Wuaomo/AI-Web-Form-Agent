@@ -67,6 +67,8 @@ Completed or mostly completed:
   are measured in the benchmark suite.
 - Phase 4 observability baseline: action traces, workflow spans, screenshots,
   verification evidence, LLM usage, and debug reports exist.
+- Phase 4 source evidence reporting: debug reports include source-backed
+  questionnaire suggestion evidence while omitting raw suggested values.
 - Phase 5 packaging baseline: README, architecture, safety model, demo script,
   benchmark docs, and test commands exist.
 
