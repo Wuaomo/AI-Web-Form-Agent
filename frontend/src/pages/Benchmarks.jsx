@@ -166,9 +166,7 @@ function Benchmarks() {
               <option value="rules">rules</option>
               <option value="llm">llm</option>
               <option value="rag_llm">rag_llm</option>
-              <option value="full_workflow" disabled>
-                full_workflow (not implemented)
-              </option>
+              <option value="full_workflow">full_workflow</option>
             </select>
           </label>
           <label style={{ width: 160 }}>

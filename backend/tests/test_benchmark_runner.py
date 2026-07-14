@@ -51,6 +51,7 @@ def test_score_case_calculates_extraction_mapping_and_login_metrics() -> None:
         ],
         "llm_fallback_count": 1,
         "fill_success": True,
+        "verification_passed": False,
     }
 
     result = score_case(expected, actual)
@@ -62,6 +63,7 @@ def test_score_case_calculates_extraction_mapping_and_login_metrics() -> None:
     assert result["metrics"]["login_detection_accuracy"] == 1.0
     assert result["metrics"]["non_fillable_rejection_rate"] == 1.0
     assert result["metrics"]["fill_success_rate"] == 1.0
+    assert result["metrics"]["verification_pass_rate"] == 0.0
     assert result["metrics"]["llm_fallback_count"] == 1
     assert result["failures"] == [
         {
@@ -792,9 +794,77 @@ def test_cache_cold_deletes_mapping_cache(db_session: Session) -> None:
     assert db_session.query(LLMMappingCache).count() == 0
 
 
-def test_run_benchmarks_rejects_full_workflow_mode() -> None:
-    with pytest.raises(ValueError, match="full_workflow evaluation is not implemented yet"):
-        run_benchmarks(mode="full_workflow")
+def test_run_benchmarks_full_workflow_mode_reports_fill_success() -> None:
+    case = BenchmarkCase(
+        case_id="case_1",
+        title="Case one",
+        html_path=Path("case_1.html"),
+        expected={
+            "login_required": False,
+            "fields": [
+                {"selector": "#name", "profile_key": "full_name", "required": True},
+            ],
+        },
+    )
+
+    actual = {
+        "login_required": False,
+        "fill_success": True,
+        "verification_passed": True,
+        "llm_fallback_count": 0,
+        "fields": [
+            {
+                "selector": "#name",
+                "profile_key": "full_name",
+                "required": True,
+                "value": "Ada Lovelace",
+                "verified": True,
+            },
+        ],
+    }
+
+    with (
+        patch("app.services.benchmark_runner.load_benchmark_cases", return_value=[case]),
+        patch("app.services.benchmark_runner._run_case", return_value=actual),
+    ):
+        summary = run_benchmarks(mode="full_workflow")
+
+    assert summary.mode == "full_workflow"
+    assert summary.summary_metrics["fill_success_rate"] == 1.0
+
+
+def test_full_workflow_case_fills_and_verifies_dom_value(tmp_path: Path) -> None:
+    html_path = tmp_path / "case.html"
+    html_path.write_text(
+        """
+        <!doctype html>
+        <html>
+          <body>
+            <label for="name">Full name</label>
+            <input id="name" name="full_name" required />
+          </body>
+        </html>
+        """,
+        encoding="utf-8",
+    )
+    case = BenchmarkCase(
+        case_id="case_1",
+        title="Case one",
+        html_path=html_path,
+        expected={
+            "login_required": False,
+            "fields": [
+                {"selector": "#name", "profile_key": "full_name", "required": True},
+            ],
+        },
+    )
+
+    actual = _run_case(case, mode="full_workflow")
+
+    assert actual["fill_success"] is True
+    assert actual["verification_passed"] is True
+    assert actual["fields"][0]["value"] == "Ada Lovelace"
+    assert actual["fields"][0]["verified"] is True
 
 
 def test_run_benchmarks_rejects_unknown_mode() -> None:

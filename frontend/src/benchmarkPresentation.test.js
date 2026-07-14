@@ -87,6 +87,9 @@ test("summaryMetricEntries returns all summary metrics in stable order with Engl
     },
     { key: "login_detection_accuracy", label: "Login detection accuracy", value: "N/A" },
     { key: "fill_success_rate", label: "Fill success rate", value: "N/A" },
+    { key: "workflow_success_rate", label: "Workflow success rate", value: "N/A" },
+    { key: "safety_pass_rate", label: "Safety pass rate", value: "N/A" },
+    { key: "verification_pass_rate", label: "Verification pass rate", value: "N/A" },
     { key: "llm_fallback_count", label: "LLM fallback count", value: "2" },
     { key: "average_case_duration_ms", label: "Average case duration", value: "N/A" },
     { key: "p95_case_duration_ms", label: "P95 case duration", value: "N/A" },
@@ -158,7 +161,7 @@ test("shouldDisableBenchmarkRun enforces provider configuration for llm mode", (
   assert.equal(shouldDisableBenchmarkRun("llm", { configured: true }), false);
   assert.equal(shouldDisableBenchmarkRun("rag_llm", null), true);
   assert.equal(shouldDisableBenchmarkRun("rag_llm", { configured: true }), false);
-  assert.equal(shouldDisableBenchmarkRun("full_workflow", { configured: true }), true);
+  assert.equal(shouldDisableBenchmarkRun("full_workflow", { configured: false }), false);
 });
 
 test("normalizeFailureReason maps legacy failure reasons to stable taxonomy strings", () => {

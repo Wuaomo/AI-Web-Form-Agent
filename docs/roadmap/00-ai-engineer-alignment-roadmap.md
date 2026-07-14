@@ -29,6 +29,18 @@ This roadmap is designed to demonstrate:
 3. Evaluation Workbench
 4. Agent Observability
 5. Portfolio Packaging
+6. Domain Workflow Templates
+7. Retrieval Quality and Memory Governance
+8. Agent Reliability Benchmark Suite
+
+## Current Implementation Snapshot
+
+- Phase 7C memory management: reviewed workflow memory can be listed and
+  deleted through admin endpoints, and the React console has a Memory page for
+  source, profile key, stale status, and deletion.
+- Phase 8C browser replay benchmark: `full_workflow` benchmark mode opens local
+  HTML fixtures in Playwright, maps profile values, fills the DOM, reads values
+  back, and reports verification pass evidence without requiring LLM API keys.
 
 ## Product Story
 

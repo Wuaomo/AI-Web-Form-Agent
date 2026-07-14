@@ -29,4 +29,5 @@ Suggested metrics for a future benchmark runner:
 - Rule-based mapping accuracy versus LLM-assisted mapping accuracy.
 - Non-fillable/action-control rejection rate.
 - Login-gate detection rate.
-
+- Full-workflow fill success rate.
+- Browser verification pass rate.

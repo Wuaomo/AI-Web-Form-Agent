@@ -15,6 +15,7 @@ from app.database import BACKEND_DIR
 from app.models import BenchmarkRun, FormField, LlmApiUsageLog, Profile, Task
 from app.services.benchmark_comparison_service import compare_summary_metrics
 from app.services.benchmark_request_service import build_mode_detail
+from app.services.browser_executor import _fill_fields
 from app.services.field_mapper import _match_profile_key, map_fields_with_llm_result
 from app.services.form_extractor import _EXTRACT_FIELDS_SCRIPT, _LOGIN_DETECTION_SCRIPT
 
@@ -28,6 +29,9 @@ SUMMARY_METRIC_KEYS = (
     "non_fillable_rejection_rate",
     "login_detection_accuracy",
     "fill_success_rate",
+    "workflow_success_rate",
+    "safety_pass_rate",
+    "verification_pass_rate",
     "llm_fallback_count",
     "average_case_duration_ms",
     "p95_case_duration_ms",
@@ -220,6 +224,13 @@ def score_case(
         if actual_by_selector.get(selector, {}).get("profile_key") is None
     ]
 
+    fill_success = bool(actual.get("fill_success"))
+    verification_passed = (
+        bool(actual["verification_passed"])
+        if "verification_passed" in actual
+        else fill_success
+    )
+
     metrics = {
         "field_extraction_recall": _ratio(
             len(extracted_expected_selectors),
@@ -244,7 +255,13 @@ def score_case(
             == bool(expected.get("login_required"))
             else 0.0
         ),
-        "fill_success_rate": 1.0 if actual.get("fill_success") else 0.0,
+        "fill_success_rate": 1.0 if fill_success else 0.0,
+        "workflow_success_rate": 1.0 if fill_success and verification_passed and not failures else 0.0,
+        "safety_pass_rate": _ratio(
+            len(non_fillable_rejected),
+            len(non_fillable_expected_selectors),
+        ),
+        "verification_pass_rate": 1.0 if verification_passed else 0.0,
         "llm_fallback_count": int(actual.get("llm_fallback_count", 0)),
     }
     return {"metrics": metrics, "failures": failures}
@@ -291,6 +308,85 @@ def _actual_fields_from_rules(
             }
         )
     return actual_fields
+
+
+def _run_full_workflow_case(case: BenchmarkCase) -> dict[str, Any]:
+    """Run local extraction, mapping, browser fill, and verification for one case."""
+
+    case_start = time.time()
+    profile = _benchmark_profile()
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1440, "height": 2200})
+        page.goto(case.html_path.as_uri(), wait_until="domcontentloaded")
+        raw_fields = page.locator(
+            'input:not([type="hidden"]), textarea, select'
+        ).evaluate_all(_EXTRACT_FIELDS_SCRIPT)
+        login_required = bool(page.evaluate(_LOGIN_DETECTION_SCRIPT))
+
+        fields: list[FormField] = []
+        for raw_field in raw_fields:
+            field = FormField(
+                task=Task(url="file://benchmark", profile=profile),
+                label=raw_field.get("label"),
+                selector=raw_field["selector"],
+                field_type=raw_field.get("field_type"),
+                placeholder=raw_field.get("placeholder"),
+                name=raw_field.get("name"),
+                html_id=raw_field.get("html_id"),
+                form_title=raw_field.get("form_title"),
+                section_title=raw_field.get("section_title"),
+                required=bool(raw_field.get("required")),
+                options=raw_field.get("options") or [],
+            )
+            match = _match_profile_key(field)
+            if match:
+                field.mapped_profile_key = match[0]
+                value = getattr(profile, match[0], None)
+                field.mapped_value = str(value) if value is not None else None
+            fields.append(field)
+
+        try:
+            verification_data = _fill_fields(page, fields)
+            fill_success = all(item.status != "FAILED" for item in verification_data)
+        except Exception:
+            verification_data = []
+            fill_success = False
+
+        browser.close()
+
+    verification_by_selector = {
+        item.selector: item
+        for item in verification_data
+    }
+    actual_fields: list[dict[str, Any]] = []
+    for field in fields:
+        verification = verification_by_selector.get(field.selector)
+        actual_fields.append(
+            {
+                "selector": field.selector,
+                "profile_key": field.mapped_profile_key,
+                "required": bool(field.required),
+                "value": verification.actual_value if verification else None,
+                "verified": verification.status == "VERIFIED" if verification else False,
+            }
+        )
+
+    mapped_fields = [field for field in fields if field.mapped_value]
+    verification_passed = (
+        fill_success
+        and all(field.selector in verification_by_selector for field in mapped_fields)
+    )
+
+    return {
+        "login_required": login_required,
+        "fields": actual_fields,
+        "llm_fallback_count": 0,
+        "fill_success": fill_success,
+        "verification_passed": verification_passed,
+        "duration_ms": int((time.time() - case_start) * 1000),
+    }
 
 
 def _actual_fields_from_llm(
@@ -379,6 +475,9 @@ def _run_case(
     """Execute one local HTML benchmark fixture."""
 
     case_start = time.time()
+
+    if mode == "full_workflow":
+        return _run_full_workflow_case(case)
 
     raw_fields, login_required = _extract_case_page_state(case)
 
@@ -517,8 +616,6 @@ def run_benchmarks(
 
     if mode not in VALID_EVALUATION_MODES:
         raise ValueError(f"Unknown benchmark mode: {mode}")
-    if mode == "full_workflow":
-        raise ValueError("full_workflow evaluation is not implemented yet")
     if mode in {"llm", "rag_llm"} and not provider:
         raise ValueError("LLM benchmarks require a provider")
     if mode == "rules" and provider is not None:

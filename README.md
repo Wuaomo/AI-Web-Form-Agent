@@ -21,8 +21,9 @@ Browser agents are risky when they submit forms invisibly. This app keeps the us
 - Deterministic planner and tool registry for the enabled form-fill workflow.
 - Policy engine and persisted approval requests for risky steps.
 - SQLite-backed workflow memory for reviewed reusable values.
+- Memory management page for reviewing stale saved mappings and deleting them.
 - Trace spans, screenshots, action logs, verification evidence, and usage/cost summaries.
-- Local benchmark/evaluation center with comparison reports.
+- Local benchmark/evaluation center with comparison reports and browser replay mode.
 
 ## Core Workflow
 
@@ -74,7 +75,7 @@ See [docs/safety-model.md](docs/safety-model.md).
 
 ## Evaluation
 
-The benchmark suite uses local HTML fixtures and expected JSON answers to track extraction quality, mapping accuracy, required-field coverage, action rejection, login-gate handling, and regression details.
+The benchmark suite uses local HTML fixtures and expected JSON answers to track extraction quality, mapping accuracy, required-field coverage, action rejection, login-gate handling, browser replay verification, and regression details.
 
 See [docs/evaluation-report-sample.md](docs/evaluation-report-sample.md) and [backend/benchmarks/README.md](backend/benchmarks/README.md).
 

@@ -79,6 +79,9 @@ export const api = {
   listBenchmarkRuns: () => request("/benchmarks/runs"),
   getBenchmarkRun: (runId) => request(`/benchmarks/runs/${runId}`),
   getBenchmarkReport: (runId) => performTextRequest(`/benchmarks/runs/${runId}/report`),
+  listWorkflowMemory: () => request("/admin/workflow-memory"),
+  deleteWorkflowMemory: (memoryId) =>
+    request(`/admin/workflow-memory/${memoryId}`, { method: "DELETE" }),
 
   listProfiles: () => request("/profiles"),
   createProfile: (profile) =>
