@@ -98,6 +98,7 @@ from app.services.planner_service import (
     resolve_plan_goal,
     save_plan,
 )
+from app.services.policy_answer_retrieval import apply_policy_answer_suggestions
 from app.services.workflow_memory import save_confirmed_mappings_for_task
 from app.services.checkpoint_service import list_checkpoints, write_checkpoint
 from app.services.tool_registry import require_tool
@@ -1345,15 +1346,28 @@ def map_task_fields(
         else:
             fields = map_fields_by_rules(task_id, db)
 
+        source_suggestions: list[dict[str, object]] = []
+        if task.workflow_type == WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE:
+            source_suggestions = apply_policy_answer_suggestions(
+                fields=fields,
+            )
+
         apply_workflow_status(task, WORKFLOW_STATUS_MAPPING_READY, reason="mapping_completed")
-        mapped_count = sum(1 for f in fields if f.mapped_profile_key)
+        mapped_count = sum(1 for f in fields if f.mapped_profile_key or f.mapped_value)
         usage_fields = trace_usage_fields(task_id, db) if mode == "llm" else {}
+        checkpoint_output = {
+            "field_count": len(fields),
+            "mapped_count": mapped_count,
+            "mode": mode,
+        }
+        if source_suggestions:
+            checkpoint_output["source_suggestions"] = source_suggestions
         write_checkpoint(
             task_id=task_id,
             stage=WORKFLOW_STAGE_MAPPING,
             status=CHECKPOINT_SUCCESS,
             input_hash=f"{task_id}:{mode}:{provider or 'default'}",
-            output={"field_count": len(fields), "mapped_count": mapped_count, "mode": mode},
+            output=checkpoint_output,
             db=db,
         )
         db.commit()

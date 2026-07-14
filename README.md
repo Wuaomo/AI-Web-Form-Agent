@@ -21,6 +21,7 @@ Browser agents are risky when they submit forms invisibly. This app keeps the us
 - Deterministic planner and tool registry for the enabled form-fill workflow.
 - Policy engine and persisted approval requests for risky steps.
 - SQLite-backed workflow memory for reviewed reusable values.
+- Source-backed questionnaire suggestions from local mock policy documents.
 - Trace spans, screenshots, action logs, verification evidence, and usage/cost summaries.
 - Local benchmark/evaluation center with comparison reports.
 
@@ -58,7 +59,7 @@ React UI
     -> Workflow templates, planner, and tool registry
     -> Form extraction and field mapping services
     -> Policy and approval gates
-    -> Workflow memory and retrieval examples
+    -> Workflow memory and source-backed retrieval examples
     -> Playwright browser execution
     -> Benchmark runner and reports
 ```
@@ -186,6 +187,13 @@ Short version:
 6. Inspect screenshot and verification evidence.
 7. Stop at final submit approval.
 8. Show Evaluation for repeatable benchmark evidence.
+
+Security questionnaire path:
+
+1. Create a Security Questionnaire Workflow run with the Docker demo URL.
+2. Generate mappings in rules mode.
+3. Open Review Mapping and inspect answers suggested from `mock-security-policy.md`.
+4. Confirm only after reviewing the source evidence.
 
 ## Test Commands
 

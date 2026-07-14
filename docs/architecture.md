@@ -30,6 +30,7 @@ flowchart TD
 - `app/routers/*` expose profiles, tasks, workflows, approvals, jobs, traces, LLM usage, benchmarks, and admin trace endpoints.
 - `app/services/form_extractor.py` reads form fields from real pages through Playwright.
 - `app/services/field_mapper.py` maps extracted fields to profile values with deterministic logic and optional provider help.
+- `app/services/policy_answer_retrieval.py` suggests security questionnaire answers from local policy fixtures with source evidence.
 - `app/services/browser_executor.py` fills the browser and captures execution evidence.
 - `app/services/policy_engine.py` and `approval_gate_service.py` classify blocked and review-required actions.
 - `app/services/workflow_trace_service.py` records workflow spans, screenshots, and diagnostic metadata.
@@ -52,10 +53,11 @@ flowchart TD
 2. The user starts an enabled workflow template with a target form URL.
 3. The backend extracts fields from the target page.
 4. Mapping proposes profile values for fillable fields.
-5. The user reviews and confirms mappings.
-6. Playwright fills the browser.
-7. Verification records field-level evidence and screenshots.
-8. Final submit waits for explicit approval.
+5. Security questionnaire mappings may add source-backed policy suggestions.
+6. The user reviews and confirms mappings.
+7. Playwright fills the browser.
+8. Verification records field-level evidence and screenshots.
+9. Final submit waits for explicit approval.
 
 ## Policy And Approval Model
 

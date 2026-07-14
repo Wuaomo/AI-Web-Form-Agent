@@ -57,6 +57,9 @@ Completed or mostly completed:
 - Phase 2 mapping memory baseline: confirmed mappings can be saved as workflow
   memory, skipped for sensitive/one-time fields, and reused as retrieval
   fallback for future field mapping.
+- Phase 2 source-backed questionnaire baseline: security questionnaire mappings
+  can suggest answers from local mock policy docs, persist source evidence to the
+  mapping checkpoint, and show that evidence in Review Mapping.
 - Phase 3 evaluation baseline: local benchmark fixtures, rules/LLM/RAG-style
   modes, memory mode, regression comparison, and Markdown reports exist.
 - Phase 4 observability baseline: action traces, workflow spans, screenshots,
@@ -66,7 +69,6 @@ Completed or mostly completed:
 
 Still missing from the revised direction:
 
-- source-backed questionnaire answer suggestions from local policy docs;
 - answer-level refusal, source-evidence, and safety metrics;
 - memory governance beyond confirmed form-field mappings;
 - portfolio assets that show the questionnaire workflow.

@@ -26,15 +26,21 @@ Completed:
   blocked from memory.
 - Field mapping can use retrieved memory as conservative fallback when rules and
   LLM mapping miss.
+- Security questionnaire mapping can suggest answers from local mock policy
+  documents.
+- Mapping checkpoints persist questionnaire source evidence, including source
+  document, matched section, score, and `needs_review` status.
+- Review Mapping displays source-backed questionnaire evidence next to the
+  suggested value.
 - Benchmark requests support memory mode.
 
 Not complete yet:
 
 - questionnaire-style answer memory;
-- source document snippets for answer suggestions;
+- full source document snippets beyond matched section metadata;
 - stale memory warnings;
 - manual memory delete/disable UI;
-- source-backed suggestion display outside mapping memory.
+- answer-level source-evidence, refusal, and safety metrics.
 
 ## Features
 

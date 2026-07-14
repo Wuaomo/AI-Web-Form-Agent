@@ -662,6 +662,69 @@ def test_analyze_supports_security_questionnaire_workflow(
     assert response.json()["form_fields"][0]["label"] == "Do you enforce multi-factor authentication?"
 
 
+def test_rules_mapping_adds_source_backed_security_questionnaire_answers(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify Phase 2 source-backed suggestions are persisted for review."""
+
+    client, session = test_environment
+    profile = Profile(
+        profile_name="Security profile",
+        full_name="Ada Lovelace",
+        email="security@example.com",
+    )
+    task = Task(
+        url="file:///app/examples/security-questionnaire.html",
+        profile=profile,
+        status="MAPPING_READY",
+        workflow_status="MAPPING_READY",
+        workflow_type="security_questionnaire",
+    )
+    fields = [
+        FormField(
+            task=task,
+            label="Do you enforce multi-factor authentication?",
+            selector="#mfa",
+            field_type="textarea",
+            required=True,
+        ),
+        FormField(
+            task=task,
+            label="Do you encrypt data at rest?",
+            selector="#encryption",
+            field_type="select",
+            required=True,
+            options=[
+                {"label": "Yes", "value": "yes", "selector": "#encryption"},
+                {"label": "No", "value": "no", "selector": "#encryption"},
+            ],
+        ),
+        FormField(
+            task=task,
+            label="Administrator password",
+            selector="#password",
+            field_type="password",
+            required=False,
+        ),
+    ]
+    session.add_all([task, *fields])
+    session.commit()
+
+    response = client.post(f"/tasks/{task.id}/map-fields?mode=rules")
+
+    assert response.status_code == 200
+    payload_by_label = {field["label"]: field for field in response.json()}
+    assert payload_by_label["Do you enforce multi-factor authentication?"]["mapped_value"].startswith("Yes.")
+    assert payload_by_label["Do you encrypt data at rest?"]["mapped_value"] == "yes"
+    assert payload_by_label["Administrator password"]["mapped_value"] is None
+
+    checkpoints = client.get(f"/tasks/{task.id}/checkpoints").json()
+    mapping_checkpoint = next(item for item in checkpoints if item["stage"] == "MAPPING")
+    suggestions = mapping_checkpoint["output"]["source_suggestions"]
+    assert suggestions[0]["source"] == "mock-security-policy.md"
+    assert suggestions[0]["status"] == "needs_review"
+
+
 def test_login_and_analyze_retries_original_url_after_manual_login(
     test_environment: tuple[TestClient, Session],
 ) -> None:

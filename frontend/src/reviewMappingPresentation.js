@@ -157,6 +157,38 @@ export function formatMappingSummary(field) {
   return `${source} -> ${value}`;
 }
 
+export function getSourceSuggestionsByFieldId(checkpoints = []) {
+  const suggestionsByFieldId = new Map();
+  checkpoints.forEach((checkpoint) => {
+    if (checkpoint?.stage !== "MAPPING") {
+      return;
+    }
+    const suggestions = checkpoint?.output?.source_suggestions;
+    if (!Array.isArray(suggestions)) {
+      return;
+    }
+    suggestions.forEach((suggestion) => {
+      if (suggestion?.field_id !== null && suggestion?.field_id !== undefined) {
+        suggestionsByFieldId.set(Number(suggestion.field_id), suggestion);
+      }
+    });
+  });
+  return suggestionsByFieldId;
+}
+
+export function formatSourceSuggestion(suggestion) {
+  if (!suggestion) {
+    return "";
+  }
+  const source = suggestion.source || "unknown source";
+  const section = suggestion.matched_section ? ` / ${suggestion.matched_section}` : "";
+  const status =
+    suggestion.status === "needs_review" ? "needs review" : suggestion.status;
+  return status
+    ? `Source: ${source}${section} (${status})`
+    : `Source: ${source}${section}`;
+}
+
 export function suggestProfileCustomKey(field) {
   const key = fieldDisplayName(field)
     .toLowerCase()
