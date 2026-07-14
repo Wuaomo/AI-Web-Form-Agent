@@ -110,7 +110,7 @@ See [docs/evaluation-report-sample.md](docs/evaluation-report-sample.md) and [ba
 | Area | Evidence |
 | --- | --- |
 | Form mapping | 16 local benchmark fixtures and expected JSON files |
-| Retrieval | reviewed memory mode and source-backed questionnaire suggestions |
+| Retrieval | reviewed memory mode with source/stale governance and source-backed questionnaire suggestions |
 | Safety | action-control rejection, login-gate detection, sensitive skip rules |
 | Observability | workflow spans, screenshots, verification results, debug reports |
 | Regression tracking | stored benchmark runs, comparison metrics, Markdown export |

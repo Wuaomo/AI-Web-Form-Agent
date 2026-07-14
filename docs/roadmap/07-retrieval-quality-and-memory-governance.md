@@ -21,11 +21,15 @@ Partially complete:
 - Confirmed form-field mapping memory exists.
 - Sensitive and one-time field skip rules exist.
 - Retrieval is intentionally local and simple.
+- Reviewed memory retrieval now returns source type, source id, reviewed
+  timestamp, last-used timestamp, stale status, and governance status.
+- Stale reviewed memory is still visible as evidence, but is not used for
+  automatic retrieval fallback mapping.
 
 Not complete yet:
 
 - source document evidence;
-- stale memory warnings;
+- user-facing stale memory warnings;
 - manual delete or disable flow;
 - unsupported-answer refusal for questionnaire answers;
 - reviewed-only governance for policy-document-derived answers.

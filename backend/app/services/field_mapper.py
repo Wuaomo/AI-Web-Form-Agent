@@ -1169,6 +1169,8 @@ def _retrieval_fallback_mappings(
         top = retrieval_top_by_field_id.get(field.id)
         if not top:
             continue
+        if top.get("stale") is True:
+            continue
         score = float(top.get("score", 0.0))
         if score < 0.65:
             continue

@@ -75,10 +75,14 @@ Completed or mostly completed:
 - Phase 6 domain templates: Vendor Onboarding is enabled with a local fixture
   and reuses the same review-first form workflow, planner, safety gates, and UI
   creation path.
+- Phase 7 retrieval governance baseline: reviewed memory retrieval includes
+  source/governance metadata, stale status, and avoids automatic fallback
+  mapping from stale memory.
 
 Still missing from the revised direction:
 
-- memory governance beyond confirmed form-field mappings;
+- user-facing memory delete/disable controls and broader memory governance
+  beyond confirmed form-field mappings;
 - portfolio screenshots/GIF assets that show the questionnaire workflow.
 
 ## Post-Portfolio Extensions

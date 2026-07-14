@@ -1,5 +1,6 @@
 """Tests for LLM-assisted field mapping and its safety fallback."""
 
+from datetime import datetime, timedelta, timezone
 import json
 import unittest
 from unittest.mock import patch
@@ -16,6 +17,7 @@ from app.services.field_mapper import (
     map_fields_with_llm,
     map_fields_with_llm_result,
 )
+from app.services.retrieval_service import MEMORY_STALE_AFTER_DAYS
 from app.services.workflow_memory import build_field_memory_text
 from app.workflow_constants import MEMORY_TYPE_CONFIRMED_MAPPING
 
@@ -342,6 +344,35 @@ class LLMFieldMapperTests(unittest.TestCase):
             field_text="label: Phone\nname: phone\ntype: tel\noptions: []",
             mapped_profile_key="github",
             success_count=1,
+        )
+        self.db.add(memory_item)
+        self.db.commit()
+
+        llm_json = json.dumps({"mappings": []})
+        with patch("app.services.field_mapper._request_llm_mapping", return_value=llm_json):
+            result = map_fields_with_llm_result(self.task_id, self.db, provider="deepseek")
+
+        mapped_by_id = {mapped.id: mapped for mapped in result.fields}
+        self.assertIsNone(mapped_by_id[field.id].mapped_profile_key)
+
+    def test_retrieval_fallback_does_not_trigger_for_stale_memory(self) -> None:
+        task = self.db.get(Task, self.task_id)
+        assert task is not None
+        task.profile.github = "https://github.com/ada"
+        self.db.commit()
+
+        field = self._add_field(label="Portfolio URL", selector="#portfolio", field_type="url")
+        old_timestamp = datetime.now(timezone.utc) - timedelta(days=MEMORY_STALE_AFTER_DAYS + 1)
+        memory_item = WorkflowMemoryItem(
+            memory_type=MEMORY_TYPE_CONFIRMED_MAPPING,
+            workflow_type="form_fill",
+            source_domain="example.com",
+            field_signature="sig_stale",
+            field_text=build_field_memory_text(field),
+            mapped_profile_key="github",
+            success_count=10,
+            created_at=old_timestamp,
+            last_used_at=old_timestamp,
         )
         self.db.add(memory_item)
         self.db.commit()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -28,6 +29,8 @@ STOP_TOKENS = {
     "section",
 }
 
+MEMORY_STALE_AFTER_DAYS = 90
+
 
 def tokenize(text: str) -> set[str]:
     """Tokenize a free-form string into normalized words."""
@@ -50,6 +53,27 @@ def jaccard_similarity(a: str, b: str) -> float:
     intersection = tokens_a & tokens_b
     union = tokens_a | tokens_b
     return len(intersection) / len(union)
+
+
+def _as_aware_utc(value):
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _isoformat(value) -> str | None:
+    timestamp = _as_aware_utc(value)
+    return timestamp.isoformat() if timestamp else None
+
+
+def _is_stale(value) -> bool:
+    timestamp = _as_aware_utc(value)
+    if timestamp is None:
+        return False
+    age_days = (datetime.now(timezone.utc) - timestamp).days
+    return age_days > MEMORY_STALE_AFTER_DAYS
 
 
 def search_similar_field_mappings(
@@ -77,6 +101,8 @@ def search_similar_field_mappings(
         score += min(0.1, float(item.success_count) * 0.01)
         if score < 0.15:
             continue
+        reviewed_at = item.last_used_at or item.created_at
+        stale = _is_stale(reviewed_at)
         results.append(
             {
                 "mapped_profile_key": item.mapped_profile_key,
@@ -84,6 +110,14 @@ def search_similar_field_mappings(
                 "score": round(score, 4),
                 "source_domain": item.source_domain,
                 "success_count": item.success_count,
+                "source_type": "reviewed_memory",
+                "source_id": item.id,
+                "reviewed_at": _isoformat(item.created_at),
+                "last_used_at": _isoformat(item.last_used_at),
+                "stale": stale,
+                "governance_status": (
+                    "stale_review_recommended" if stale else "reviewed"
+                ),
             }
         )
 
