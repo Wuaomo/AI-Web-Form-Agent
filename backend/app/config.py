@@ -61,3 +61,8 @@ LLM_PROVIDER_DETAILS = {
 }
 
 METRICS_SIDECAR_URL = os.getenv("METRICS_SIDECAR_URL", "")
+
+# Optional MCP servers for future business-tool integrations. Keep this blank
+# for the local demo. Shape:
+# {"github":{"transport":"stdio","command":"npx","args":["-y","..."],"env":{"GITHUB_TOKEN":"GITHUB_TOKEN"}}}
+MCP_SERVERS_JSON = os.getenv("MCP_SERVERS_JSON", "")

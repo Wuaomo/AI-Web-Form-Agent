@@ -20,6 +20,7 @@ from app.routers.approvals import router as approvals_router
 from app.routers.benchmarks import router as benchmarks_router
 from app.routers.jobs import router as jobs_router
 from app.routers.llm_usage import router as llm_usage_router
+from app.routers.mcp_tools import router as mcp_tools_router
 from app.routers.profiles import router as profiles_router
 from app.routers.tasks import router as tasks_router
 from app.routers.traces import router as traces_router
@@ -71,6 +72,7 @@ app.include_router(approvals_router)
 app.include_router(jobs_router)
 app.include_router(llm_usage_router)
 app.include_router(benchmarks_router)
+app.include_router(mcp_tools_router)
 app.include_router(admin_router)
 screenshots_dir = BACKEND_DIR / "screenshots"
 screenshots_dir.mkdir(parents=True, exist_ok=True)
