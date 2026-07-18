@@ -32,6 +32,24 @@ class LLMProviderResponse(BaseModel):
     setup_hint: str
 
 
+class McpToolResponse(BaseModel):
+    """One external tool discovered from a configured MCP server."""
+
+    server_id: str
+    name: str
+    description: str | None = None
+    input_schema: dict[str, object] = Field(default_factory=dict)
+    read_only: bool | None = None
+    destructive: bool | None = None
+
+
+class McpToolDiscoveryResponse(BaseModel):
+    """Read-only MCP tool discovery result."""
+
+    tools: list[McpToolResponse]
+    errors: list[dict[str, str]] = Field(default_factory=list)
+
+
 class ProfileBase(BaseModel):
     """Fields shared by profile create and response models."""
 
