@@ -30,6 +30,16 @@ def test_submit_form_requires_approval() -> None:
     assert tool.requires_approval is True
 
 
+def test_implemented_tools_expose_runtime_schema_metadata() -> None:
+    """Verify executable tools publish the metadata needed by planners and UI."""
+
+    for tool in list_tools(include_unimplemented=False):
+        assert tool.params_schema["type"] == "object"
+        assert isinstance(tool.params_schema["properties"], dict)
+        assert isinstance(tool.preconditions, list)
+        assert isinstance(tool.produces, list)
+
+
 def test_list_tools_includes_unimplemented_tools() -> None:
     """Verify the registry remains inspectable beyond implemented tools."""
 

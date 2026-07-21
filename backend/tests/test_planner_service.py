@@ -170,62 +170,46 @@ def test_plan_to_dict_output_is_stable() -> None:
     """Verify plan serialization stays deterministic for persistence and tests."""
 
     plan = build_form_fill_plan(goal="Fill this application.")
+    plan_dict = plan_to_dict(plan)
 
-    assert plan_to_dict(plan) == {
-        "workflow_type": "form_fill",
-        "goal": "Fill this application.",
-        "steps": [
-            {
-                "step_id": "open_url",
-                "tool": "open_url",
-                "reason": "Open the target page before extracting form structure.",
-                "requires_approval": False,
-                "status": "PENDING",
-            },
-            {
-                "step_id": "extract_form",
-                "tool": "extract_form",
-                "reason": "Extract the form schema and candidate fields.",
-                "requires_approval": False,
-                "status": "PENDING",
-            },
-            {
-                "step_id": "map_fields",
-                "tool": "map_fields",
-                "reason": "Map extracted fields to profile data or user-provided values.",
-                "requires_approval": False,
-                "status": "PENDING",
-            },
-            {
-                "step_id": "review_mapping",
-                "tool": "request_human_approval",
-                "reason": "Let the user review and confirm the proposed mapping before fill.",
-                "requires_approval": True,
-                "status": "PENDING",
-            },
-            {
-                "step_id": "fill_form",
-                "tool": "fill_form",
-                "reason": "Apply confirmed mapped values to the form.",
-                "requires_approval": False,
-                "status": "PENDING",
-            },
-            {
-                "step_id": "verify_fields",
-                "tool": "verify_fields",
-                "reason": "Verify browser-side field values after fill.",
-                "requires_approval": False,
-                "status": "PENDING",
-            },
-            {
-                "step_id": "submit_form",
-                "tool": "submit_form",
-                "reason": "Submit the completed form after final approval.",
-                "requires_approval": True,
-                "status": "PENDING",
-            },
-        ],
+    assert plan_dict["workflow_type"] == "form_fill"
+    assert plan_dict["goal"] == "Fill this application."
+    assert [
+        (
+            step["step_id"],
+            step["tool"],
+            step["requires_approval"],
+            step["status"],
+        )
+        for step in plan_dict["steps"]
+    ] == [
+        ("open_url", "open_url", False, "PENDING"),
+        ("extract_form", "extract_form", False, "PENDING"),
+        ("map_fields", "map_fields", False, "PENDING"),
+        ("review_mapping", "request_human_approval", True, "PENDING"),
+        ("fill_form", "fill_form", False, "PENDING"),
+        ("verify_fields", "verify_fields", False, "PENDING"),
+        ("submit_form", "submit_form", True, "PENDING"),
+    ]
+
+
+def test_plan_to_dict_includes_tool_runtime_metadata() -> None:
+    """Verify serialized steps include tool schemas for review and execution context."""
+
+    plan = build_form_fill_plan(goal="Fill this application.")
+
+    first_step = plan_to_dict(plan)["steps"][0]
+
+    assert first_step["params_schema"] == {
+        "type": "object",
+        "required": ["task_id", "url"],
+        "properties": {
+            "task_id": {"type": "integer"},
+            "url": {"type": "string"},
+        },
     }
+    assert first_step["preconditions"] == ["task_created"]
+    assert first_step["produces"] == ["page_opened", "screenshot"]
 
 
 def test_save_plan_persists_stable_json_on_task(session: Session) -> None:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -14,6 +14,18 @@ class ToolDefinition:
     risk_level: str
     requires_approval: bool
     implemented: bool
+    params_schema: dict[str, object] = field(default_factory=dict)
+    preconditions: list[str] = field(default_factory=list)
+    produces: list[str] = field(default_factory=list)
+
+
+TASK_ID_SCHEMA = {
+    "type": "object",
+    "required": ["task_id"],
+    "properties": {
+        "task_id": {"type": "integer"},
+    },
+}
 
 
 _TOOL_REGISTRY = {
@@ -23,6 +35,16 @@ _TOOL_REGISTRY = {
         risk_level="low",
         requires_approval=False,
         implemented=True,
+        params_schema={
+            "type": "object",
+            "required": ["task_id", "url"],
+            "properties": {
+                "task_id": {"type": "integer"},
+                "url": {"type": "string"},
+            },
+        },
+        preconditions=["task_created"],
+        produces=["page_opened", "screenshot"],
     ),
     "extract_dom": ToolDefinition(
         name="extract_dom",
@@ -37,6 +59,9 @@ _TOOL_REGISTRY = {
         risk_level="low",
         requires_approval=False,
         implemented=True,
+        params_schema=TASK_ID_SCHEMA,
+        preconditions=["page_opened"],
+        produces=["form_fields"],
     ),
     "map_fields": ToolDefinition(
         name="map_fields",
@@ -44,6 +69,9 @@ _TOOL_REGISTRY = {
         risk_level="medium",
         requires_approval=False,
         implemented=True,
+        params_schema=TASK_ID_SCHEMA,
+        preconditions=["form_fields"],
+        produces=["field_mappings"],
     ),
     "request_human_approval": ToolDefinition(
         name="request_human_approval",
@@ -51,6 +79,9 @@ _TOOL_REGISTRY = {
         risk_level="medium",
         requires_approval=False,
         implemented=True,
+        params_schema=TASK_ID_SCHEMA,
+        preconditions=["field_mappings"],
+        produces=["approval_decision"],
     ),
     "fill_field": ToolDefinition(
         name="fill_field",
@@ -65,6 +96,9 @@ _TOOL_REGISTRY = {
         risk_level="medium",
         requires_approval=False,
         implemented=True,
+        params_schema=TASK_ID_SCHEMA,
+        preconditions=["mapping_confirmed", "policy_passed"],
+        produces=["filled_fields", "verification_candidates"],
     ),
     "click_element": ToolDefinition(
         name="click_element",
@@ -79,6 +113,9 @@ _TOOL_REGISTRY = {
         risk_level="medium",
         requires_approval=False,
         implemented=True,
+        params_schema=TASK_ID_SCHEMA,
+        preconditions=["filled_fields"],
+        produces=["verification_results"],
     ),
     "capture_screenshot": ToolDefinition(
         name="capture_screenshot",
@@ -107,6 +144,9 @@ _TOOL_REGISTRY = {
         risk_level="high",
         requires_approval=True,
         implemented=True,
+        params_schema=TASK_ID_SCHEMA,
+        preconditions=["final_approval", "verification_results"],
+        produces=["submitted_form", "screenshot"],
     ),
 }
 
