@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 
 from sqlalchemy.orm import Session
@@ -212,10 +213,23 @@ def build_plan(*, workflow_type: str, goal: str) -> WorkflowPlan:
 def plan_to_dict(plan: WorkflowPlan) -> dict[str, object]:
     """Convert a workflow plan into a stable JSON-ready dictionary."""
 
+    steps = []
+    for step in plan.steps:
+        tool = require_tool(step.tool)
+        serialized_step = asdict(step)
+        serialized_step.update(
+            {
+                "params_schema": deepcopy(tool.params_schema),
+                "preconditions": list(tool.preconditions),
+                "produces": list(tool.produces),
+            }
+        )
+        steps.append(serialized_step)
+
     return {
         "workflow_type": plan.workflow_type,
         "goal": plan.goal,
-        "steps": [asdict(step) for step in plan.steps],
+        "steps": steps,
     }
 
 
