@@ -46,6 +46,7 @@ class AnswerSuggestion(BaseModel):
     question_id: str
     field_id: str | None = None
     suggested_value: str | None = None
+    mapped_profile_key: str | None = None
     confidence: float = Field(ge=0.0, le=1.0)
     answer_status: Literal[
         "suggested", "unsupported", "sensitive_blocked", "requires_user_input"
