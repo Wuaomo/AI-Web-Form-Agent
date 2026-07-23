@@ -2,8 +2,7 @@
 
 ## Target Positioning
 
-Upgrade AI Web Form Agent from a form-filling demo into a full-stack AI
-browser workflow assistant with:
+AI Web Form Agent is a review-first AI browser workflow assistant with:
 
 - Browser automation workflows
 - Retrieval-backed reviewed memory

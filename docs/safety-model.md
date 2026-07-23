@@ -1,6 +1,6 @@
 # Safety Model
 
-AI Web Form Agent is built around reviewed automation. The browser can fill fields, but sensitive or irreversible steps are blocked or paused for user approval.
+AI Web Form Agent is built around reviewed automation. The browser can apply values, but sensitive or irreversible steps are blocked or paused for user approval.
 
 ## Blocked Actions
 
@@ -28,7 +28,7 @@ CAPTCHA and anti-bot challenges are treated as stop signs. The project does not 
 
 ## Final Submission Approval
 
-The form-fill workflow waits before final submit. The user must inspect the filled page and approve the final submission step. Without approval, the workflow remains paused.
+All workflows wait before final submit. The user must inspect the browser-executed page and approve the final submission step. Without approval, the workflow remains paused.
 
 ## Memory Safety
 

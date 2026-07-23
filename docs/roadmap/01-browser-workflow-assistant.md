@@ -2,8 +2,7 @@
 
 ## Goal
 
-Expand the app beyond form filling into a small, review-first browser workflow
-assistant.
+Build a review-first browser workflow assistant that reads pages, extracts information, suggests actions with evidence, and executes only after human review.
 
 ## Why
 

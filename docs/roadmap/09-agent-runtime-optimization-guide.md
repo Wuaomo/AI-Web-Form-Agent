@@ -2,8 +2,8 @@
 
 ## Purpose
 
-This guide explains how to evolve AI Web Form Agent from a review-first form
-workflow demo into a cleaner, more professional browser workflow agent system.
+This guide explains how to evolve AI Web Form Agent from a review-first AI
+browser workflow assistant into a cleaner, more professional browser workflow agent system.
 
 The goal is not to add a large AI framework first. The goal is to make the
 current stack look and behave like a small agent runtime:
@@ -285,8 +285,8 @@ Acceptance criteria:
 
 Timeframe: 3-8 weeks.
 
-Goal: make the product a complete review-first browser workflow assistant, not
-just a safer form filler.
+Goal: make the product a complete review-first browser workflow assistant with
+source evidence, review gates, and verification.
 
 ### 1. Complete Page Workflow Support
 

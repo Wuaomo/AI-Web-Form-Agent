@@ -1,6 +1,6 @@
 # Architecture
 
-AI Web Form Agent is a review-first workflow automation app. It analyzes web forms, maps reusable profile data to fields, fills the page in a real browser, and stops before final submission so the user stays in control.
+AI Web Form Agent is a review-first AI browser workflow assistant. It reads web pages, extracts fields or questionnaire items, retrieves profile data and source evidence, suggests answers, requires human review, fills approved values in a real browser, verifies the result, and stops before final submission so the user stays in control.
 
 ## Product Positioning
 
@@ -40,8 +40,8 @@ flowchart TD
 
 - Runs dashboard: recent workflow runs, backend health, and quick links.
 - Workflow templates: available workflow types and approval policy summaries.
-- Profiles: reusable applicant data used during form filling.
-- Create run: starts a form-fill workflow from a URL and profile.
+- Profiles: reusable applicant data used during workflow execution.
+- Create run: starts a workflow from a URL and profile.
 - Task detail: run status, actions, screenshots, verification, and approval controls.
 - Review mapping: user inspection and correction before browser execution.
 - Approvals: pending review gates.
