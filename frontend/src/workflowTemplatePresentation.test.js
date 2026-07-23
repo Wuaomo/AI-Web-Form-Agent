@@ -34,7 +34,7 @@ test("sortWorkflowTemplates keeps enabled templates first", () => {
   ]);
 });
 
-test("sortWorkflowTemplates prioritizes security_questionnaire before form_fill among enabled templates", () => {
+test("sortWorkflowTemplates prioritizes security_questionnaire and vendor_onboarding before form_fill among enabled templates", () => {
   const templates = [
     { id: "form_fill", name: "Form Fill", enabled: true },
     { id: "security_questionnaire", name: "Security Questionnaire", enabled: true },
@@ -45,8 +45,8 @@ test("sortWorkflowTemplates prioritizes security_questionnaire before form_fill 
 
   assert.deepEqual(sortWorkflowTemplates(templates).map((item) => item.id), [
     "security_questionnaire",
-    "form_fill",
     "vendor_onboarding",
+    "form_fill",
     "web_data_extract",
     "job_research_summary",
   ]);

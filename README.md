@@ -2,7 +2,7 @@
 
 **Review-first AI Browser Workflow Assistant**
 
-A human-in-the-loop automation platform that reads web pages, extracts structured fields or questionnaire items, retrieves reviewed memory and local policy evidence, suggests values, requires human review, fills approved values in the browser, verifies results, and stops before final submission.
+A human-in-the-loop local review-first workflow assistant that reads web pages, extracts structured fields or questionnaire items, retrieves reviewed memory and local policy evidence, suggests values, requires human review, fills approved values in the browser, verifies results, and stops before final submission.
 
 ## What It Is
 
@@ -46,10 +46,10 @@ Browser agents are risky when they submit forms invisibly. This app keeps the us
 ## Supported Workflows
 
 - **Security Questionnaire Workflow**: Primary demo. Extract security/compliance questionnaire fields, suggest answers from local policy documents with source evidence, require human review, fill safe fields, verify, and wait for submit approval.
+- **Vendor Onboarding Workflow**: Prepare vendor onboarding forms with reusable company/profile data, human review, safe browser fill, verification, and submit approval.
 - Form Fill Workflow: Analyze web forms, map profile data, review values, fill fields, verify, and wait for submit approval.
 - Web Data Extraction Workflow: Open pages, extract structured data, capture screenshots, and save results.
 - Job Research Summary Workflow: Extract job page content, summarize, and save research results.
-- Vendor Onboarding Workflow: Prepare vendor onboarding forms with reusable company/profile data, human review, safe browser fill, verification, and submit approval.
 - Data Entry Workflow: Registered but disabled.
 - Job Application Workflow: Registered but disabled.
 
@@ -221,18 +221,18 @@ Use [docs/demo-script.md](docs/demo-script.md) for a 3 to 5 minute reviewer demo
 9. Stop at final submit approval.
 10. Show Evaluation for repeatable benchmark evidence.
 
+### Vendor Onboarding Workflow
+
+1. Create a **Vendor Onboarding Workflow** run with the Docker demo URL.
+2. Review safe contact mappings and leave unsupported vendor-specific fields for manual review.
+3. Confirm mappings, fill, verify, and stop before final submit approval.
+
 ### Form Fill Workflow
 
 1. Create a **Form Fill Workflow** run with a test form URL.
 2. Review mappings before execution.
 3. Inspect screenshot and verification evidence.
 4. Stop at final submit approval.
-
-### Vendor Onboarding Workflow
-
-1. Create a **Vendor Onboarding Workflow** run with the Docker demo URL.
-2. Review safe contact mappings and leave unsupported vendor-specific fields for manual review.
-3. Confirm mappings, fill, verify, and stop before final submit approval.
 
 ## Latest Local Verification
 

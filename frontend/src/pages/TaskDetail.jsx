@@ -389,7 +389,7 @@ function TaskDetail() {
     prepare: "Preparing...",
     login: "Waiting for login...",
     map: "Mapping...",
-    fill: "Filling...",
+    fill: "Applying...",
     approve: "Submitting...",
   };
   const primaryLabel =
@@ -430,7 +430,7 @@ function TaskDetail() {
       runAction(
         "fill",
         () => api.fillTask(taskId),
-        "Form filled. Review the screenshot before final submission.",
+        "Values applied. Review the screenshot before final submission.",
       );
       return;
     }
@@ -438,7 +438,7 @@ function TaskDetail() {
       runAction(
         "confirm",
         () => api.confirmSubmit(taskId),
-        "Form submitted after your approval.",
+        "Submitted after your approval.",
       );
     }
   }
@@ -550,7 +550,7 @@ function TaskDetail() {
               task.status === "WAITING_APPROVAL" ||
               task.status === "COMPLETED") && (
               <Link className="text-button" to={`/tasks/${task.id}/review-mapping`}>
-                Review mapped run values
+                Review values
               </Link>
             )}
           </article>

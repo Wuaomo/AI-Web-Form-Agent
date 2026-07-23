@@ -52,6 +52,14 @@ function Dashboard() {
 
       <div className="card-grid">
         <article className="card">
+          <h3>Security Questionnaire Assistant</h3>
+          <p>Try the primary demo: answer security/compliance questions with source-backed evidence, human review, and safe browser execution.</p>
+          <Link className="button button-primary" to="/tasks/new?workflow_type=security_questionnaire">
+            Start demo
+          </Link>
+        </article>
+
+        <article className="card">
           <h3>Backend status</h3>
           <p className={`status status-${health}`}>
             <span aria-hidden="true" />
@@ -63,13 +71,13 @@ function Dashboard() {
 
         <article className="card">
           <h3>Profiles</h3>
-          <p>Save the information you commonly use in forms.</p>
+          <p>Save the information you commonly use in workflows.</p>
           <Link to="/profiles">Manage profiles</Link>
         </article>
 
         <article className="card">
           <h3>Workflows</h3>
-          <p>Browse templates and start a workflow run from an enabled template.</p>
+          <p>Browse templates including Vendor Onboarding and Form Fill.</p>
           <Link to="/workflows">Open templates</Link>
         </article>
       </div>
@@ -112,7 +120,7 @@ function Dashboard() {
                     <td>
                       <span className="badge">{task.status}</span>
                     </td>
-                    <td>{task.workflow_type || "form_fill"}</td>
+                    <td>{task.workflow_type || "—"}</td>
                     <td>{profilesById.get(task.profile_id) || task.profile_id}</td>
                     <td>{task.description || "—"}</td>
                     <td>{formatChinaTime(task.created_at)}</td>

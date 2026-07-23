@@ -8,8 +8,8 @@ export function templateAvailabilityLabel(template) {
 
 const WORKFLOW_PRIORITY_ORDER = [
   "security_questionnaire",
-  "form_fill",
   "vendor_onboarding",
+  "form_fill",
   "web_data_extract",
   "job_research_summary",
 ];

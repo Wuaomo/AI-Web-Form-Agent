@@ -37,7 +37,14 @@ http://localhost:5173
 11. Stop at final submit approval and explain that the app does not submit without explicit user decision.
 12. Open Evaluation and show how local benchmark runs track mapping quality, source evidence coverage, refusal rate, and sensitive-field skip rate.
 
-### Form Fill Workflow (Secondary)
+### Vendor Onboarding Workflow (Secondary)
+
+1. Create a new run and select **Vendor Onboarding Workflow**.
+2. Analyze the page and generate mappings in rules mode.
+3. Open Review Mapping and show that safe contact fields can be reviewed while vendor-specific or sensitive fields stay under human control.
+4. Confirm mappings, fill the page, inspect verification evidence, and stop before final submit approval.
+
+### Form Fill Workflow (Optional)
 
 1. Create a new run and select **Form Fill Workflow**.
 2. Enter a test form URL or use the Docker demo form.
@@ -47,13 +54,6 @@ http://localhost:5173
 6. Confirm mappings so the browser execution can fill the form.
 7. Inspect screenshot and verification evidence.
 8. Stop at final submit approval.
-
-### Vendor Onboarding Workflow (Optional)
-
-1. Create a new run and select **Vendor Onboarding Workflow**.
-2. Analyze the page and generate mappings in rules mode.
-3. Open Review Mapping and show that safe contact fields can be reviewed while vendor-specific or sensitive fields stay under human control.
-4. Confirm mappings, fill the page, inspect verification evidence, and stop before final submit approval.
 
 ## Reviewer Talking Points
 
