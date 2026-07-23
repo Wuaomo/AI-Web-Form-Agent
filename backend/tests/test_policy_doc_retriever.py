@@ -13,9 +13,10 @@ def test_retrieve_policy_sources_returns_source_metadata() -> None:
 
     assert hits
     assert hits[0].source_id
-    assert hits[0].document_name
-    assert hits[0].excerpt
-    assert 0 <= hits[0].match_score <= 1
+    assert hits[0].document_id
+    assert hits[0].title
+    assert hits[0].snippet
+    assert 0 <= hits[0].score <= 1
 
 
 def test_retrieve_policy_sources_returns_empty_for_unknown_question() -> None:

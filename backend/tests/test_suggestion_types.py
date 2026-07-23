@@ -137,16 +137,21 @@ def test_memory_hit_has_required_fields() -> None:
     hit = MemoryHit(
         memory_id="mem-1",
         profile_key="company_name",
-        matched_value="Acme Corp",
-        source_label="Previous vendor onboarding",
-        match_score=0.88,
+        value_preview="Acme Corp",
+        source_task_id=42,
+        reviewed_at="2026-01-15T10:30:00+00:00",
+        confidence=0.88,
         stale=False,
+        reusable=True,
+        sensitivity="safe",
     )
 
     assert hit.memory_id == "mem-1"
     assert hit.profile_key == "company_name"
-    assert hit.match_score == 0.88
+    assert hit.confidence == 0.88
     assert hit.stale is False
+    assert hit.reusable is True
+    assert hit.sensitivity == "safe"
 
 
 def test_policy_source_hit_has_required_fields() -> None:
@@ -154,14 +159,16 @@ def test_policy_source_hit_has_required_fields() -> None:
 
     hit = PolicySourceHit(
         source_id="src-1",
-        document_name="security-policy.md",
-        matched_section="Data Handling",
-        match_score=0.92,
-        excerpt="Sensitive data must be encrypted at rest.",
-        needs_review=False,
+        document_id="doc-secpol-001",
+        title="Corporate Security Policy",
+        section="Data Handling",
+        snippet="Sensitive data must be encrypted at rest.",
+        score=0.92,
     )
 
     assert hit.source_id == "src-1"
-    assert hit.document_name == "security-policy.md"
-    assert hit.matched_section == "Data Handling"
-    assert hit.needs_review is False
+    assert hit.document_id == "doc-secpol-001"
+    assert hit.title == "Corporate Security Policy"
+    assert hit.section == "Data Handling"
+    assert hit.snippet is not None
+    assert hit.score == 0.92

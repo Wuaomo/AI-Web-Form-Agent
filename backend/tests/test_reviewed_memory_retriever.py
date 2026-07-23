@@ -75,7 +75,7 @@ def test_retrieve_reviewed_memory_returns_matching_hits(session: Session) -> Non
 
     assert len(hits) >= 1
     assert hits[0].profile_key == "company_name"
-    assert hits[0].match_score > 0.0
+    assert hits[0].confidence > 0.0
 
 
 def test_retrieve_reviewed_memory_skips_sensitive_items(session: Session) -> None:

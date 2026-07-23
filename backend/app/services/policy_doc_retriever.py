@@ -20,10 +20,17 @@ DEFAULT_POLICY_PATHS = [
 ]
 
 
-def _section_id(document_name: str, section_title: str) -> str:
+def _document_id(path: Path) -> str:
+    """Build a stable document identifier from a file path."""
+
+    digest = hashlib.sha256(path.name.encode("utf-8")).hexdigest()[:12]
+    return f"doc-{digest}"
+
+
+def _source_id(document_id: str, section_title: str) -> str:
     """Build a stable source identifier from document + section."""
 
-    raw = f"{document_name}::{section_title}"
+    raw = f"{document_id}::{section_title}"
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
     return f"src-{digest}"
 
@@ -36,6 +43,21 @@ def _snippet_from_body(body: str, max_chars: int = 240) -> str:
     if len(text) <= max_chars:
         return text
     return text[:max_chars].rstrip() + "..."
+
+
+def _document_title(path: Path) -> str:
+    """Derive a human-readable title from the markdown file."""
+
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return path.stem
+
+    for line in content.splitlines():
+        heading = re.match(r"^#\s+(.+)$", line.strip())
+        if heading:
+            return heading.group(1).strip()
+    return path.stem
 
 
 def retrieve_policy_sources(
@@ -68,22 +90,24 @@ def retrieve_policy_sources(
         if not path.exists():
             continue
 
-        document_name = path.name
-        for title, body in _sections(path.read_text(encoding="utf-8")):
-            score = jaccard_similarity(query, f"{title}\n{body}")
+        doc_id = _document_id(path)
+        title = _document_title(path)
+
+        for section_title, body in _sections(path.read_text(encoding="utf-8")):
+            score = jaccard_similarity(query, f"{section_title}\n{body}")
             if score < 0.15:
                 continue
 
             hits.append(
                 PolicySourceHit(
-                    source_id=_section_id(document_name, title),
-                    document_name=document_name,
-                    matched_section=title,
-                    match_score=round(score, 4),
-                    excerpt=_snippet_from_body(body),
-                    needs_review=True,
+                    source_id=_source_id(doc_id, section_title),
+                    document_id=doc_id,
+                    title=title,
+                    section=section_title,
+                    snippet=_snippet_from_body(body),
+                    score=round(score, 4),
                 )
             )
 
-    hits.sort(key=lambda hit: hit.match_score, reverse=True)
+    hits.sort(key=lambda hit: hit.score, reverse=True)
     return hits[:limit]

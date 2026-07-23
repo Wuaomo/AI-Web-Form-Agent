@@ -8,11 +8,13 @@ Produces ``AnswerSuggestion`` objects by combining:
 The provider is read-only — it never modifies ``FormField`` rows, writes to
 the database, or performs browser actions.
 
-``mode='llm'`` falls back to rules-only for now. A future LangChain adapter
-can plug in here without changing the public interface.
+``mode='llm'`` attempts the optional LangChain adapter first, then falls
+back to rules when LangChain is not installed or no API key is configured.
 """
 
 from __future__ import annotations
+
+import logging
 
 from sqlalchemy.orm import Session
 
@@ -24,10 +26,17 @@ from app.services.field_mapper import (
     _normalize,
     get_profile_value,
 )
+from app.services.langchain_suggestion_adapter import (
+    LangChainUnavailableError,
+    is_available as langchain_is_available,
+    suggest_answers_with_langchain,
+)
 from app.services.policy_doc_retriever import retrieve_policy_sources
 from app.services.reviewed_memory_retriever import retrieve_reviewed_memory
 from app.services.suggestion_types import AnswerSuggestion
 from app.services.workflow_memory import is_memory_eligible_field
+
+logger = logging.getLogger(__name__)
 
 SENSITIVE_FIELD_TYPES = {"password"}
 SENSITIVE_TOKENS = {"password", "otp", "payment", "card", "captcha", "consent"}
@@ -154,7 +163,8 @@ def suggest_answers(
         The user profile to draw values from.
     mode:
         Suggestion mode. Currently supports ``'rules'`` and ``'llm'``.
-        ``'llm'`` falls back to rules-only (no LangChain yet).
+        ``'llm'`` attempts the LangChain adapter first, then falls back
+        to rules when LangChain is not installed or no API key is set.
 
     Returns
     -------
@@ -162,6 +172,104 @@ def suggest_answers(
         One suggestion per input field, in the same order as ``fields``.
         The provider never writes to the database or modifies FormField rows.
     """
+
+    if mode == "llm":
+        llm_result = _try_langchain_suggestions(db, task=task, fields=fields, profile=profile)
+        if llm_result is not None:
+            return llm_result
+        logger.info("LangChain unavailable — falling back to rules mode")
+
+    return _suggest_with_rules(db, task=task, fields=fields, profile=profile)
+
+
+def _try_langchain_suggestions(
+    db: Session,
+    *,
+    task: Task,
+    fields: list[FormField],
+    profile: Profile | None,
+) -> list[AnswerSuggestion] | None:
+    """Attempt LangChain suggestions; return None to signal fallback."""
+
+    if not langchain_is_available():
+        return None
+
+    profile_dict = _profile_to_dict(profile)
+
+    questions = [
+        {
+            "question_id": str(field.id),
+            "field_id": str(field.id),
+            "label": field.label,
+            "name": field.name,
+            "type": field.field_type,
+            "required": bool(field.required),
+            "options": field.options or [],
+        }
+        for field in fields
+    ]
+
+    memory_hits_by_field: dict[str, list[dict[str, object]]] = {}
+    policy_hits_by_field: dict[str, list[dict[str, object]]] = {}
+    workflow_type = task.workflow_type or "form_fill"
+
+    for field in fields:
+        query = _question_text(field)
+        fid = str(field.id)
+        if is_memory_eligible_field(field):
+            memory_hits_by_field[fid] = [
+                hit.model_dump() for hit in retrieve_reviewed_memory(
+                    db,
+                    profile_id=task.profile_id or 0,
+                    workflow_type=workflow_type,
+                    query=query,
+                )
+            ]
+        if workflow_type == "security_questionnaire":
+            policy_hits_by_field[fid] = [
+                hit.model_dump() for hit in retrieve_policy_sources(query, limit=3)
+            ]
+
+    input_payload: dict[str, object] = {
+        "questions": questions,
+        "profile": profile_dict,
+        "memory_hits": memory_hits_by_field,
+        "policy_sources": policy_hits_by_field,
+    }
+
+    try:
+        return suggest_answers_with_langchain(input_payload)
+    except LangChainUnavailableError:
+        return None
+    except Exception as exc:
+        logger.warning("LangChain suggestion failed, falling back to rules: %s", exc)
+        return None
+
+
+def _profile_to_dict(profile: Profile | None) -> dict[str, str]:
+    """Convert a Profile into a plain dict for the LLM payload."""
+
+    if profile is None:
+        return {}
+    result: dict[str, str] = {}
+    for key in PROFILE_KEYS:
+        value = get_profile_value(profile, key)
+        if value not in (None, ""):
+            result[key] = value
+    for key, value in profile.custom_values.items():
+        if value not in (None, ""):
+            result[f"custom:{key}"] = value
+    return result
+
+
+def _suggest_with_rules(
+    db: Session,
+    *,
+    task: Task,
+    fields: list[FormField],
+    profile: Profile | None,
+) -> list[AnswerSuggestion]:
+    """Generate suggestions using rules, memory, and policy evidence only."""
 
     workflow_type = task.workflow_type or "form_fill"
     suggestions: list[AnswerSuggestion] = []
@@ -212,7 +320,9 @@ def suggest_answers(
         memory_ids = [hit.memory_id for hit in memory_hits]
 
         stale_memory = any(hit.stale for hit in memory_hits)
-        needs_review = any(hit.needs_review for hit in policy_hits)
+        non_reusable_policy = any(
+            hit.score < 0.3 for hit in policy_hits
+        )
 
         if profile_value is not None:
             combined_confidence = profile_confidence
@@ -230,13 +340,13 @@ def suggest_answers(
                 if "encryption" in query.lower() or "encrypt" in query.lower():
                     combined_confidence = max(combined_confidence, 0.78)
                 reason_parts.append(
-                    f"Policy evidence: {policy_hits[0].matched_section}"
+                    f"Policy evidence: {policy_hits[0].section}"
                 )
 
             safety_flags: list[str] = []
             if stale_memory:
                 safety_flags.append("stale_memory_review")
-            if needs_review:
+            if non_reusable_policy:
                 safety_flags.append("policy_review_recommended")
 
             suggestions.append(
@@ -256,14 +366,14 @@ def suggest_answers(
 
         if policy_hits:
             top_hit = policy_hits[0]
-            policy_confidence = min(top_hit.match_score + 0.2, 0.75)
+            policy_confidence = min(top_hit.score + 0.2, 0.75)
             suggestions.append(
                 _build_suggestion(
                     field,
                     answer_status="requires_user_input",
                     confidence=policy_confidence,
                     reason=(
-                        f"Policy section '{top_hit.matched_section}' is relevant — "
+                        f"Policy section '{top_hit.section}' is relevant — "
                         "review and confirm value"
                     ),
                     source_ids=source_ids,
@@ -279,7 +389,7 @@ def suggest_answers(
                 _build_suggestion(
                     field,
                     answer_status="requires_user_input",
-                    confidence=top_mem.match_score,
+                    confidence=top_mem.confidence,
                     reason=(
                         f"Memory match to '{top_mem.profile_key}' — "
                         "review before applying"

@@ -55,6 +55,14 @@ def _is_sensitive_item(item: WorkflowMemoryItem) -> bool:
     return any(token in text for token in SENSITIVE_TOKENS)
 
 
+def _sensitivity_label(item: WorkflowMemoryItem) -> str:
+    """Return a coarse sensitivity label for a memory item."""
+
+    if _is_sensitive_item(item):
+        return "sensitive"
+    return "safe"
+
+
 def retrieve_reviewed_memory(
     db: Session,
     *,
@@ -80,7 +88,7 @@ def retrieve_reviewed_memory(
     Returns
     -------
     list[MemoryHit]
-        At most ``MAX_HITS`` items, sorted by score descending. Stale
+        At most ``MAX_HITS`` items, sorted by confidence descending. Stale
         items are included with ``stale=True`` so callers can mark them
         as review-only. Sensitive items are excluded entirely.
     """
@@ -106,17 +114,21 @@ def retrieve_reviewed_memory(
 
         reviewed_at = item.last_used_at or item.created_at
         stale = _is_stale(reviewed_at)
+        sensitivity = _sensitivity_label(item)
 
         results.append(
             MemoryHit(
                 memory_id=str(item.id),
                 profile_key=item.mapped_profile_key,
-                matched_value=None,
-                source_label=item.source_domain,
-                match_score=round(score, 4),
+                value_preview=None,
+                source_task_id=None,
+                reviewed_at=reviewed_at.isoformat() if reviewed_at else None,
                 stale=stale,
+                confidence=round(score, 4),
+                reusable=not stale and sensitivity == "safe",
+                sensitivity=sensitivity,
             )
         )
 
-    results.sort(key=lambda hit: hit.match_score, reverse=True)
+    results.sort(key=lambda hit: hit.confidence, reverse=True)
     return results[:MAX_HITS]
