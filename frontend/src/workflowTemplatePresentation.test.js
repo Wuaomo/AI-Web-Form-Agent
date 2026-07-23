@@ -34,6 +34,24 @@ test("sortWorkflowTemplates keeps enabled templates first", () => {
   ]);
 });
 
+test("sortWorkflowTemplates prioritizes security_questionnaire before form_fill among enabled templates", () => {
+  const templates = [
+    { id: "form_fill", name: "Form Fill", enabled: true },
+    { id: "security_questionnaire", name: "Security Questionnaire", enabled: true },
+    { id: "vendor_onboarding", name: "Vendor Onboarding", enabled: true },
+    { id: "web_data_extract", name: "Web Data Extraction", enabled: true },
+    { id: "job_research_summary", name: "Job Research Summary", enabled: true },
+  ];
+
+  assert.deepEqual(sortWorkflowTemplates(templates).map((item) => item.id), [
+    "security_questionnaire",
+    "form_fill",
+    "vendor_onboarding",
+    "web_data_extract",
+    "job_research_summary",
+  ]);
+});
+
 test("buildWorkflowTemplateCreatePath encodes the workflow id", () => {
   assert.equal(
     buildWorkflowTemplateCreatePath("form fill"),
@@ -76,7 +94,23 @@ test("mappingModeForWorkflow uses rules for local no-provider workflows", () => 
   assert.equal(mappingModeForWorkflow("form_fill"), "llm");
 });
 
-test("resolveWorkflowTypeSelection falls back to form_fill for disabled requests", () => {
+test("resolveWorkflowTypeSelection falls back to security_questionnaire when available", () => {
+  const result = resolveWorkflowTypeSelection(
+    [
+      { id: "security_questionnaire", enabled: true },
+      { id: "form_fill", enabled: true },
+      { id: "job_apply", enabled: false },
+    ],
+    "job_apply",
+  );
+
+  assert.deepEqual(result, {
+    selectedWorkflowType: "security_questionnaire",
+    notice: "Requested workflow template is unavailable. Using security_questionnaire instead.",
+  });
+});
+
+test("resolveWorkflowTypeSelection falls back to form_fill when security_questionnaire is unavailable", () => {
   const result = resolveWorkflowTypeSelection(
     [
       { id: "form_fill", enabled: true },
@@ -87,7 +121,7 @@ test("resolveWorkflowTypeSelection falls back to form_fill for disabled requests
 
   assert.deepEqual(result, {
     selectedWorkflowType: "form_fill",
-    notice: "Requested workflow template is unavailable. Using form_fill instead.",
+    notice: "Requested workflow template is unavailable.",
   });
 });
 

@@ -1,8 +1,8 @@
 # AI Web Form Agent
 
-Review-first AI browser workflow assistant for structured web tasks.
+**Review-first AI Browser Workflow Assistant**
 
-The app reads browser pages, extracts structured fields or questions, retrieves reviewed knowledge when available, proposes safe actions with evidence, executes in Chromium after review, records trace evidence, and pauses before final submission.
+A human-in-the-loop automation platform that reads web pages, extracts structured fields or questionnaire items, retrieves reviewed memory and local policy evidence, suggests values, requires human review, fills approved values in the browser, verifies results, and stops before final submission.
 
 ## What It Is
 
@@ -10,20 +10,22 @@ This project demonstrates safe, inspectable AI workflow automation. It combines 
 
 The default demo runs without LLM API keys. Optional providers can assist semantic mapping, but deterministic rules remain available.
 
-## Not Just A Form Filler
+## Review-First Workflow
 
-Form filling is the first concrete workflow, but the system is built around a broader agent loop:
+The system is built around a human-in-the-loop workflow that ensures every automated action is reviewed and approved:
 
 ```text
-read a browser page
-  -> extract fields, questions, and page context
-  -> retrieve reviewed memory or local policy evidence
-  -> propose mappings and answers
+read page
+  -> extract fields or questionnaire items
+  -> retrieve profile / reviewed memory / local policy evidence
+  -> suggest values
   -> require human review
-  -> execute safe browser actions
-  -> verify results and record traces
-  -> evaluate behavior with local benchmarks
+  -> fill approved values in browser
+  -> verify result
+  -> stop before final submission
 ```
+
+The **Security Questionnaire Assistant** is the primary demo, showing how source-backed answers from local policy documents can be proposed, reviewed with evidence, and safely executed.
 
 ## Why It Matters
 
@@ -41,31 +43,15 @@ Browser agents are risky when they submit forms invisibly. This app keeps the us
 - Trace spans, screenshots, action logs, verification evidence, and usage/cost summaries.
 - Local benchmark/evaluation center with comparison reports and browser replay mode.
 
-## Core Workflow
+## Supported Workflows
 
-```text
-Create Profile
-  -> Create Run
-  -> Analyze Form
-  -> Plan Workflow
-  -> Generate Mapping
-  -> Review Mapping
-  -> Apply Policy Gates
-  -> Confirm Mapping
-  -> Fill Form
-  -> Verify Fields
-  -> Wait for Submit Approval
-```
-
-## Supported Templates
-
-- Form Fill Workflow: enabled for the local demo.
-- Web Data Extraction Workflow: enabled.
-- Job Research Summary Workflow: enabled.
-- Security Questionnaire Workflow: enabled for source-backed compliance-style questionnaires.
-- Vendor Onboarding Workflow: enabled for review-first vendor intake forms.
-- Data Entry Workflow: registered but disabled.
-- Job Application Workflow: registered but disabled.
+- **Security Questionnaire Workflow**: Primary demo. Extract security/compliance questionnaire fields, suggest answers from local policy documents with source evidence, require human review, fill safe fields, verify, and wait for submit approval.
+- Form Fill Workflow: Analyze web forms, map profile data, review values, fill fields, verify, and wait for submit approval.
+- Web Data Extraction Workflow: Open pages, extract structured data, capture screenshots, and save results.
+- Job Research Summary Workflow: Extract job page content, summarize, and save research results.
+- Vendor Onboarding Workflow: Prepare vendor onboarding forms with reusable company/profile data, human review, safe browser fill, verification, and submit approval.
+- Data Entry Workflow: Registered but disabled.
+- Job Application Workflow: Registered but disabled.
 
 ## Architecture
 
@@ -222,30 +208,31 @@ See [docs/go-metrics-sidecar.md](docs/go-metrics-sidecar.md).
 
 Use [docs/demo-script.md](docs/demo-script.md) for a 3 to 5 minute reviewer demo.
 
-Short version:
+### Security Questionnaire Assistant (Primary Demo)
 
 1. Start Docker compose.
 2. Seed `Demo Applicant`.
 3. Open Profiles and Workflows.
-4. Create a form-fill run.
-5. Review mappings before execution.
-6. Inspect screenshot and verification evidence.
-7. Stop at final submit approval.
-8. Show Evaluation for repeatable benchmark evidence.
+4. Create a **Security Questionnaire Workflow** run with the Docker demo URL.
+5. Generate mappings in rules mode (no LLM API key required).
+6. Open Review Mapping and inspect answers suggested from `mock-security-policy.md` with source evidence.
+7. Confirm mappings only after reviewing the source evidence.
+8. Inspect screenshot and verification evidence after browser execution.
+9. Stop at final submit approval.
+10. Show Evaluation for repeatable benchmark evidence.
 
-Security questionnaire path:
+### Form Fill Workflow
 
-1. Create a Security Questionnaire Workflow run with the Docker demo URL.
-2. Generate mappings in rules mode.
-3. Open Review Mapping and inspect answers suggested from `mock-security-policy.md`.
-4. Confirm only after reviewing the source evidence.
+1. Create a **Form Fill Workflow** run with a test form URL.
+2. Review mappings before execution.
+3. Inspect screenshot and verification evidence.
+4. Stop at final submit approval.
 
-Vendor onboarding path:
+### Vendor Onboarding Workflow
 
-1. Create a Vendor Onboarding Workflow run with the Docker demo URL.
-2. Generate mappings in rules mode.
-3. Review safe contact mappings and leave unsupported vendor-specific fields for manual review.
-4. Confirm mappings, fill, verify, and stop before final submit approval.
+1. Create a **Vendor Onboarding Workflow** run with the Docker demo URL.
+2. Review safe contact mappings and leave unsupported vendor-specific fields for manual review.
+3. Confirm mappings, fill, verify, and stop before final submit approval.
 
 ## Latest Local Verification
 
@@ -288,6 +275,6 @@ This repository is intended to show a review-first agent architecture: workflow 
 
 ## Resume Bullets
 
-- Built a full-stack AI browser workflow assistant with FastAPI, React, Playwright, SQLite, optional LLM providers, reviewed memory, policy gates, trace observability, and benchmark evaluation.
-- Implemented a review-first security questionnaire workflow that suggests answers from local policy evidence, shows source metadata, blocks sensitive fields, refuses unsupported answers, and stops before final submission.
+- Built a **review-first AI Browser Workflow Assistant** with FastAPI, React, Playwright, SQLite, optional LLM providers, reviewed memory, policy gates, trace observability, and benchmark evaluation.
+- Implemented a **Security Questionnaire Assistant** as the primary demo, suggesting answers from local policy documents with source evidence, requiring human review, blocking sensitive fields, refusing unsupported answers, and stopping before final submission.
 - Designed an evaluation workbench comparing rules, LLM, and memory-assisted behavior across local fixtures with failure taxonomy, regression tracking, source evidence coverage, refusal metrics, latency, and cost signals.

@@ -6,10 +6,30 @@ export function templateAvailabilityLabel(template) {
   return isTemplateEnabled(template) ? "Available" : "Coming soon";
 }
 
+const WORKFLOW_PRIORITY_ORDER = [
+  "security_questionnaire",
+  "form_fill",
+  "vendor_onboarding",
+  "web_data_extract",
+  "job_research_summary",
+];
+
+function getWorkflowPriority(template) {
+  const id = template?.id || "";
+  const priority = WORKFLOW_PRIORITY_ORDER.indexOf(id);
+  return priority >= 0 ? priority : WORKFLOW_PRIORITY_ORDER.length;
+}
+
 export function sortWorkflowTemplates(templates = []) {
   return [...templates].sort((left, right) => {
     if (isTemplateEnabled(left) !== isTemplateEnabled(right)) {
       return isTemplateEnabled(left) ? -1 : 1;
+    }
+
+    const leftPriority = getWorkflowPriority(left);
+    const rightPriority = getWorkflowPriority(right);
+    if (leftPriority !== rightPriority) {
+      return leftPriority - rightPriority;
     }
 
     return String(left?.name || left?.id || "").localeCompare(
@@ -54,11 +74,11 @@ export function resolveWorkflowTypeSelection(
   requestedWorkflowType,
 ) {
   const orderedTemplates = sortWorkflowTemplates(templates);
-  const enabledFormFill = orderedTemplates.find(
-    (template) => template?.id === "form_fill" && isTemplateEnabled(template),
+  const enabledSecurityQuestionnaire = orderedTemplates.find(
+    (template) => template?.id === "security_questionnaire" && isTemplateEnabled(template),
   );
   const firstEnabledTemplate = orderedTemplates.find(isTemplateEnabled);
-  const fallbackTemplate = enabledFormFill || firstEnabledTemplate || null;
+  const fallbackTemplate = enabledSecurityQuestionnaire || firstEnabledTemplate || null;
 
   if (!requestedWorkflowType) {
     return {
@@ -80,8 +100,8 @@ export function resolveWorkflowTypeSelection(
 
   const fallbackId = fallbackTemplate?.id || "";
   const fallbackNotice =
-    fallbackTemplate && fallbackTemplate.id === "form_fill"
-      ? "Requested workflow template is unavailable. Using form_fill instead."
+    fallbackTemplate && fallbackTemplate.id === "security_questionnaire"
+      ? "Requested workflow template is unavailable. Using security_questionnaire instead."
       : "Requested workflow template is unavailable.";
 
   return {

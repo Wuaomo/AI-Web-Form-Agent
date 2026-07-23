@@ -42,8 +42,8 @@ function Dashboard() {
       <div className="page-heading">
         <div>
           <p className="eyebrow">Runs</p>
-          <h2>Workflow Runs</h2>
-          <p>Review recent workflow runs, then start a new run from an available template.</p>
+          <h2>Review-First Workflow Runs</h2>
+          <p>Review recent workflow runs. Start with the Security Questionnaire Assistant demo to see source-backed answers, human review, and safe browser execution.</p>
         </div>
         <Link className="button" to="/tasks/new">
           Create run
