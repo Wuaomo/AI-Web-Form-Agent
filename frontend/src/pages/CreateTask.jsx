@@ -145,7 +145,7 @@ function CreateTask() {
         <div>
           <p className="eyebrow">New run</p>
           <h2>Create Workflow Run</h2>
-          <p>Start with the Security Questionnaire Assistant to experience review-first automation with source-backed answers.</p>
+          <p>Start with Security Questionnaire to experience review-first automation with source-backed answers.</p>
         </div>
       </div>
 

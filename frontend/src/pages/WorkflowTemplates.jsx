@@ -28,7 +28,7 @@ function WorkflowTemplates() {
         <div>
           <p className="eyebrow">Review-first workflows</p>
           <h2>Workflow Templates</h2>
-          <p>Start with Security Questionnaire Assistant to experience source-backed answers, human review, and safe browser execution.</p>
+          <p>Start with Security Questionnaire to experience source-backed answers, human review, and safe browser execution.</p>
         </div>
       </div>
 

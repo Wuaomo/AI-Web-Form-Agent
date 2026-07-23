@@ -27,7 +27,7 @@ http://localhost:5173
 1. Open the Runs dashboard and point out the backend health badge.
 2. Open Profiles and show `Demo Applicant`.
 3. Open Workflows and show Security Questionnaire as the first available template.
-4. Create a run with **Security Questionnaire Workflow** selected and click "Use Docker demo form".
+4. Create a run with **Security Questionnaire** selected and click "Use Docker demo form".
 5. Select the `Demo Applicant` profile.
 6. Click "Create run" - the form will be analyzed and mappings generated in rules mode (no LLM API key required).
 7. Open Review Mapping and show source-backed answers from `mock-security-policy.md`.
@@ -37,16 +37,16 @@ http://localhost:5173
 11. Stop at final submit approval and explain that the app does not submit without explicit user decision.
 12. Open Evaluation and show how local benchmark runs track mapping quality, source evidence coverage, refusal rate, and sensitive-field skip rate.
 
-### Vendor Onboarding Workflow (Secondary)
+### Vendor Onboarding (Secondary)
 
-1. Create a new run and select **Vendor Onboarding Workflow**.
+1. Create a new run and select **Vendor Onboarding**.
 2. Analyze the page and generate mappings in rules mode.
 3. Open Review Mapping and show that safe contact fields can be reviewed while vendor-specific or sensitive fields stay under human control.
 4. Confirm mappings, fill the page, inspect verification evidence, and stop before final submit approval.
 
-### Form Fill Workflow (Optional)
+### Generic Form Fill (Optional)
 
-1. Create a new run and select **Form Fill Workflow**.
+1. Create a new run and select **Generic Form Fill**.
 2. Enter a test form URL or use the Docker demo form.
 3. Analyze the form and show extracted fields.
 4. Generate mappings and open Review Mapping.

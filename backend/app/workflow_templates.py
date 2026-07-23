@@ -15,10 +15,10 @@ from app.workflow_constants import (
 WORKFLOW_TEMPLATES: dict[str, dict[str, object]] = {
     WORKFLOW_TYPE_FORM_FILL: {
         "id": WORKFLOW_TYPE_FORM_FILL,
-        "name": "Form Fill Workflow",
+        "name": "Generic Form Fill",
         "description": (
-            "Analyze a web form, map profile data, review values, fill fields, "
-            "verify, and wait for submit approval."
+            "Map profile values to ordinary web forms, review every value, "
+            "fill the browser, and stop before submit."
         ),
         "enabled": True,
         "steps": [
@@ -72,11 +72,11 @@ WORKFLOW_TEMPLATES: dict[str, dict[str, object]] = {
     },
     WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE: {
         "id": WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
-        "name": "Security Questionnaire Workflow",
+        "name": "Security Questionnaire",
         "description": (
-            "Extract security/compliance questionnaire fields, map reusable "
-            "profile answers, require review, fill safe fields, verify, and "
-            "wait for submit approval."
+            "Extract questionnaire items, suggest answers from reviewed memory "
+            "or local policy docs, show evidence, require review, then fill "
+            "approved values in the browser."
         ),
         "enabled": True,
         "steps": [
@@ -101,11 +101,10 @@ WORKFLOW_TEMPLATES: dict[str, dict[str, object]] = {
     },
     WORKFLOW_TYPE_VENDOR_ONBOARDING: {
         "id": WORKFLOW_TYPE_VENDOR_ONBOARDING,
-        "name": "Vendor Onboarding Workflow",
+        "name": "Vendor Onboarding",
         "description": (
-            "Prepare a vendor onboarding form with reusable company/profile "
-            "data, human review, safe browser fill, verification, and submit "
-            "approval."
+            "Reuse reviewed company profile data for vendor onboarding forms "
+            "with approval gates before browser execution."
         ),
         "enabled": True,
         "steps": [

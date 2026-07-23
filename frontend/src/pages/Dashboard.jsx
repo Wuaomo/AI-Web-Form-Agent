@@ -42,8 +42,8 @@ function Dashboard() {
       <div className="page-heading">
         <div>
           <p className="eyebrow">Runs</p>
-          <h2>Review-First Workflow Runs</h2>
-          <p>Review recent workflow runs. Start with the Security Questionnaire Assistant demo to see source-backed answers, human review, and safe browser execution.</p>
+          <h2>Review-first AI Browser Workflow Assistant</h2>
+          <p>Read web pages, suggest source-backed answers, require human review, fill the browser, verify the result, and stop before final submission.</p>
         </div>
         <Link className="button" to="/tasks/new">
           Create run
@@ -52,10 +52,26 @@ function Dashboard() {
 
       <div className="card-grid">
         <article className="card">
-          <h3>Security Questionnaire Assistant</h3>
-          <p>Try the primary demo: answer security/compliance questions with source-backed evidence, human review, and safe browser execution.</p>
+          <h3>Security Questionnaire</h3>
+          <p>Extract questionnaire items, suggest answers from reviewed memory or local policy docs, show evidence, require review, then fill approved values in the browser.</p>
           <Link className="button button-primary" to="/tasks/new?workflow_type=security_questionnaire">
             Start demo
+          </Link>
+        </article>
+
+        <article className="card">
+          <h3>Vendor Onboarding</h3>
+          <p>Reuse reviewed company profile data for vendor onboarding forms with approval gates before browser execution.</p>
+          <Link className="button" to="/tasks/new?workflow_type=vendor_onboarding">
+            Start
+          </Link>
+        </article>
+
+        <article className="card">
+          <h3>Generic Form Fill</h3>
+          <p>Map profile values to ordinary web forms, review every value, fill the browser, and stop before submit.</p>
+          <Link className="button" to="/tasks/new?workflow_type=form_fill">
+            Start
           </Link>
         </article>
 
@@ -77,7 +93,7 @@ function Dashboard() {
 
         <article className="card">
           <h3>Workflows</h3>
-          <p>Browse templates including Vendor Onboarding and Form Fill.</p>
+          <p>Browse all workflow templates.</p>
           <Link to="/workflows">Open templates</Link>
         </article>
       </div>
