@@ -8,8 +8,8 @@ interviews.
 ## Why
 
 A strong project can still look weak if the README only says "form filler."
-The portfolio story should show workflow, retrieval, safety, evaluation, and
-evidence without pretending the app is a chatbot.
+The portfolio story should show workflow, retrieval, safety, evaluation, source
+evidence, and verification without pretending the app is a chatbot.
 
 ## README Positioning
 

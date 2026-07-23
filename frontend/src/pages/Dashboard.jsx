@@ -42,8 +42,8 @@ function Dashboard() {
       <div className="page-heading">
         <div>
           <p className="eyebrow">Runs</p>
-          <h2>Workflow Runs</h2>
-          <p>Review recent workflow runs, then start a new run from an available template.</p>
+          <h2>Review-first AI Browser Workflow Assistant</h2>
+          <p>Read web pages, suggest source-backed answers, require human review, fill the browser, verify the result, and stop before final submission.</p>
         </div>
         <Link className="button" to="/tasks/new">
           Create run
@@ -51,6 +51,30 @@ function Dashboard() {
       </div>
 
       <div className="card-grid">
+        <article className="card">
+          <h3>Security Questionnaire</h3>
+          <p>Extract questionnaire items, suggest answers from reviewed memory or local policy docs, show evidence, require review, then fill approved values in the browser.</p>
+          <Link className="button button-primary" to="/tasks/new?workflow_type=security_questionnaire">
+            Start demo
+          </Link>
+        </article>
+
+        <article className="card">
+          <h3>Vendor Onboarding</h3>
+          <p>Reuse reviewed company profile data for vendor onboarding forms with approval gates before browser execution.</p>
+          <Link className="button" to="/tasks/new?workflow_type=vendor_onboarding">
+            Start
+          </Link>
+        </article>
+
+        <article className="card">
+          <h3>Generic Form Fill</h3>
+          <p>Map profile values to ordinary web forms, review every value, fill the browser, and stop before submit.</p>
+          <Link className="button" to="/tasks/new?workflow_type=form_fill">
+            Start
+          </Link>
+        </article>
+
         <article className="card">
           <h3>Backend status</h3>
           <p className={`status status-${health}`}>
@@ -63,13 +87,13 @@ function Dashboard() {
 
         <article className="card">
           <h3>Profiles</h3>
-          <p>Save the information you commonly use in forms.</p>
+          <p>Save the information you commonly use in workflows.</p>
           <Link to="/profiles">Manage profiles</Link>
         </article>
 
         <article className="card">
           <h3>Workflows</h3>
-          <p>Browse templates and start a workflow run from an enabled template.</p>
+          <p>Browse all workflow templates.</p>
           <Link to="/workflows">Open templates</Link>
         </article>
       </div>
@@ -112,7 +136,7 @@ function Dashboard() {
                     <td>
                       <span className="badge">{task.status}</span>
                     </td>
-                    <td>{task.workflow_type || "form_fill"}</td>
+                    <td>{task.workflow_type || "—"}</td>
                     <td>{profilesById.get(task.profile_id) || task.profile_id}</td>
                     <td>{task.description || "—"}</td>
                     <td>{formatChinaTime(task.created_at)}</td>

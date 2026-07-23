@@ -26,9 +26,9 @@ function WorkflowTemplates() {
     <section>
       <div className="page-heading">
         <div>
-          <p className="eyebrow">Workflows</p>
+          <p className="eyebrow">Review-first workflows</p>
           <h2>Workflow Templates</h2>
-          <p>Choose an available template to start a new workflow run.</p>
+          <p>Start with Security Questionnaire to experience source-backed answers, human review, and safe browser execution.</p>
         </div>
       </div>
 

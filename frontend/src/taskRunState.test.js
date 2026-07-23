@@ -42,7 +42,7 @@ test("getTaskRunState prefers workflow_status when it is present", () => {
     workflow_status: "READY_TO_FILL",
   });
 
-  assert.equal(state.statusLabel, "Ready to fill");
+  assert.equal(state.statusLabel, "Ready to apply");
   assert.equal(state.primaryAction, "fill");
 });
 
@@ -108,7 +108,7 @@ test("getTaskRunState uses user-facing status labels", () => {
   assert.equal(getTaskRunState(baseTask).statusLabel, "Needs review");
   assert.equal(
     getTaskRunState({ ...baseTask, status: "READY_TO_FILL" }).statusLabel,
-    "Ready to fill",
+    "Ready to apply",
   );
   assert.equal(
     getTaskRunState({ ...baseTask, status: "WAITING_APPROVAL" }).statusLabel,
@@ -132,9 +132,9 @@ test("getTaskRunState shows recovery-aware label for mapping failure", () => {
     { stage: "MAPPING", status: "FAILED" },
   ];
   const state = getTaskRunState({ ...baseTask, status: "FAILED" }, checkpoints);
-  assert.equal(state.statusLabel, "Mapping failed");
+  assert.equal(state.statusLabel, "Suggestion failed");
   assert.equal(state.primaryAction, "map");
-  assert.equal(state.primaryLabel, "Retry mapping");
+  assert.equal(state.primaryLabel, "Retry suggestion");
 });
 
 test("getTaskRunState shows recovery-aware label for fill failure", () => {
@@ -144,9 +144,9 @@ test("getTaskRunState shows recovery-aware label for fill failure", () => {
     { stage: "FILL", status: "FAILED" },
   ];
   const state = getTaskRunState({ ...baseTask, status: "FAILED" }, checkpoints);
-  assert.equal(state.statusLabel, "Fill failed");
+  assert.equal(state.statusLabel, "Execution failed");
   assert.equal(state.primaryAction, "fill");
-  assert.equal(state.primaryLabel, "Retry fill");
+  assert.equal(state.primaryLabel, "Retry execution");
 });
 
 test("getTaskRunState falls back to generic FAILED state when no checkpoint available", () => {

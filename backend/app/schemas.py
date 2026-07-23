@@ -305,6 +305,9 @@ class PlannedStepResponse(BaseModel):
     reason: str
     requires_approval: bool
     status: str
+    params_schema: dict[str, object] = Field(default_factory=dict)
+    preconditions: list[str] = Field(default_factory=list)
+    produces: list[str] = Field(default_factory=list)
 
 
 class WorkflowPlanRequest(BaseModel):

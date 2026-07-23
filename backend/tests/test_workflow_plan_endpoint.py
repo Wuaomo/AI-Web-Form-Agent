@@ -91,6 +91,45 @@ def test_create_task_stores_default_plan() -> None:
     session.close()
 
 
+def test_get_task_plan_exposes_runtime_tool_metadata() -> None:
+    """Verify GET /tasks/{id}/plan returns tool metadata needed by runtime/UI."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+
+    with patch("app.routers.tasks.safe_create_span", return_value=None), patch(
+        "app.routers.tasks.safe_finish_span",
+    ):
+        response = client.post(
+            "/tasks",
+            json={
+                "url": "https://example.com/form",
+                "profile_id": profile.id,
+                "description": "Internship application",
+            },
+        )
+
+    assert response.status_code == 201
+
+    plan_response = client.get(f"/tasks/{response.json()['id']}/plan")
+
+    assert plan_response.status_code == 200
+    first_step = plan_response.json()["steps"][0]
+    assert first_step["step_id"] == "open_url"
+    assert first_step["params_schema"] == {
+        "type": "object",
+        "required": ["task_id", "url"],
+        "properties": {
+            "task_id": {"type": "integer"},
+            "url": {"type": "string"},
+        },
+    }
+    assert first_step["preconditions"] == ["task_created"]
+    assert first_step["produces"] == ["page_opened", "screenshot"]
+
+    session.close()
+
+
 def test_get_task_plan_returns_saved_plan() -> None:
     """Verify GET /tasks/{id}/plan returns the persisted workflow plan."""
 
@@ -205,4 +244,36 @@ def test_post_task_plan_rejects_whitespace_only_goal_without_overwriting() -> No
     session.refresh(task)
     assert task.workflow_plan["goal"] == "Existing plan goal"
     assert task.workflow_plan["steps"][0]["step_id"] == "open_url"
+    session.close()
+
+
+def test_get_task_plan_defaults_missing_runtime_metadata_for_legacy_plans() -> None:
+    """Verify legacy saved plans still serialize with empty runtime metadata."""
+
+    client, session = build_environment()
+    task = create_task(session)
+    task.workflow_plan = {
+        "workflow_type": "form_fill",
+        "goal": "Legacy plan",
+        "steps": [
+            {
+                "step_id": "open_url",
+                "tool": "open_url",
+                "reason": "Open the target page.",
+                "requires_approval": False,
+                "status": "PENDING",
+            }
+        ],
+    }
+    session.add(task)
+    session.commit()
+
+    response = client.get(f"/tasks/{task.id}/plan")
+
+    assert response.status_code == 200
+    first_step = response.json()["steps"][0]
+    assert first_step["params_schema"] == {}
+    assert first_step["preconditions"] == []
+    assert first_step["produces"] == []
+
     session.close()

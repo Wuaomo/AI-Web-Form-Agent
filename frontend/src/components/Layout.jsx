@@ -14,7 +14,7 @@ function Layout() {
     <div className="app-shell">
       <header className="site-header">
         <div>
-          <p className="eyebrow">Human-in-the-loop automation</p>
+          <p className="eyebrow">Review-first AI browser workflows</p>
           <h1>AI Web Form Agent</h1>
         </div>
         <nav aria-label="Main navigation">

@@ -2,8 +2,7 @@
 
 ## 1. Project Vision
 
-AI Web Form Agent will evolve from a review-first form automation project into a
-review-first LLM workflow automation harness.
+AI Web Form Agent is a review-first AI browser workflow assistant evolving into an LLM workflow automation harness.
 
 The system should demonstrate that an AI-assisted workflow can be:
 
@@ -22,7 +21,7 @@ AI engineering, reliability engineering, and benchmark-driven governance.
 Current positioning:
 
 ```text
-Review-first browser automation system for safe web form filling.
+Review-first AI browser workflow assistant with source evidence, review gates, and verification.
 ```
 
 Target positioning:

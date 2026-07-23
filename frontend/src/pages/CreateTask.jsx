@@ -26,7 +26,7 @@ function CreateTask() {
     url: "",
     profile_id: "",
     description: "",
-    workflow_type: "form_fill",
+    workflow_type: "security_questionnaire",
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -145,7 +145,7 @@ function CreateTask() {
         <div>
           <p className="eyebrow">New run</p>
           <h2>Create Workflow Run</h2>
-          <p>Choose a profile, a workflow template, and the target form you want to prepare.</p>
+          <p>Start with Security Questionnaire to experience review-first automation with source-backed answers.</p>
         </div>
       </div>
 

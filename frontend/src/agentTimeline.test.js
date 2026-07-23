@@ -78,11 +78,11 @@ test("builds user-facing timeline entries from logs and fields", () => {
   assert.deepEqual(
     entries.map((entry) => entry.title),
     [
-      "Found 4 form fields",
+      "Extracted 4 fields from the page",
       "Mapped 2 fields from profile",
       "Needs your input: Graduation date",
       "Skipped 1 file field",
-      "Filling 2 mapped fields",
+      "Applying 2 mapped values",
       "Needs your input: log in to continue",
     ],
   );
@@ -108,9 +108,10 @@ test("getWorkflowTimeline for READY_TO_FILL status", () => {
   const nodes = getWorkflowTimeline({ status: "READY_TO_FILL" });
   assert.equal(nodes.find((n) => n.id === "created").state, "success");
   assert.equal(nodes.find((n) => n.id === "analyze").state, "success");
-  assert.equal(nodes.find((n) => n.id === "map").state, "success");
+  assert.equal(nodes.find((n) => n.id === "extract").state, "success");
+  assert.equal(nodes.find((n) => n.id === "retrieve").state, "success");
+  assert.equal(nodes.find((n) => n.id === "suggest").state, "success");
   assert.equal(nodes.find((n) => n.id === "review").state, "success");
-  assert.equal(nodes.find((n) => n.id === "confirm").state, "success");
   assert.equal(nodes.find((n) => n.id === "fill").state, "pending");
 });
 
@@ -139,8 +140,10 @@ test("getWorkflowTimeline for MAPPING_READY does not claim mapping is complete b
 
   assert.equal(nodes.find((n) => n.id === "created").state, "success");
   assert.equal(nodes.find((n) => n.id === "analyze").state, "success");
-  assert.equal(nodes.find((n) => n.id === "map").state, "active");
-  assert.equal(nodes.find((n) => n.id === "review").state, "pending");
+  assert.equal(nodes.find((n) => n.id === "extract").state, "success");
+  assert.equal(nodes.find((n) => n.id === "retrieve").state, "success");
+  assert.equal(nodes.find((n) => n.id === "suggest").state, "success");
+  assert.equal(nodes.find((n) => n.id === "review").state, "active");
 });
 
 test("getWorkflowTimeline for MAPPING_READY without mapped fields", () => {
@@ -152,8 +155,10 @@ test("getWorkflowTimeline for MAPPING_READY without mapped fields", () => {
   });
   assert.equal(nodes.find((n) => n.id === "created").state, "success");
   assert.equal(nodes.find((n) => n.id === "analyze").state, "success");
-  assert.equal(nodes.find((n) => n.id === "map").state, "active");
-  assert.equal(nodes.find((n) => n.id === "review").state, "pending");
+  assert.equal(nodes.find((n) => n.id === "extract").state, "success");
+  assert.equal(nodes.find((n) => n.id === "retrieve").state, "success");
+  assert.equal(nodes.find((n) => n.id === "suggest").state, "success");
+  assert.equal(nodes.find((n) => n.id === "review").state, "active");
 });
 
 test("getWorkflowTimeline for FAILED with analyze_form failure", () => {
@@ -171,9 +176,9 @@ test("getWorkflowTimeline marks fill failed from failed fill_form log", () => {
     [{ id: 10, action: "fill_form", status: "FAILED", created_at: "2026-07-02T10:00:00Z" }],
   );
 
-  assert.equal(nodes.find((n) => n.id === "confirm").state, "success");
+  assert.equal(nodes.find((n) => n.id === "review").state, "success");
   assert.equal(nodes.find((n) => n.id === "fill").state, "failed");
-  assert.equal(nodes.find((n) => n.id === "approve").state, "pending");
+  assert.equal(nodes.find((n) => n.id === "verify").state, "pending");
 });
 
 test("getWorkflowTimeline marks submit failed from failed submit_form log", () => {
@@ -183,8 +188,8 @@ test("getWorkflowTimeline marks submit failed from failed submit_form log", () =
   );
 
   assert.equal(nodes.find((n) => n.id === "fill").state, "success");
-  assert.equal(nodes.find((n) => n.id === "approve").state, "success");
-  assert.equal(nodes.find((n) => n.id === "submit").state, "failed");
+  assert.equal(nodes.find((n) => n.id === "verify").state, "success");
+  assert.equal(nodes.find((n) => n.id === "approve").state, "failed");
 });
 
 test("getWorkflowTimeline marks analyze failed from failed analyze_form log", () => {
@@ -195,7 +200,7 @@ test("getWorkflowTimeline marks analyze failed from failed analyze_form log", ()
 
   assert.equal(nodes.find((n) => n.id === "created").state, "success");
   assert.equal(nodes.find((n) => n.id === "analyze").state, "failed");
-  assert.equal(nodes.find((n) => n.id === "map").state, "pending");
+  assert.equal(nodes.find((n) => n.id === "extract").state, "pending");
 });
 
 test("getWorkflowTimeline for FAILED with extract_fields failure", () => {
@@ -217,9 +222,10 @@ test("getWorkflowTimeline for FAILED with fill_form failure", () => {
   );
   assert.equal(nodes.find((n) => n.id === "created").state, "success");
   assert.equal(nodes.find((n) => n.id === "analyze").state, "success");
-  assert.equal(nodes.find((n) => n.id === "map").state, "success");
+  assert.equal(nodes.find((n) => n.id === "extract").state, "success");
+  assert.equal(nodes.find((n) => n.id === "retrieve").state, "success");
+  assert.equal(nodes.find((n) => n.id === "suggest").state, "success");
   assert.equal(nodes.find((n) => n.id === "review").state, "success");
-  assert.equal(nodes.find((n) => n.id === "confirm").state, "success");
   assert.equal(nodes.find((n) => n.id === "fill").state, "failed");
 });
 
@@ -234,12 +240,13 @@ test("getWorkflowTimeline for FAILED with submit_form failure", () => {
   );
   assert.equal(nodes.find((n) => n.id === "created").state, "success");
   assert.equal(nodes.find((n) => n.id === "analyze").state, "success");
-  assert.equal(nodes.find((n) => n.id === "map").state, "success");
+  assert.equal(nodes.find((n) => n.id === "extract").state, "success");
+  assert.equal(nodes.find((n) => n.id === "retrieve").state, "success");
+  assert.equal(nodes.find((n) => n.id === "suggest").state, "success");
   assert.equal(nodes.find((n) => n.id === "review").state, "success");
-  assert.equal(nodes.find((n) => n.id === "confirm").state, "success");
   assert.equal(nodes.find((n) => n.id === "fill").state, "success");
-  assert.equal(nodes.find((n) => n.id === "approve").state, "success");
-  assert.equal(nodes.find((n) => n.id === "submit").state, "failed");
+  assert.equal(nodes.find((n) => n.id === "verify").state, "success");
+  assert.equal(nodes.find((n) => n.id === "approve").state, "failed");
 });
 
 test("getWorkflowTimeline for FAILED with unknown failure action", () => {
