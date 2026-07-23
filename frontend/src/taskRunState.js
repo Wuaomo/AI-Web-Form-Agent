@@ -75,13 +75,13 @@ const stateByStatus = {
   },
   MAPPING_READY: {
     statusLabel: "Needs review",
-    description: "Review suggested values before browser execution.",
+    description: "Review suggested answers with source evidence before browser execution.",
     primaryAction: "review",
     primaryLabel: "Review values",
   },
   REVIEWING: {
     statusLabel: "Needs review",
-    description: "Review suggested values before browser execution.",
+    description: "Review suggested answers with source evidence before browser execution.",
     primaryAction: "review",
     primaryLabel: "Review values",
   },
@@ -99,7 +99,7 @@ const stateByStatus = {
   },
   WAITING_APPROVAL: {
     statusLabel: "Waiting for approval",
-    description: "Check the screenshot before final submission.",
+    description: "Values have been applied and verified. Review the screenshot before final submission.",
     primaryAction: "approve",
     primaryLabel: "Approve submit",
   },
@@ -125,10 +125,10 @@ const failureStateByStage = {
     primaryLabel: "Retry analysis",
   },
   MAPPING: {
-    statusLabel: "Mapping failed",
-    description: "Failed to map fields to profile values. Check LLM provider configuration.",
+    statusLabel: "Suggestion failed",
+    description: "Failed to retrieve evidence and suggest answers. Check LLM provider configuration or review the page URL.",
     primaryAction: "map",
-    primaryLabel: "Retry mapping",
+    primaryLabel: "Retry suggestion",
   },
   FILL: {
     statusLabel: "Execution failed",

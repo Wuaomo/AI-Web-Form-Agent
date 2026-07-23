@@ -2,13 +2,14 @@ import { fieldDisplayName, isReviewableField } from "./reviewMappingPresentation
 
 const WORKFLOW_NODES = [
   { id: "created", label: "Created" },
-  { id: "analyze", label: "Analyze" },
-  { id: "map", label: "Map fields" },
-  { id: "review", label: "Review mapping" },
-  { id: "confirm", label: "Confirm mapping" },
-  { id: "fill", label: "Fill form" },
-  { id: "approve", label: "Waiting approval" },
-  { id: "submit", label: "Submit" },
+  { id: "analyze", label: "Analyze page" },
+  { id: "extract", label: "Extract questions" },
+  { id: "retrieve", label: "Retrieve evidence" },
+  { id: "suggest", label: "Suggest answers" },
+  { id: "review", label: "Review mappings" },
+  { id: "fill", label: "Fill browser" },
+  { id: "verify", label: "Verify result" },
+  { id: "approve", label: "Await submission approval" },
   { id: "completed", label: "Completed" },
 ];
 
@@ -70,36 +71,43 @@ function getWorkflowTimeline(task, logs = []) {
     case "MAPPING_READY":
       setState("created", "success");
       setState("analyze", "success");
-      setState("map", "active", "Map extracted fields before reviewing values.");
-      setState("review", "pending");
+      setState("extract", "success");
+      setState("retrieve", "success");
+      setState("suggest", "success");
+      setState("review", "active", "Review suggested values before browser execution.");
       break;
 
     case "READY_TO_FILL":
       setState("created", "success");
       setState("analyze", "success");
-      setState("map", "success");
+      setState("extract", "success");
+      setState("retrieve", "success");
+      setState("suggest", "success");
       setState("review", "success");
-      setState("confirm", "success");
       setState("fill", "pending");
       break;
 
     case "FILLING":
       setState("created", "success");
       setState("analyze", "success");
-      setState("map", "success");
+      setState("extract", "success");
+      setState("retrieve", "success");
+      setState("suggest", "success");
       setState("review", "success");
-      setState("confirm", "success");
       setState("fill", "active");
+      setState("verify", "pending");
       break;
 
     case "WAITING_APPROVAL":
       setState("created", "success");
       setState("analyze", "success");
-      setState("map", "success");
+      setState("extract", "success");
+      setState("retrieve", "success");
+      setState("suggest", "success");
       setState("review", "success");
-      setState("confirm", "success");
       setState("fill", "success");
-      setState("approve", "active", "Review the filled form screenshot before final submission.");
+      setState("verify", "success");
+      setState("approve", "active", "Review the screenshot before final submission.");
       break;
 
     case "COMPLETED":
@@ -115,26 +123,32 @@ function getWorkflowTimeline(task, logs = []) {
         setState("analyze", "failed");
       } else if (failedAction === "map_fields" || failedAction === "llm_map_fields") {
         setState("analyze", "success");
-        setState("map", "failed");
+        setState("extract", "success");
+        setState("retrieve", "success");
+        setState("suggest", "failed");
       } else if (failedAction === "fill_form") {
         setState("analyze", "success");
-        setState("map", "success");
+        setState("extract", "success");
+        setState("retrieve", "success");
+        setState("suggest", "success");
         setState("review", "success");
-        setState("confirm", "success");
         setState("fill", "failed");
       } else if (failedAction === "submit_form" || failedAction === "confirm_submit") {
         setState("analyze", "success");
-        setState("map", "success");
+        setState("extract", "success");
+        setState("retrieve", "success");
+        setState("suggest", "success");
         setState("review", "success");
-        setState("confirm", "success");
         setState("fill", "success");
-        setState("approve", "success");
-        setState("submit", "failed");
+        setState("verify", "success");
+        setState("approve", "failed");
       } else {
         const hasFields = (task?.form_fields || []).length > 0;
         setState("analyze", hasFields ? "success" : "failed");
         if (hasFields) {
-          setState("map", "failed");
+          setState("extract", "success");
+          setState("retrieve", "success");
+          setState("suggest", "failed");
         }
       }
       break;
@@ -213,13 +227,13 @@ function logTitle(log, fields) {
 
   if (log.action === "analyze_form") {
     return log.status === "STARTED"
-      ? "Checking the page for forms"
-      : "Finished checking the page";
+      ? "Analyzing the page"
+      : "Finished analyzing the page";
   }
 
   if (log.action === "extract_fields") {
     const fieldCount = count ?? fields.length;
-    return `Found ${pluralize(fieldCount, "form field")}`;
+    return `Extracted ${pluralize(fieldCount, "field")} from the page`;
   }
 
   if (log.action === "login_required") {
@@ -239,9 +253,9 @@ function logTitle(log, fields) {
   if (log.action === "fill_form") {
     if (log.status === "STARTED") {
       const fieldCount = count ?? mappedFields(fields).length;
-      return `Filling ${pluralize(fieldCount, "mapped field")}`;
+      return `Applying ${pluralize(fieldCount, "mapped value")}`;
     }
-    return "Filled mapped fields and paused before submission";
+    return "Applied values in the browser and paused before submission";
   }
 
   if (log.action === "confirm_submit") {
@@ -249,7 +263,7 @@ function logTitle(log, fields) {
   }
 
   if (log.action === "submit_form") {
-    return "Submitted the reviewed form";
+    return "Submitted after your approval";
   }
 
   return log.message || log.action || "Agent action";

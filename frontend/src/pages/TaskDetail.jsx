@@ -473,7 +473,7 @@ function TaskDetail() {
 
           {task.status === "LOGIN_REQUIRED" && (
             <div className="message message-warning">
-              This site requires login before the form can be extracted. Log in
+              This site requires login before the page can be analyzed. Log in
               in the browser window, then close it to continue.
             </div>
           )}

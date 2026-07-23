@@ -132,9 +132,9 @@ test("getTaskRunState shows recovery-aware label for mapping failure", () => {
     { stage: "MAPPING", status: "FAILED" },
   ];
   const state = getTaskRunState({ ...baseTask, status: "FAILED" }, checkpoints);
-  assert.equal(state.statusLabel, "Mapping failed");
+  assert.equal(state.statusLabel, "Suggestion failed");
   assert.equal(state.primaryAction, "map");
-  assert.equal(state.primaryLabel, "Retry mapping");
+  assert.equal(state.primaryLabel, "Retry suggestion");
 });
 
 test("getTaskRunState shows recovery-aware label for fill failure", () => {
