@@ -26,11 +26,7 @@ from app.services.field_mapper import (
     _normalize,
     get_profile_value,
 )
-from app.services.langchain_suggestion_adapter import (
-    LangChainUnavailableError,
-    is_available as langchain_is_available,
-    suggest_answers_with_langchain,
-)
+from app.services import langchain_suggestion_adapter
 from app.services.policy_doc_retriever import retrieve_policy_sources
 from app.services.reviewed_memory_retriever import retrieve_reviewed_memory
 from app.services.suggestion_types import AnswerSuggestion
@@ -191,7 +187,7 @@ def _try_langchain_suggestions(
 ) -> list[AnswerSuggestion] | None:
     """Attempt LangChain suggestions; return None to signal fallback."""
 
-    if not langchain_is_available():
+    if not langchain_suggestion_adapter.is_available():
         return None
 
     profile_dict = _profile_to_dict(profile)
@@ -238,8 +234,8 @@ def _try_langchain_suggestions(
     }
 
     try:
-        return suggest_answers_with_langchain(input_payload)
-    except LangChainUnavailableError:
+        return langchain_suggestion_adapter.suggest_answers_with_langchain(input_payload)
+    except langchain_suggestion_adapter.LangChainUnavailableError:
         return None
     except Exception as exc:
         logger.warning("LangChain suggestion failed, falling back to rules: %s", exc)
