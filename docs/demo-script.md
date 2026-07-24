@@ -28,14 +28,25 @@ http://localhost:5173
 2. Open Profiles and show `Demo Applicant`.
 3. Open Workflows and show Security Questionnaire as the first available template.
 4. Create a run with **Security Questionnaire** selected and click "Use Docker demo form".
-5. Select the `Demo Applicant` profile.
-6. Click "Create run" - the form will be analyzed and mappings generated in rules mode (no LLM API key required).
-7. Open Review Mapping and show source-backed answers from `mock-security-policy.md`.
-8. Explain that answers are suggestions with `needs review` status, showing document name, matched section, and match score.
-9. Confirm only after reviewing the source evidence.
-10. Open the task detail page and show action logs, screenshot evidence, and verification status.
-11. Stop at final submit approval and explain that the app does not submit without explicit user decision.
-12. Open Evaluation and show how local benchmark runs track mapping quality, source evidence coverage, refusal rate, and sensitive-field skip rate.
+5. Select the `Demo Applicant` profile and click "Create run".
+6. On the Task Detail page, show the "Agent workflow" panel at the bottom of the run section.
+7. Click "Start agent workflow" - the workflow will analyze the page, extract questions, retrieve policy sources, and suggest answers.
+8. When the workflow pauses at "Review pending", click "Review suggestions" to go to Review Mapping.
+9. In Review Mapping, show:
+   - Source evidence from `mock-security-policy.md` (document name, matched section).
+   - Confidence scores for each suggestion.
+   - Safety flags (block/warn/safe) from the policy engine.
+   - Approve/reject buttons for each field.
+10. Approve all suggestions or selectively approve/reject individual fields.
+11. Click "Submit review" - the workflow resumes, fills only approved values, and verifies them.
+12. Return to Task Detail and show:
+    - Updated workflow state showing "Verifying result" or "Completed".
+    - Action logs, screenshot evidence, and verification status.
+13. Stop at final submit approval and explain that the app does not submit without explicit user decision.
+14. Open Evaluation and show how local benchmark runs compare rules/memory/LLM/runtime modes, tracking:
+    - `safety_pass_rate`: Policy compliance and sensitive field handling.
+    - `verification_pass_rate`: Browser fill accuracy.
+    - `source_evidence_coverage`: Evidence-backed answer quality.
 
 ### Vendor Onboarding (Secondary)
 
@@ -58,13 +69,14 @@ http://localhost:5173
 ## Reviewer Talking Points
 
 - The default demo uses local data and does not require LLM API keys.
-- The Security Questionnaire Assistant is the primary demo, showing source-backed answers from local policy documents.
+- The Security Questionnaire Assistant is the primary demo, showing source-backed answers from local policy documents via a LangGraph workflow.
+- The workflow orchestration includes interrupt points before sensitive actions (review, submit).
 - Answers are always suggestions with evidence - human review is required before execution.
 - Optional providers can improve semantic mapping, but the rule-based path keeps the demo deterministic.
 - The app treats browser automation as a reviewed workflow, not an invisible bot.
 - Vendor onboarding demonstrates a second domain workflow using the same reviewed browser execution path.
 - Screenshots, traces, and benchmark reports make behavior inspectable.
-- Evaluation measures answer accuracy, source coverage, unsupported refusal, and sensitive-field skip behavior.
+- Evaluation measures answer accuracy, source coverage, unsupported refusal, sensitive-field skip behavior, safety pass rate, and verification pass rate.
 
 ## Teardown
 
