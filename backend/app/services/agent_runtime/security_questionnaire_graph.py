@@ -26,6 +26,7 @@ import logging
 from typing import Any, TypedDict
 
 from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from app.models import FormField, Task
@@ -44,6 +45,34 @@ SUPPORTED_WORKFLOWS = {"security_questionnaire"}
 
 REVIEW_GATE_NODE = "apply_review_decision"
 SUBMIT_GATE_NODE = "finish"
+
+_memory_saver = MemorySaver()
+_graph_instance = None
+
+
+def _get_graph():
+    """Lazily build and cache the compiled graph with MemorySaver."""
+
+    global _graph_instance
+    if _graph_instance is None:
+        _graph_instance = _build_compiled_graph()
+    return _graph_instance
+
+
+def _thread_id(task_id: int) -> str:
+    """Return the checkpoint thread_id for a given task."""
+
+    return f"task-{task_id}"
+
+
+def _reset_runtime_for_tests() -> None:
+    """Reset the cached graph and checkpointer state (for tests only)."""
+
+    global _graph_instance
+    _graph_instance = None
+    _memory_saver.storage.clear()
+    if hasattr(_memory_saver, "writes"):
+        _memory_saver.writes.clear()
 
 
 class GraphState(TypedDict, total=False):
@@ -392,7 +421,9 @@ def build_security_questionnaire_graph():
     - ``apply_review_decision`` — review suggestions before filling
     - ``finish`` — approve before final submission
 
-    Returns a compiled graph.
+    Returns a compiled graph **without** a checkpointer (for testing).
+    Use ``_get_graph()`` for the production cached instance with
+    MemorySaver checkpointer.
     """
 
     workflow = StateGraph(GraphState)
@@ -429,9 +460,63 @@ def build_security_questionnaire_graph():
     )
 
 
+def _build_compiled_graph():
+    """Build the graph with MemorySaver checkpointer for state tracking."""
+
+    workflow = StateGraph(GraphState)
+
+    workflow.add_node("start", _start_node)
+    workflow.add_node("analyze_page", _analyze_page_node)
+    workflow.add_node("extract_questions", _extract_questions_node)
+    workflow.add_node("retrieve_reviewed_memory", _retrieve_memory_node)
+    workflow.add_node("retrieve_policy_sources", _retrieve_policy_node)
+    workflow.add_node("suggest_answers", _suggest_answers_node)
+    workflow.add_node("policy_check", _policy_check_node)
+    workflow.add_node("apply_review_decision", _apply_review_decision_node)
+    workflow.add_node("fill_browser", _fill_browser_node)
+    workflow.add_node("verify_result", _verify_result_node)
+    workflow.add_node("finish", _finish_node)
+    workflow.add_node("fail", _fail_node)
+
+    workflow.add_edge(START, "start")
+    workflow.add_edge("start", "analyze_page")
+    workflow.add_edge("analyze_page", "extract_questions")
+    workflow.add_edge("extract_questions", "retrieve_reviewed_memory")
+    workflow.add_edge("retrieve_reviewed_memory", "retrieve_policy_sources")
+    workflow.add_edge("retrieve_policy_sources", "suggest_answers")
+    workflow.add_edge("suggest_answers", "policy_check")
+    workflow.add_edge("policy_check", "apply_review_decision")
+    workflow.add_edge("apply_review_decision", "fill_browser")
+    workflow.add_edge("fill_browser", "verify_result")
+    workflow.add_edge("verify_result", "finish")
+    workflow.add_edge("finish", END)
+    workflow.add_edge("fail", END)
+
+    return workflow.compile(
+        checkpointer=_memory_saver,
+        interrupt_before=[REVIEW_GATE_NODE, SUBMIT_GATE_NODE],
+    )
+
+
 # ---------------------------------------------------------------------------
 # Convenience runners
 # ---------------------------------------------------------------------------
+
+
+def _enrich_state_with_interrupt_info(state: dict, next_nodes: list[str]) -> dict:
+    """Add interrupt_at / current_node metadata to state."""
+
+    enriched = dict(state)
+    if REVIEW_GATE_NODE in next_nodes:
+        enriched["interrupt_at"] = "review"
+        enriched["current_node"] = REVIEW_GATE_NODE
+    elif SUBMIT_GATE_NODE in next_nodes:
+        enriched["interrupt_at"] = "submit_approval"
+        enriched["current_node"] = SUBMIT_GATE_NODE
+    elif not next_nodes:
+        enriched["interrupt_at"] = None
+        enriched["current_node"] = "finish"
+    return enriched
 
 
 def run_until_review(db, *, task: Task) -> dict:
@@ -442,23 +527,6 @@ def run_until_review(db, *, task: Task) -> dict:
     results ready for human review.
 
     The fill_browser node is never reached from this call.
-
-    Parameters
-    ----------
-    db:
-        Database session.
-    task:
-        The task to run. Must have form_fields.
-
-    Returns
-    -------
-    dict
-        Graph state at the review interrupt point.
-
-    Raises
-    ------
-    ValueError
-        If the task workflow type is not ``security_questionnaire``.
     """
 
     workflow_type = task.workflow_type or "form_fill"
@@ -489,17 +557,101 @@ def run_until_review(db, *, task: Task) -> dict:
         "error": None,
     }
 
+    graph = _get_graph()
     config = {
         "configurable": {
+            "thread_id": _thread_id(task.id),
             "db": db,
             "task": task,
             "fields": fields,
         }
     }
 
-    graph = build_security_questionnaire_graph()
     result = graph.invoke(initial_state, config=config)
 
-    result["interrupt_at"] = "review"
+    state_snapshot = graph.get_state(config)
+    next_nodes = list(state_snapshot.next) if state_snapshot else []
 
-    return result
+    return _enrich_state_with_interrupt_info(result, next_nodes)
+
+
+def start_runtime(db, *, task: Task) -> dict:
+    """Start the graph runtime for a task and run to first interrupt.
+
+    Wraps ``run_until_review`` and uses the checkpointer-backed graph
+    so that subsequent resume/get calls can find the state.
+    """
+
+    return run_until_review(db, task=task)
+
+
+def get_runtime_state(task_id: int) -> dict | None:
+    """Return the current runtime state for a task from the checkpointer.
+
+    Returns None if no runtime has been started for the task.
+    """
+
+    graph = _get_graph()
+    config = {"configurable": {"thread_id": _thread_id(task_id)}}
+
+    try:
+        snapshot = graph.get_state(config)
+    except Exception:
+        return None
+
+    if not snapshot or snapshot.values is None:
+        return None
+
+    values = dict(snapshot.values)
+    if not values.get("task_id"):
+        return None
+
+    next_nodes = list(snapshot.next) if snapshot.next else []
+    return _enrich_state_with_interrupt_info(values, next_nodes)
+
+
+def resume_from_review(
+    db,
+    *,
+    task: Task,
+    decision: str = "approve_all",
+    approvals: list[dict] | None = None,
+) -> dict:
+    """Resume the graph from the review interrupt with a human decision.
+
+    Only works if the runtime is currently paused at the review gate.
+    Advances through fill_browser and verify_result to the submit
+    approval gate.
+    """
+
+    graph = _get_graph()
+    config = {
+        "configurable": {
+            "thread_id": _thread_id(task.id),
+            "db": db,
+            "task": task,
+            "fields": list(task.form_fields),
+        }
+    }
+
+    snapshot = graph.get_state(config)
+    next_nodes = list(snapshot.next) if snapshot.next else []
+
+    if REVIEW_GATE_NODE not in next_nodes:
+        raise ValueError(
+            f"Runtime is not at review gate (next nodes: {next_nodes})."
+        )
+
+    updated_state = dict(snapshot.values) if snapshot.values else {}
+    updated_state["review_decision"] = decision
+    if approvals is not None:
+        updated_state["review_approvals"] = approvals
+
+    graph.update_state(config, updated_state)
+
+    result = graph.invoke(None, config=config)
+
+    state_snapshot = graph.get_state(config)
+    next_after = list(state_snapshot.next) if state_snapshot.next else []
+
+    return _enrich_state_with_interrupt_info(result, next_after)

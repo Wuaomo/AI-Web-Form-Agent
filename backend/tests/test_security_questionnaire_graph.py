@@ -12,6 +12,7 @@ from app.database import Base
 from app.models import FormField, Profile, Task
 from app.services.agent_runtime.security_questionnaire_graph import (
     SUPPORTED_WORKFLOWS,
+    _reset_runtime_for_tests,
     build_security_questionnaire_graph,
     run_until_review,
 )
@@ -20,6 +21,8 @@ from app.services.agent_runtime.security_questionnaire_graph import (
 @pytest.fixture
 def session() -> Generator[Session, None, None]:
     """Provide an isolated in-memory session."""
+
+    _reset_runtime_for_tests()
 
     engine = create_engine(
         "sqlite://",
