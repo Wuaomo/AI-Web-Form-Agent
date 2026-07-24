@@ -364,6 +364,69 @@ class WorkflowSpanResponse(BaseModel):
     created_at: datetime
 
 
+class WorkflowRuntimeSuggestion(BaseModel):
+    """One answer suggestion returned by the workflow runtime."""
+
+    field_id: int
+    question_id: str
+    field_label: str
+    suggested_value: str
+    confidence: float
+    source: str
+    memory_source_ids: list[int] = Field(default_factory=list)
+    policy_source_ids: list[str] = Field(default_factory=list)
+
+
+class WorkflowRuntimePolicyDecision(BaseModel):
+    """Policy decision for one suggestion."""
+
+    question_id: str
+    decision: str
+    allowed: bool
+    requires_review: bool
+    reason: str
+    risk_type: str
+    risk_level: str
+
+
+class WorkflowRuntimePolicyResult(BaseModel):
+    """Aggregated policy check results."""
+
+    total: int = 0
+    blocked: int = 0
+    decisions: list[WorkflowRuntimePolicyDecision] = Field(default_factory=list)
+
+
+class WorkflowRuntimeState(BaseModel):
+    """Compact workflow runtime state returned by the API.
+
+    Does not include sensitive raw values (passwords, OTPs, etc.).
+    Password-blocked fields have their suggested_value redacted.
+    """
+
+    task_id: int
+    workflow_type: str
+    status: str
+    interrupt_at: str | None = None
+    current_node: str | None = None
+    suggestions: list[WorkflowRuntimeSuggestion] = Field(default_factory=list)
+    policy_result: WorkflowRuntimePolicyResult = Field(
+        default_factory=WorkflowRuntimePolicyResult
+    )
+    memory_hits: list[dict[str, object]] = Field(default_factory=list)
+    policy_sources: list[dict[str, object]] = Field(default_factory=list)
+    error: str | None = None
+
+
+class WorkflowReviewRequest(BaseModel):
+    """Request payload for the review endpoint."""
+
+    decision: Literal["approve_all", "reject_all", "per_field"] = (
+        "approve_all"
+    )
+    approvals: list[dict[str, object]] = Field(default_factory=list)
+
+
 class ApprovalRequestResponse(BaseModel):
     """One persisted approval request."""
 

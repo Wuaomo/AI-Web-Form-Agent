@@ -744,7 +744,7 @@ def _find_baseline_run(
 
 VALID_STRESS_MODES = {"standard", "cache_cold", "cache_warm", "concurrent"}
 VALID_MEMORY_MODES = {"off", "on"}
-VALID_EVALUATION_MODES = {"rules", "llm", "rag_llm", "full_workflow"}
+VALID_EVALUATION_MODES = {"rules", "llm", "rag_llm", "full_workflow", "langchain_rag_optional", "runtime"}
 
 
 def run_benchmarks(
@@ -759,10 +759,21 @@ def run_benchmarks(
 
     if mode not in VALID_EVALUATION_MODES:
         raise ValueError(f"Unknown benchmark mode: {mode}")
+
     if mode in {"llm", "rag_llm"} and not provider:
         raise ValueError("LLM benchmarks require a provider")
     if mode == "rules" and provider is not None:
         raise ValueError("Rules benchmarks require provider to be None")
+
+    effective_mode = mode
+    if mode == "langchain_rag_optional":
+        if provider and db:
+            effective_mode = "rag_llm"
+        else:
+            effective_mode = "rules"
+
+    if mode == "runtime":
+        effective_mode = "rules"
 
     if stress_mode not in VALID_STRESS_MODES:
         raise ValueError(f"Unknown stress mode: {stress_mode}. Valid modes: {VALID_STRESS_MODES}")
@@ -805,7 +816,7 @@ def run_benchmarks(
         if stress_mode == "cache_warm":
             _run_case(
                 case,
-                mode=mode,
+                mode=effective_mode,
                 provider=provider,
                 db=db,
                 memory_mode=memory_mode,
@@ -813,7 +824,7 @@ def run_benchmarks(
 
         actual = _run_case(
             case,
-            mode=mode,
+            mode=effective_mode,
             provider=provider,
             db=db,
             memory_mode=memory_mode,

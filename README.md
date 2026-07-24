@@ -17,6 +17,28 @@ The main demo shows a safe browser workflow for security and compliance question
 
 The local demo works without LLM API keys. Optional LLM providers can improve suggestions, but rules-mode behavior remains available.
 
+## Technical Architecture
+
+```text
+React UI
+  -> FastAPI API
+    -> LangGraph durable workflow orchestration
+    -> LangChain structured suggestions and retrieval
+    -> PolicyEngine + ApprovalGateService safety boundaries
+    -> Playwright browser execution (approved only)
+    -> SQLite persistent state (profiles, tasks, traces, approvals, memory)
+    -> Benchmark runner with rules/memory/LLM/runtime comparison
+```
+
+**Key Components:**
+
+- **LangGraph**: Durable, human-reviewed workflow orchestration with interrupt points before sensitive actions. The graph defines the execution order and enforces review gates.
+- **LangChain**: Structured suggestions and retrieval for enhanced mapping and questionnaire answers. Optional - the system works without LLMs.
+- **PolicyEngine**: Safety decision owner that blocks sensitive fields, refuses unsupported answers, and enforces action controls.
+- **ApprovalGateService**: Human-in-the-loop approval workflow for risky operations like form filling and submission.
+- **Playwright**: Approved browser execution that fills only reviewed values and verifies results in the DOM.
+- **SQLite**: Reproducible local state for profiles, tasks, traces, approvals, reviewed memory, and benchmark runs.
+
 ## Safety Boundaries
 
 The assistant never auto-submits forms, bypasses login or CAPTCHA, handles payments or OTPs, or stores passwords, payment data, OTPs, CAPTCHA values, or one-time consent values.

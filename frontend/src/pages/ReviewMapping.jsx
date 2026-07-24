@@ -52,6 +52,7 @@ function checkboxControlValue(value) {
 function ReviewMapping() {
   const { taskId } = useParams();
   const navigate = useNavigate();
+  const [task, setTask] = useState(null);
   const [fields, setFields] = useState([]);
   const [llmProviders, setLlmProviders] = useState([]);
   const [mappingMode, setMappingMode] = useState("llm");
@@ -65,6 +66,8 @@ function ReviewMapping() {
   const [agentReviews, setAgentReviews] = useState([]);
   const [runningReview, setRunningReview] = useState(null);
   const [taskCheckpoints, setTaskCheckpoints] = useState([]);
+  const [workflowRuntime, setWorkflowRuntime] = useState(null);
+  const [fieldApprovals, setFieldApprovals] = useState({});
   const agentReviewInFlight = useRef(false);
   const pendingValueUpdateTimers = useRef({});
   const pendingValueUpdates = useRef({});
@@ -76,17 +79,33 @@ function ReviewMapping() {
     setLoading(true);
     setError("");
     try {
-      const [fieldItems, providerItems, reviewItems, checkpointItems] = await Promise.all([
+      const [taskResult, fieldItems, providerItems, reviewItems, checkpointItems] = await Promise.all([
+        api.getTask(taskId),
         api.listTaskFields(taskId),
         api.listLlmProviders(),
         api.getTaskAgentReviews(taskId).catch(() => []),
         api.listTaskCheckpoints(taskId).catch(() => []),
       ]);
+      setTask(taskResult);
       setFields(fieldItems);
       setLlmProviders(providerItems);
       setAgentReviews(reviewItems);
       setTaskCheckpoints(checkpointItems);
       setSelectedLlmProvider(getSavedLlmProvider(providerItems));
+
+      if (taskResult.workflow_type === "security_questionnaire") {
+        try {
+          const runtime = await api.getWorkflowState(taskId);
+          setWorkflowRuntime(runtime);
+          const approvals = {};
+          (runtime.suggestions || []).forEach((s) => {
+            approvals[s.field_id] = "pending";
+          });
+          setFieldApprovals(approvals);
+        } catch {
+          // Runtime not started yet — that's fine.
+        }
+      }
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -108,6 +127,78 @@ function ReviewMapping() {
     } finally {
       agentReviewInFlight.current = false;
       setRunningReview(null);
+    }
+  }
+
+  const isSecurityQuestionnaire = task?.workflow_type === "security_questionnaire";
+
+  function setFieldApproval(fieldId, status) {
+    setFieldApprovals((current) => ({
+      ...current,
+      [fieldId]: status,
+    }));
+  }
+
+  function approveAllFields() {
+    const approvals = {};
+    fields.forEach((field) => {
+      approvals[field.id] = "approved";
+    });
+    setFieldApprovals(approvals);
+  }
+
+  function rejectAllFields() {
+    const approvals = {};
+    fields.forEach((field) => {
+      approvals[field.id] = "rejected";
+    });
+    setFieldApprovals(approvals);
+  }
+
+  function getSuggestionForField(fieldId) {
+    if (!workflowRuntime?.suggestions) return null;
+    return workflowRuntime.suggestions.find((s) => s.field_id === fieldId) || null;
+  }
+
+  function getPolicyForField(fieldId) {
+    if (!workflowRuntime?.policy_result?.decisions) return null;
+    const suggestion = getSuggestionForField(fieldId);
+    if (!suggestion) return null;
+    return (
+      workflowRuntime.policy_result.decisions.find(
+        (d) => d.question_id === suggestion.question_id,
+      ) || null
+    );
+  }
+
+  async function submitReview() {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const approvals = Object.entries(fieldApprovals).map(([fieldId, status]) => ({
+        field_id: Number(fieldId),
+        decision: status,
+      }));
+      const allApproved = Object.values(fieldApprovals).every(
+        (v) => v === "approved",
+      );
+      const result = await api.reviewWorkflow(taskId, {
+        decision: allApproved ? "approve_all" : "per_field",
+        approvals,
+      });
+      setWorkflowRuntime(result);
+      navigate(`/tasks/${taskId}`, {
+        state: {
+          notice: allApproved
+            ? "All suggestions approved. Form filled and verified."
+            : "Review submitted.",
+        },
+      });
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -509,24 +600,53 @@ function ReviewMapping() {
         </div>
       ) : null}
 
-      <div className="button-row">
-        <button
-          className="button"
-          type="button"
-          onClick={generateMappings}
-          disabled={busy || llmUnavailable}
-        >
-          Generate mappings
-        </button>
-        <button
-          className="button button-secondary"
-          type="button"
-          onClick={confirmMapping}
-          disabled={busy || fieldUpdateCount > 0 || fields.length === 0 || requiredMissing.length > 0}
-        >
-          Confirm mapping
-        </button>
-      </div>
+      {isSecurityQuestionnaire && workflowRuntime ? (
+        <div className="button-row">
+          <button
+            className="button"
+            type="button"
+            onClick={approveAllFields}
+            disabled={busy}
+          >
+            Approve all
+          </button>
+          <button
+            className="button button-secondary"
+            type="button"
+            onClick={rejectAllFields}
+            disabled={busy}
+          >
+            Reject all
+          </button>
+          <button
+            className="button button-primary"
+            type="button"
+            onClick={submitReview}
+            disabled={busy || fieldUpdateCount > 0}
+          >
+            {busy ? "Submitting..." : "Submit review"}
+          </button>
+        </div>
+      ) : (
+        <div className="button-row">
+          <button
+            className="button"
+            type="button"
+            onClick={generateMappings}
+            disabled={busy || llmUnavailable}
+          >
+            Generate mappings
+          </button>
+          <button
+            className="button button-secondary"
+            type="button"
+            onClick={confirmMapping}
+            disabled={busy || fieldUpdateCount > 0 || fields.length === 0 || requiredMissing.length > 0}
+          >
+            Confirm mapping
+          </button>
+        </div>
+      )}
 
       <section className="agent-reviews">
         <h3>Agent Reviews</h3>
@@ -670,6 +790,102 @@ function ReviewMapping() {
                             : "The agent is less confident here."}
                         </p>
                         {renderSourceControl(field)}
+                      </aside>
+                    )}
+
+                    {isSecurityQuestionnaire && workflowRuntime && (
+                      <aside className="review-field-assist">
+                        <div className="review-field-assist-heading">
+                          <strong>Suggestion details</strong>
+                          <span>
+                            {getSuggestionForField(field.id)?.confidence
+                              ? formatConfidence(
+                                  getSuggestionForField(field.id).confidence,
+                                )
+                              : "—"}
+                          </span>
+                        </div>
+                        {getPolicyForField(field.id) && (
+                          <div
+                            className={`safety-flag ${
+                              getPolicyForField(field.id).decision === "block"
+                                ? "safety-flag-danger"
+                                : getPolicyForField(field.id).decision ===
+                                    "warn"
+                                  ? "safety-flag-warning"
+                                  : "safety-flag-ok"
+                            }`}
+                          >
+                            <strong>
+                              {getPolicyForField(field.id).decision === "block"
+                                ? "Blocked"
+                                : getPolicyForField(field.id).decision ===
+                                      "warn"
+                                  ? "Warn"
+                                  : "Safe"}
+                            </strong>
+                            <span>
+                              {getPolicyForField(field.id).reason ||
+                                getPolicyForField(field.id).rule}
+                            </span>
+                          </div>
+                        )}
+                        {getSuggestionForField(field.id)?.source_evidence &&
+                          getSuggestionForField(field.id).source_evidence
+                            .length > 0 && (
+                            <details className="source-evidence-details">
+                              <summary>
+                                Source evidence (
+                                {
+                                  getSuggestionForField(field.id).source_evidence
+                                    .length
+                                }
+                                )
+                              </summary>
+                              <ul className="source-evidence-list">
+                                {getSuggestionForField(
+                                  field.id,
+                                ).source_evidence.map((item, idx) => (
+                                  <li key={idx}>
+                                    <span className="evidence-source">
+                                      {item.source_type}
+                                    </span>
+                                    <p>{item.content}</p>
+                                  </li>
+                                ))}
+                              </ul>
+                            </details>
+                          )}
+                        <div className="field-approval-actions">
+                          <button
+                            className={`button button-small ${
+                              fieldApprovals[field.id] === "approved"
+                                ? "button-primary"
+                                : "button-secondary"
+                            }`}
+                            type="button"
+                            onClick={() => setFieldApproval(field.id, "approved")}
+                            disabled={busy}
+                          >
+                            {fieldApprovals[field.id] === "approved"
+                              ? "Approved"
+                              : "Approve"}
+                          </button>
+                          <button
+                            className={`button button-small ${
+                              fieldApprovals[field.id] === "rejected"
+                                ? "button-danger"
+                                : "button-secondary"
+                            }`}
+                            type="button"
+                            onClick={() => setFieldApproval(field.id, "rejected")}
+                            disabled={busy}
+                          >
+                            {fieldApprovals[field.id] === "rejected"
+                              ? "Rejected"
+                              : "Reject"}
+                          </button>
+                        </div>
                       </aside>
                     )}
                   </article>

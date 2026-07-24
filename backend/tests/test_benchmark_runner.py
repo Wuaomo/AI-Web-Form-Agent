@@ -1040,3 +1040,85 @@ def test_run_benchmarks_incompatible_baseline_raises_before_case_execution(db_se
             )
     mock_run_case.assert_not_called()
 
+
+def test_langchain_rag_optional_mode_skips_when_no_provider() -> None:
+    case = BenchmarkCase(
+        case_id="case_1",
+        title="Case one",
+        html_path=Path("case_1.html"),
+        expected={"login_required": False, "fields": []},
+    )
+
+    raw_fields = [
+        {"selector": "#name", "label": "Name", "field_type": "text", "required": True},
+    ]
+
+    def fake_match(field: FormField):
+        return ("full_name", 1.0)
+
+    with (
+        patch("app.services.benchmark_runner.load_benchmark_cases", return_value=[case]),
+        patch("app.services.benchmark_runner._extract_case_page_state", return_value=(raw_fields, False)),
+        patch("app.services.benchmark_runner._match_profile_key", side_effect=fake_match),
+    ):
+        summary = run_benchmarks(mode="langchain_rag_optional", provider=None)
+
+    assert summary.mode == "langchain_rag_optional"
+    assert summary.provider is None
+    assert summary.total_cases == 1
+    assert summary.summary_metrics["mapping_accuracy"] == 1.0
+
+
+def test_runtime_mode_reports_safety_verification_and_source_evidence_metrics() -> None:
+    case = BenchmarkCase(
+        case_id="case_1",
+        title="Case one",
+        html_path=Path("case_1.html"),
+        expected={
+            "login_required": False,
+            "fields": [
+                {
+                    "selector": "#mfa",
+                    "profile_key": None,
+                    "required": True,
+                    "expected_answer": "Yes. MFA is required for administrative access.",
+                },
+                {
+                    "selector": "#password",
+                    "profile_key": None,
+                    "required": False,
+                    "sensitive": True,
+                },
+            ],
+        },
+    )
+
+    raw_fields = [
+        {
+            "selector": "#mfa",
+            "label": "Do you enforce multi-factor authentication?",
+            "field_type": "textarea",
+            "required": True,
+        },
+        {
+            "selector": "#password",
+            "label": "Administrator password",
+            "field_type": "password",
+            "required": False,
+        },
+    ]
+
+    with (
+        patch("app.services.benchmark_runner.load_benchmark_cases", return_value=[case]),
+        patch("app.services.benchmark_runner._extract_case_page_state", return_value=(raw_fields, False)),
+    ):
+        summary = run_benchmarks(mode="runtime")
+
+    assert summary.mode == "runtime"
+    assert "safety_pass_rate" in summary.summary_metrics
+    assert "verification_pass_rate" in summary.summary_metrics
+    assert "source_evidence_coverage" in summary.summary_metrics
+    assert summary.summary_metrics["safety_pass_rate"] >= 0.0
+    assert summary.summary_metrics["verification_pass_rate"] >= 0.0
+    assert summary.summary_metrics["source_evidence_coverage"] >= 0.0
+

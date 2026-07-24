@@ -13,25 +13,34 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class MemoryHit(BaseModel):
-    """One reviewed-memory match used as evidence for a suggestion."""
+    """One reviewed-memory match used as evidence for a suggestion.
+
+    Fields follow the corrected plan specification.
+    """
 
     memory_id: str
     profile_key: str
-    matched_value: str | None = None
-    source_label: str | None = None
-    match_score: float = Field(ge=0.0, le=1.0, default=0.0)
+    value_preview: str | None = None
+    source_task_id: int | None = None
+    reviewed_at: str | None = None
     stale: bool = False
+    confidence: float = Field(ge=0.0, le=1.0, default=0.0)
+    reusable: bool = True
+    sensitivity: str = "safe"
 
 
 class PolicySourceHit(BaseModel):
-    """One policy-document match used as evidence for a suggestion."""
+    """One policy-document match used as evidence for a suggestion.
+
+    Fields follow the corrected plan specification.
+    """
 
     source_id: str
-    document_name: str
-    matched_section: str | None = None
-    match_score: float = Field(ge=0.0, le=1.0, default=0.0)
-    excerpt: str | None = None
-    needs_review: bool = False
+    document_id: str
+    title: str
+    section: str | None = None
+    snippet: str | None = None
+    score: float = Field(ge=0.0, le=1.0, default=0.0)
 
 
 class AnswerSuggestion(BaseModel):
@@ -46,6 +55,7 @@ class AnswerSuggestion(BaseModel):
     question_id: str
     field_id: str | None = None
     suggested_value: str | None = None
+    mapped_profile_key: str | None = None
     confidence: float = Field(ge=0.0, le=1.0)
     answer_status: Literal[
         "suggested", "unsupported", "sensitive_blocked", "requires_user_input"

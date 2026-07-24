@@ -64,6 +64,35 @@ test("mutations use their configured HTTP method", async () => {
   }
 });
 
+test("workflow runtime API client uses correct paths", async () => {
+  clearApiCache();
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, method: options.method || "GET", body: options.body });
+    return jsonResponse({ ok: true });
+  };
+
+  try {
+    await api.startWorkflow(1);
+    await api.getWorkflowState(1);
+    await api.reviewWorkflow(1, { decision: "approve_all", approvals: [] });
+
+    assert.equal(calls.length, 3);
+    assert.ok(calls[0].url.endsWith("/workflows/1/start"));
+    assert.equal(calls[0].method, "POST");
+    assert.ok(calls[1].url.endsWith("/workflows/1"));
+    assert.equal(calls[1].method, "GET");
+    assert.ok(calls[2].url.endsWith("/workflows/1/review"));
+    assert.equal(calls[2].method, "POST");
+    const reviewBody = JSON.parse(calls[2].body);
+    assert.equal(reviewBody.decision, "approve_all");
+  } finally {
+    clearApiCache();
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("structured API errors preserve detail payload", async () => {
   clearApiCache();
   const originalFetch = globalThis.fetch;
