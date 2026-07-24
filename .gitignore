@@ -48,6 +48,7 @@ blob-report/
 .idea/
 .DS_Store
 Thumbs.db
+~$*.docx
 
 # Logs and temporary files
 *.log
