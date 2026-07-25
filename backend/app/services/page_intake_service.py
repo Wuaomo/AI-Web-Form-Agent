@@ -7,6 +7,8 @@ summary, detected_fields, risk_flags, blocked_reasons, and evidence.
 No LLM calls. No database writes. Pure deterministic rules.
 """
 
+import re
+
 from dataclasses import dataclass, field
 
 from app.services.form_extractor import ExtractedFormAnalysis
@@ -35,15 +37,18 @@ _QUESTIONNAIRE_TEXT_KEYWORDS = (
     "vendor risk",
 )
 
-_VENDOR_TEXT_KEYWORDS = (
+_VENDOR_STRONG_KEYWORDS = (
     "vendor",
     "supplier",
     "onboarding",
+    "w-9",
+)
+
+_VENDOR_WEAK_KEYWORDS = (
     "company",
     "tax",
-    "w-9",
     "bank",
-    "contact",
+    "contact name",
 )
 
 _JOB_TEXT_KEYWORDS = (
@@ -60,7 +65,14 @@ _JOB_TEXT_KEYWORDS = (
 # ---------------------------------------------------------------------------
 
 _PASSWORD_KEYWORDS = ("password",)
-_OTP_KEYWORDS = ("otp", "one time", "one-time", "code")
+_OTP_KEYWORDS = (
+    "otp",
+    "one time",
+    "one-time",
+    "one-time code",
+    "verification code",
+    "security code",
+)
 _PAYMENT_KEYWORDS = ("payment", "card", "billing", "credit")
 _CAPTCHA_KEYWORDS = ("captcha",)
 _DESTRUCTIVE_KEYWORDS = (
@@ -129,16 +141,29 @@ def _collect_text(
     return " ".join(parts).lower()
 
 
-def _matches_any(text: str, keywords: tuple[str, ...]) -> bool:
-    """Return True if any keyword appears as a substring in text."""
+def _keyword_pattern(keyword: str) -> re.Pattern[str]:
+    """Compile a keyword into a word-boundary regex for safe matching.
 
-    return any(kw in text for kw in keywords)
+    Keywords without non-word characters (e.g. "w-9", "one-time") use
+    lookaround boundaries; plain words use \\b.
+    """
+
+    escaped = re.escape(keyword)
+    if re.search(r"\W", keyword):
+        return re.compile(rf"(?<!\w){escaped}(?!\w)", re.IGNORECASE)
+    return re.compile(rf"\b{escaped}\b", re.IGNORECASE)
+
+
+def _matches_any(text: str, keywords: tuple[str, ...]) -> bool:
+    """Return True if any keyword matches as a whole word/phrase in text."""
+
+    return any(_keyword_pattern(keyword).search(text) for keyword in keywords)
 
 
 def _matched_keywords(text: str, keywords: tuple[str, ...]) -> list[str]:
-    """Return the list of keywords that appear in text."""
+    """Return the list of keywords that match as whole words/phrases in text."""
 
-    return [kw for kw in keywords if kw in text]
+    return [keyword for keyword in keywords if _keyword_pattern(keyword).search(text)]
 
 
 def _count_questions(
@@ -195,12 +220,15 @@ def classify_page_intake(
             ))
         return ("questionnaire", WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE, 0.85, evidence)
 
-    # Rule 2: vendor onboarding.
-    vendor_matches = _matched_keywords(text, _VENDOR_TEXT_KEYWORDS)
-    if vendor_matches:
+    # Rule 2: vendor onboarding — strong keywords alone, or 2+ weak + form fields.
+    strong_vendor_matches = _matched_keywords(text, _VENDOR_STRONG_KEYWORDS)
+    weak_vendor_matches = _matched_keywords(text, _VENDOR_WEAK_KEYWORDS)
+
+    if strong_vendor_matches or (len(weak_vendor_matches) >= 2 and form_analysis.fields):
+        all_matches = strong_vendor_matches + weak_vendor_matches
         evidence.append(PageIntakeEvidence(
             source="page_text",
-            text=f"matched: {', '.join(vendor_matches)}",
+            text=f"matched: {', '.join(all_matches)}",
             reason="Page text contains vendor/supplier onboarding signals",
         ))
         return ("vendor_intake", WORKFLOW_TYPE_VENDOR_ONBOARDING, 0.82, evidence)
