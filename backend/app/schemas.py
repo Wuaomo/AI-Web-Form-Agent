@@ -607,3 +607,24 @@ class AgentReviewResponse(BaseModel):
     model: str | None
     provider: str | None
     created_at: datetime
+
+
+class AgentStepResponse(BaseModel):
+    """A unified view of one workflow step combining plan, trace, and execution data.
+
+    Does not include sensitive raw values (passwords, OTPs, card numbers).
+    Sensitive field values are redacted in summaries.
+    """
+
+    step_id: str
+    tool: str
+    goal: str
+    status: str
+    input_summary: str | None = None
+    output_summary: str | None = None
+    error: str | None = None
+    recovery_hint: str | None = None
+    evidence: list[str] = Field(default_factory=list)
+    screenshot_id: int | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None

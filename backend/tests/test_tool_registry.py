@@ -40,6 +40,33 @@ def test_implemented_tools_expose_runtime_schema_metadata() -> None:
         assert isinstance(tool.produces, list)
 
 
+def test_implemented_tools_expose_failure_and_safety_metadata() -> None:
+    """Verify executable tools publish failure modes, recovery hints, and evidence requirements."""
+
+    for tool in list_tools(include_unimplemented=False):
+        assert isinstance(tool.failure_modes, list)
+        assert len(tool.failure_modes) > 0, f"Tool {tool.name} should have failure_modes defined"
+        assert isinstance(tool.recovery_hint, str)
+        assert tool.recovery_hint, f"Tool {tool.name} should have recovery_hint defined"
+        assert isinstance(tool.evidence_required, list)
+        assert len(tool.evidence_required) > 0, f"Tool {tool.name} should have evidence_required defined"
+        if tool.requires_approval:
+            assert tool.approval_reason, f"Tool {tool.name} requires approval but has no approval_reason"
+
+
+def test_unimplemented_tools_lack_executable_metadata() -> None:
+    """Verify unimplemented tools remain inspectable but don't pretend to be executable."""
+
+    for tool in list_tools(include_unimplemented=True):
+        if not tool.implemented:
+            assert tool.params_schema == {}
+            assert tool.preconditions == []
+            assert tool.produces == []
+            assert tool.failure_modes == []
+            assert tool.recovery_hint == ""
+            assert tool.evidence_required == []
+
+
 def test_list_tools_includes_unimplemented_tools() -> None:
     """Verify the registry remains inspectable beyond implemented tools."""
 

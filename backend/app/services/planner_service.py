@@ -222,6 +222,10 @@ def plan_to_dict(plan: WorkflowPlan) -> dict[str, object]:
                 "params_schema": deepcopy(tool.params_schema),
                 "preconditions": list(tool.preconditions),
                 "produces": list(tool.produces),
+                "failure_modes": list(tool.failure_modes),
+                "recovery_hint": tool.recovery_hint,
+                "evidence_required": list(tool.evidence_required),
+                "approval_reason": tool.approval_reason,
             }
         )
         steps.append(serialized_step)

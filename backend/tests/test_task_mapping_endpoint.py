@@ -19,6 +19,7 @@ from app.routers.approvals import router as approvals_router
 from app.routers.tasks import router as tasks_router
 from app.services.field_mapper import map_fields_with_llm
 from app.services.form_extractor import ExtractedFormField
+from app.services.llm_client import LLMResult
 
 
 @pytest.fixture
@@ -480,8 +481,8 @@ def test_manual_mapping_correction_skips_llm_call_for_same_form(
     )
 
     with patch(
-        "app.services.field_mapper._request_llm_mapping",
-        return_value=llm_json,
+        "app.services.llm_client.LLMClient.suggest_mapping",
+        return_value=LLMResult(success=True, content=None, raw_response=llm_json),
     ) as request_mapping:
         mapped = map_fields_with_llm(second_task.id, session, provider="deepseek")
 
@@ -533,7 +534,7 @@ def test_manual_value_can_be_saved_to_profile_custom_value_and_reused(
     session.add(second_field)
     session.commit()
 
-    with patch("app.services.field_mapper._request_llm_mapping") as request_mapping:
+    with patch("app.services.llm_client.LLMClient.suggest_mapping") as request_mapping:
         mapped = map_fields_with_llm(second_task.id, session, provider="deepseek")
 
     request_mapping.assert_not_called()
