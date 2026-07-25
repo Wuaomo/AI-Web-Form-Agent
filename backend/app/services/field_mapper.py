@@ -19,6 +19,7 @@ from app.models import FormField, Profile, Task
 from app.schemas import LLMProvider, ProfileKey
 from app.services.llm_provider_config import resolve_llm_provider
 from app.services.llm_usage_service import record_llm_api_usage
+from app.services.llm_client import get_llm_client, LLMResult
 from app.services.retrieval_service import search_similar_field_mappings
 from app.services.workflow_memory import build_field_memory_text, is_memory_eligible_field
 from app.services.mapping_cache import (
@@ -1343,12 +1344,24 @@ def _map_fields_with_llm_result(
             )
 
         prompt = _build_llm_prompt(fields, profile, retrieved_examples=retrieval_examples)
-        raw_response = _request_llm_mapping(
+        llm_client = get_llm_client(selected_provider)
+        llm_result: LLMResult = llm_client.suggest_mapping(
             prompt,
-            selected_provider,
+            LLM_MAPPING_SCHEMA,
             task_id=task_id,
             db=db,
         )
+
+        if not llm_result.success:
+            # Re-raise the original exception type if available
+            if llm_result.error_type:
+                # Try to reconstruct the original exception
+                import builtins
+                exc_type = getattr(builtins, llm_result.error_type, RuntimeError)
+                raise exc_type(llm_result.reason)
+            raise RuntimeError(llm_result.reason)
+
+        raw_response = llm_result.raw_response
         merged_response = _merge_mapping_responses(raw_response, override_response)
         if merged_response is None:
             merged_response = raw_response
