@@ -1,5 +1,6 @@
 """Tests for the LLM Client boundary layer."""
 
+import inspect
 from collections.abc import Generator
 from unittest.mock import patch, MagicMock
 
