@@ -76,6 +76,28 @@ LLM_MAPPING_SCHEMA = {
     "additionalProperties": False,
 }
 
+LLM_SUMMARY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "summary": {"type": "string"},
+    },
+    "required": ["summary"],
+    "additionalProperties": False,
+}
+
+
+def _classification_schema(labels: list[str] | tuple[str, ...]) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "label": {"type": "string", "enum": list(labels)},
+            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+            "reason": {"type": "string"},
+        },
+        "required": ["label", "confidence", "reason"],
+        "additionalProperties": False,
+    }
+
 
 @dataclass(frozen=True)
 class LLMUsage:
@@ -395,6 +417,8 @@ class LLMClient:
         *,
         task_id: int | None = None,
         db: Session | None = None,
+        instructions: str | None = None,
+        schema_name: str = "structured_response",
     ) -> LLMResult:
         """Request structured JSON output validated against a schema."""
 
@@ -422,6 +446,8 @@ class LLMClient:
                 schema=schema,
                 task_id=task_id,
                 db=db,
+                instructions=instructions,
+                schema_name=schema_name,
             )
 
             latency_ms = int((time.perf_counter() - start_time) * 1000)
@@ -463,7 +489,81 @@ class LLMClient:
         This is a specialized variant of complete_json optimized for
         form field to profile key mapping tasks.
         """
-        return self.complete_json(prompt, schema, task_id=task_id, db=db)
+        return self.complete_json(
+            prompt,
+            schema,
+            task_id=task_id,
+            db=db,
+            instructions="You map form fields to profile keys. Output mapping data only.",
+            schema_name="form_field_mappings",
+        )
+
+    def summarize(
+        self,
+        prompt: str,
+        *,
+        max_sentences: int = 3,
+        task_id: int | None = None,
+        db: Session | None = None,
+    ) -> LLMResult:
+        """Summarize page or workflow text into a short structured summary."""
+
+        summary_prompt = (
+            f"Summarize the following content in at most {max_sentences} sentences. "
+            "Return JSON with a single key named summary.\n\n"
+            f"{prompt}"
+        )
+        return self.complete_json(
+            summary_prompt,
+            LLM_SUMMARY_SCHEMA,
+            task_id=task_id,
+            db=db,
+            instructions="You summarize browser page content for a review-first workflow assistant. Output JSON only.",
+            schema_name="page_summary",
+        )
+
+    def classify(
+        self,
+        prompt: str,
+        labels: list[str] | tuple[str, ...],
+        *,
+        task_id: int | None = None,
+        db: Session | None = None,
+    ) -> LLMResult:
+        """Classify text into one of the provided labels."""
+
+        label_list = list(labels)
+        schema = _classification_schema(label_list)
+        classify_prompt = (
+            "Classify the following content into exactly one of these labels: "
+            f"{', '.join(label_list)}. Return JSON with label, confidence, and reason.\n\n"
+            f"{prompt}"
+        )
+        result = self.complete_json(
+            classify_prompt,
+            schema,
+            task_id=task_id,
+            db=db,
+            instructions="You classify browser pages for a review-first workflow assistant. Output JSON only.",
+            schema_name="page_classification",
+        )
+
+        if not result.success:
+            return result
+
+        label = result.content.get("label") if isinstance(result.content, dict) else None
+        if label not in label_list:
+            return LLMResult(
+                success=False,
+                content=None,
+                raw_response=result.raw_response,
+                usage=result.usage,
+                fallback_used=True,
+                error_type="INVALID_CLASSIFICATION_LABEL",
+                reason=f"Classification label is not allowed: {label}",
+            )
+
+        return result
 
     def _parse_and_validate_json(
         self,
@@ -514,20 +614,47 @@ class LLMClient:
         schema: dict[str, Any] | None = None,
         task_id: int | None = None,
         db: Session | None = None,
+        instructions: str | None = None,
+        schema_name: str = "structured_response",
     ) -> str:
         """Call the appropriate LLM provider based on configuration."""
 
         if provider == "openai":
-            return self._request_openai_mapping(prompt, task_id=task_id, db=db)
+            return self._request_openai_mapping(
+                prompt,
+                schema=schema,
+                instructions=instructions,
+                schema_name=schema_name,
+                task_id=task_id,
+                db=db,
+            )
         if provider == "gemini":
-            return self._request_gemini_mapping(prompt, task_id=task_id, db=db)
+            return self._request_gemini_mapping(
+                prompt,
+                schema=schema,
+                instructions=instructions,
+                schema_name=schema_name,
+                task_id=task_id,
+                db=db,
+            )
         if provider == "deepseek":
-            return self._request_deepseek_mapping(prompt, task_id=task_id, db=db)
+            return self._request_deepseek_mapping(
+                prompt,
+                schema=schema,
+                instructions=instructions,
+                schema_name=schema_name,
+                task_id=task_id,
+                db=db,
+            )
         raise ValueError("LLM_PROVIDER must be 'openai', 'gemini', or 'deepseek'")
 
     def _request_openai_mapping(
         self,
         prompt: str,
+        *,
+        schema: dict[str, Any] | None = None,
+        instructions: str | None = None,
+        schema_name: str = "form_field_mappings",
         task_id: int | None = None,
         db: Session | None = None,
     ) -> str:
@@ -536,20 +663,23 @@ class LLMClient:
         if not config.OPENAI_API_KEY:
             raise RuntimeError("OPENAI_API_KEY is not configured")
 
+        schema = schema or LLM_MAPPING_SCHEMA
+        instructions = instructions or (
+            "You map form fields to profile keys. Output mapping data only."
+        )
+
         start_time = time.perf_counter()
         response = _post_json(
             "https://api.openai.com/v1/responses",
             {
                 "model": config.OPENAI_MODEL,
-                "instructions": (
-                    "You map form fields to profile keys. Output mapping data only."
-                ),
+                "instructions": instructions,
                 "input": prompt,
                 "text": {
                     "format": {
                         "type": "json_schema",
-                        "name": "form_field_mappings",
-                        "schema": LLM_MAPPING_SCHEMA,
+                        "name": schema_name,
+                        "schema": schema,
                         "strict": True,
                     }
                 },
@@ -566,6 +696,10 @@ class LLMClient:
     def _request_gemini_mapping(
         self,
         prompt: str,
+        *,
+        schema: dict[str, Any] | None = None,
+        instructions: str | None = None,
+        schema_name: str = "form_field_mappings",
         task_id: int | None = None,
         db: Session | None = None,
     ) -> str:
@@ -574,6 +708,13 @@ class LLMClient:
         if not config.GEMINI_API_KEY:
             raise RuntimeError("GEMINI_API_KEY is not configured")
 
+        schema = schema or LLM_MAPPING_SCHEMA
+        instructions = instructions or (
+            "You map form fields to profile keys. Output mapping data only."
+        )
+
+        effective_prompt = f"{instructions}\n\n{prompt}"
+
         start_time = time.perf_counter()
         response = _post_json(
             (
@@ -581,10 +722,10 @@ class LLMClient:
                 f"{config.GEMINI_MODEL}:generateContent"
             ),
             {
-                "contents": [{"parts": [{"text": prompt}]}],
+                "contents": [{"parts": [{"text": effective_prompt}]}],
                 "generationConfig": {
                     "responseMimeType": "application/json",
-                    "responseSchema": LLM_MAPPING_SCHEMA,
+                    "responseSchema": schema,
                 },
             },
             {"x-goog-api-key": config.GEMINI_API_KEY},
@@ -603,13 +744,27 @@ class LLMClient:
     def _request_deepseek_mapping(
         self,
         prompt: str,
+        *,
+        schema: dict[str, Any] | None = None,
+        instructions: str | None = None,
+        schema_name: str = "form_field_mappings",
         task_id: int | None = None,
         db: Session | None = None,
     ) -> str:
-        """Request JSON field mappings from DeepSeek's OpenAI-compatible API."""
+        """Request JSON output from DeepSeek's OpenAI-compatible API."""
 
         if not config.DEEPSEEK_API_KEY:
             raise RuntimeError("DEEPSEEK_API_KEY is not configured")
+
+        schema = schema or LLM_MAPPING_SCHEMA
+        instructions = instructions or (
+            "You map form fields to profile keys. Output mapping data only."
+        )
+        system_content = (
+            f"{instructions} "
+            f"Output valid JSON matching this schema: "
+            f"{json.dumps(schema, ensure_ascii=False)}"
+        )
 
         logger.warning(
             "Calling DeepSeek mapping API with model %s",
@@ -621,15 +776,7 @@ class LLMClient:
             {
                 "model": config.DEEPSEEK_MODEL,
                 "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You map form fields to profile keys. Output valid JSON "
-                            "only, using this shape: "
-                            '{"mappings":[{"field_id":1,'
-                            '"mapped_profile_key":"email","confidence":0.9}]}.'
-                        ),
-                    },
+                    {"role": "system", "content": system_content},
                     {"role": "user", "content": prompt},
                 ],
                 "response_format": {"type": "json_object"},

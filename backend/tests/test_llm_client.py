@@ -334,7 +334,7 @@ def test_llm_client_summarize_uses_complete_json_schema():
 
     captured_schema = {}
 
-    def fake_complete_json(prompt, schema, *, task_id=None, db=None):
+    def fake_complete_json(prompt, schema, *, task_id=None, db=None, **kwargs):
         captured_schema["schema"] = schema
         return LLMResult(
             success=True,
@@ -359,7 +359,7 @@ def test_llm_client_classify_uses_label_schema():
     captured_schema = {}
     labels = ["spam", "ham", "phishing"]
 
-    def fake_complete_json(prompt, schema, *, task_id=None, db=None):
+    def fake_complete_json(prompt, schema, *, task_id=None, db=None, **kwargs):
         captured_schema["schema"] = schema
         return LLMResult(
             success=True,
@@ -383,7 +383,7 @@ def test_llm_client_classify_rejects_unknown_label():
     client = LLMClient()
     labels = ["spam", "ham"]
 
-    def fake_complete_json(prompt, schema, *, task_id=None, db=None):
+    def fake_complete_json(prompt, schema, *, task_id=None, db=None, **kwargs):
         return LLMResult(
             success=True,
             content={"label": "unknown_label"},
