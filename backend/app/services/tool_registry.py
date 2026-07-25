@@ -17,6 +17,10 @@ class ToolDefinition:
     params_schema: dict[str, object] = field(default_factory=dict)
     preconditions: list[str] = field(default_factory=list)
     produces: list[str] = field(default_factory=list)
+    failure_modes: list[str] = field(default_factory=list)
+    recovery_hint: str = ""
+    evidence_required: list[str] = field(default_factory=list)
+    approval_reason: str = ""
 
 
 TASK_ID_SCHEMA = {
@@ -45,6 +49,10 @@ _TOOL_REGISTRY = {
         },
         preconditions=["task_created"],
         produces=["page_opened", "screenshot"],
+        failure_modes=["network_error", "page_timeout", "login_required"],
+        recovery_hint="Check network connectivity, verify URL validity, or log in manually if the page requires authentication.",
+        evidence_required=["screenshot"],
+        approval_reason="",
     ),
     "extract_dom": ToolDefinition(
         name="extract_dom",
@@ -62,6 +70,10 @@ _TOOL_REGISTRY = {
         params_schema=TASK_ID_SCHEMA,
         preconditions=["page_opened"],
         produces=["form_fields"],
+        failure_modes=["no_form_found", "javascript_render_timeout", "selector_failure"],
+        recovery_hint="Ensure the page contains form elements and wait for JavaScript rendering. Verify page structure manually if extraction fails.",
+        evidence_required=["form_fields_json"],
+        approval_reason="",
     ),
     "map_fields": ToolDefinition(
         name="map_fields",
@@ -72,6 +84,10 @@ _TOOL_REGISTRY = {
         params_schema=TASK_ID_SCHEMA,
         preconditions=["form_fields"],
         produces=["field_mappings"],
+        failure_modes=["low_confidence_mapping", "missing_profile_data", "ambiguous_field_match"],
+        recovery_hint="Review and correct low-confidence mappings manually. Add missing profile data or adjust field matching rules.",
+        evidence_required=["mapping_confidence_scores", "field_source_evidence"],
+        approval_reason="",
     ),
     "request_human_approval": ToolDefinition(
         name="request_human_approval",
@@ -82,6 +98,10 @@ _TOOL_REGISTRY = {
         params_schema=TASK_ID_SCHEMA,
         preconditions=["field_mappings"],
         produces=["approval_decision"],
+        failure_modes=["approval_timeout", "user_rejection"],
+        recovery_hint="Review the current state, address concerns, and resubmit for approval. Adjust mappings if rejected.",
+        evidence_required=["approval_decision", "reviewer_comments"],
+        approval_reason="",
     ),
     "fill_field": ToolDefinition(
         name="fill_field",
@@ -99,6 +119,10 @@ _TOOL_REGISTRY = {
         params_schema=TASK_ID_SCHEMA,
         preconditions=["mapping_confirmed", "policy_passed"],
         produces=["filled_fields", "verification_candidates"],
+        failure_modes=["field_not_fillable", "value_format_error", "page_navigated"],
+        recovery_hint="Check field type compatibility, verify value formats, and ensure the page has not navigated away. Refill failed fields manually.",
+        evidence_required=["fill_result_screenshot", "field_value_log"],
+        approval_reason="",
     ),
     "click_element": ToolDefinition(
         name="click_element",
@@ -116,6 +140,10 @@ _TOOL_REGISTRY = {
         params_schema=TASK_ID_SCHEMA,
         preconditions=["filled_fields"],
         produces=["verification_results"],
+        failure_modes=["verification_mismatch", "selector_not_found", "field_disabled"],
+        recovery_hint="Compare expected vs actual values. Re-fill mismatched fields or adjust selectors if elements have changed.",
+        evidence_required=["verification_results_json", "post_fill_screenshot"],
+        approval_reason="",
     ),
     "capture_screenshot": ToolDefinition(
         name="capture_screenshot",
@@ -147,6 +175,10 @@ _TOOL_REGISTRY = {
         params_schema=TASK_ID_SCHEMA,
         preconditions=["final_approval", "verification_results"],
         produces=["submitted_form", "screenshot"],
+        failure_modes=["submit_timeout", "server_error", "validation_failure"],
+        recovery_hint="Check network connectivity, review form validation errors, and verify all required fields are completed. Retry submission after fixing issues.",
+        evidence_required=["submit_screenshot", "verification_results"],
+        approval_reason="Form submission is irreversible and may have financial or legal implications. User must explicitly approve before submission.",
     ),
 }
 

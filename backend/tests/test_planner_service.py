@@ -212,6 +212,42 @@ def test_plan_to_dict_includes_tool_runtime_metadata() -> None:
     assert first_step["produces"] == ["page_opened", "screenshot"]
 
 
+def test_plan_to_dict_includes_failure_and_safety_metadata() -> None:
+    """Verify serialized steps include failure modes, recovery hints, and evidence requirements."""
+
+    plan = build_form_fill_plan(goal="Fill this application.")
+    plan_dict = plan_to_dict(plan)
+
+    submit_step = next(step for step in plan_dict["steps"] if step["step_id"] == "submit_form")
+
+    assert submit_step["failure_modes"] == ["submit_timeout", "server_error", "validation_failure"]
+    assert "Check network connectivity" in submit_step["recovery_hint"]
+    assert submit_step["evidence_required"] == ["submit_screenshot", "verification_results"]
+    assert "irreversible" in submit_step["approval_reason"]
+
+    open_step = next(step for step in plan_dict["steps"] if step["step_id"] == "open_url")
+
+    assert open_step["failure_modes"] == ["network_error", "page_timeout", "login_required"]
+    assert open_step["evidence_required"] == ["screenshot"]
+
+
+def test_plan_to_dict_protects_immutable_registry_metadata() -> None:
+    """Verify plan serialization copies metadata to prevent caller modification of registry."""
+
+    plan = build_form_fill_plan(goal="Fill this application.")
+    plan_dict = plan_to_dict(plan)
+
+    first_step = plan_dict["steps"][0]
+    original_preconditions = list(first_step["preconditions"])
+
+    first_step["preconditions"].append("tampered")
+    first_step["failure_modes"].append("tampered_mode")
+
+    plan_dict_again = plan_to_dict(plan)
+    assert plan_dict_again["steps"][0]["preconditions"] == original_preconditions
+    assert "tampered_mode" not in plan_dict_again["steps"][0]["failure_modes"]
+
+
 def test_save_plan_persists_stable_json_on_task(session: Session) -> None:
     """Verify save_plan writes workflow plan JSON on the task row."""
 
