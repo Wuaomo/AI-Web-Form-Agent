@@ -298,3 +298,102 @@ def test_provider_unavailable_fallback():
                     assert not result.success
                     assert result.fallback_used is True
                     assert result.error_type == "ConnectionError"
+
+
+def test_llm_client_summarize_returns_fallback_when_unavailable():
+    """summarize() must return a fallback LLMResult when no provider is configured."""
+
+    with patch("app.services.llm_provider_config.is_provider_configured", return_value=False):
+        client = LLMClient()
+        result = client.summarize(prompt="Summarize this content")
+
+    assert result.success is False
+    assert result.fallback_used is True
+    assert result.error_type == "LLM_UNAVAILABLE"
+
+
+def test_llm_client_classify_returns_fallback_when_unavailable():
+    """classify() must return a fallback LLMResult when no provider is configured."""
+
+    with patch("app.services.llm_provider_config.is_provider_configured", return_value=False):
+        client = LLMClient()
+        result = client.classify(
+            prompt="Classify this text",
+            labels=["spam", "ham"],
+        )
+
+    assert result.success is False
+    assert result.fallback_used is True
+    assert result.error_type == "LLM_UNAVAILABLE"
+
+
+def test_llm_client_summarize_uses_complete_json_schema():
+    """summarize() must delegate to complete_json() with schema required == ['summary']."""
+
+    client = LLMClient()
+
+    captured_schema = {}
+
+    def fake_complete_json(prompt, schema, *, task_id=None, db=None):
+        captured_schema["schema"] = schema
+        return LLMResult(
+            success=True,
+            content={"summary": "fake summary"},
+            raw_response='{"summary": "fake summary"}',
+            reason="summarize ok",
+        )
+
+    with patch.object(client, "complete_json", side_effect=fake_complete_json):
+        result = client.summarize(prompt="Summarize this content")
+
+    assert result.success is True
+    assert result.content == {"summary": "fake summary"}
+    assert captured_schema["schema"]["required"] == ["summary"]
+
+
+def test_llm_client_classify_uses_label_schema():
+    """classify() must delegate to complete_json() with label enum == passed labels."""
+
+    client = LLMClient()
+
+    captured_schema = {}
+    labels = ["spam", "ham", "phishing"]
+
+    def fake_complete_json(prompt, schema, *, task_id=None, db=None):
+        captured_schema["schema"] = schema
+        return LLMResult(
+            success=True,
+            content={"label": "ham"},
+            raw_response='{"label": "ham"}',
+            reason="classify ok",
+        )
+
+    with patch.object(client, "complete_json", side_effect=fake_complete_json):
+        result = client.classify(prompt="Classify this text", labels=labels)
+
+    assert result.success is True
+    assert result.content == {"label": "ham"}
+    schema = captured_schema["schema"]
+    assert schema["properties"]["label"]["enum"] == labels
+
+
+def test_llm_client_classify_rejects_unknown_label():
+    """classify() must return a failure result when LLM returns a label not in labels."""
+
+    client = LLMClient()
+    labels = ["spam", "ham"]
+
+    def fake_complete_json(prompt, schema, *, task_id=None, db=None):
+        return LLMResult(
+            success=True,
+            content={"label": "unknown_label"},
+            raw_response='{"label": "unknown_label"}',
+            reason="classify ok",
+        )
+
+    with patch.object(client, "complete_json", side_effect=fake_complete_json):
+        result = client.classify(prompt="Classify this text", labels=labels)
+
+    assert result.success is False
+    assert result.fallback_used is True
+    assert result.error_type == "INVALID_CLASSIFICATION_LABEL"
