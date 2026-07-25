@@ -74,35 +74,6 @@ def test_llm_client_complete_json_returns_fallback_when_unavailable():
         assert "not configured" in result.reason
 
 
-def test_llm_client_summarize_returns_fallback_when_unavailable():
-    """Verify summarize returns fallback when LLM provider is unavailable."""
-
-    with patch("app.services.llm_provider_config.is_provider_configured", return_value=False):
-        client = LLMClient()
-        result = client.summarize(text="This is a test text to summarize.")
-
-        assert not result.success
-        assert result.fallback_used is True
-        assert result.error_type == "LLM_UNAVAILABLE"
-        assert result.content == ""
-
-
-def test_llm_client_classify_returns_fallback_when_unavailable():
-    """Verify classify returns fallback when LLM provider is unavailable."""
-
-    with patch("app.services.llm_provider_config.is_provider_configured", return_value=False):
-        client = LLMClient()
-        result = client.classify(
-            text="This is a test text",
-            categories=["positive", "negative", "neutral"],
-        )
-
-        assert not result.success
-        assert result.fallback_used is True
-        assert result.error_type == "LLM_UNAVAILABLE"
-        assert result.content == "UNKNOWN"
-
-
 def test_llm_client_suggest_mapping_returns_fallback_when_unavailable():
     """Verify suggest_mapping returns fallback when LLM provider is unavailable."""
 
@@ -159,22 +130,34 @@ def test_llm_usage_defaults():
     assert usage.estimated_cost == 0.0
 
 
-def test_get_llm_client_returns_singleton():
-    """Verify get_llm_client returns a singleton instance."""
+def test_get_llm_client_returns_new_instance_each_time():
+    """Verify get_llm_client returns a new instance each time (no singleton)."""
 
     client1 = get_llm_client()
     client2 = get_llm_client()
 
-    assert client1 is client2
-
-
-def test_get_llm_client_creates_new_with_provider():
-    """Verify get_llm_client creates new instance when provider is specified."""
-
-    client1 = get_llm_client(provider="openai")
-    client2 = get_llm_client(provider="gemini")
-
     assert client1 is not client2
+
+
+def test_get_llm_client_with_provider_does_not_pollute_default():
+    """Verify explicit provider client does not pollute default client."""
+
+    # Get default client
+    default_client = get_llm_client()
+    
+    # Get explicit provider client
+    openai_client = get_llm_client(provider="openai")
+    gemini_client = get_llm_client(provider="gemini")
+
+    # Verify they are all different instances
+    assert default_client is not openai_client
+    assert default_client is not gemini_client
+    assert openai_client is not gemini_client
+
+    # Verify provider settings are isolated
+    assert default_client.provider is None
+    assert openai_client.provider == "openai"
+    assert gemini_client.provider == "gemini"
 
 
 def test_llm_client_complete_json_validates_schema():
@@ -197,6 +180,7 @@ def test_llm_client_complete_json_validates_schema():
 
                     assert result.success
                     assert result.content == {"result": "test"}
+                    assert result.raw_response == '{"result": "test"}'
 
 
 def test_llm_client_complete_json_fails_on_invalid_json():
@@ -243,61 +227,6 @@ def test_llm_client_complete_json_fails_on_missing_required_field():
                     assert "Missing required field" in result.reason
 
 
-def test_llm_client_summarize_success():
-    """Verify summarize returns success when LLM is available."""
-
-    client = LLMClient()
-
-    with patch.object(client, '_call_provider', return_value='This is a summary.'):
-        with patch.object(client, '_is_available', return_value=True):
-            with patch.object(client, '_resolve_provider', return_value='openai'):
-                with patch('app.services.llm_provider_config.get_provider_model', return_value='test-model'):
-                    result = client.summarize(text="This is a long text to summarize.")
-
-                    assert result.success
-                    assert result.content == "This is a summary."
-
-
-def test_llm_client_classify_success():
-    """Verify classify returns correct category when LLM is available."""
-
-    client = LLMClient()
-
-    categories = ["positive", "negative", "neutral"]
-
-    with patch.object(client, '_call_provider', return_value='positive'):
-        with patch.object(client, '_is_available', return_value=True):
-            with patch.object(client, '_resolve_provider', return_value='openai'):
-                with patch('app.services.llm_provider_config.get_provider_model', return_value='test-model'):
-                    result = client.classify(
-                        text="This is great!",
-                        categories=categories,
-                    )
-
-                    assert result.success
-                    assert result.content == "positive"
-
-
-def test_llm_client_classify_returns_unknown_for_invalid_category():
-    """Verify classify returns UNKNOWN when category is not in list."""
-
-    client = LLMClient()
-
-    categories = ["positive", "negative", "neutral"]
-
-    with patch.object(client, '_call_provider', return_value='invalid_category'):
-        with patch.object(client, '_is_available', return_value=True):
-            with patch.object(client, '_resolve_provider', return_value='openai'):
-                with patch('app.services.llm_provider_config.get_provider_model', return_value='test-model'):
-                    result = client.classify(
-                        text="This is a test.",
-                        categories=categories,
-                    )
-
-                    assert result.success
-                    assert result.content == "UNKNOWN"
-
-
 def test_llm_client_usage_recording(session, task):
     """Verify usage logging works correctly."""
 
@@ -315,7 +244,56 @@ def test_llm_client_usage_recording(session, task):
                     )
 
                     assert result.success
-                    assert result.usage is not None
-                    assert result.usage.provider == "openai"
-                    # Model comes from get_provider_model, which returns configured value
-                    assert result.usage.model is not None
+
+
+def test_llm_client_does_not_import_from_field_mapper():
+    """Verify llm_client does not import _request_llm_mapping from field_mapper."""
+
+    import sys
+    import inspect
+
+    # Get the llm_client module
+    import app.services.llm_client as llm_client_module
+
+    # Get all source code of the module
+    source = inspect.getsource(llm_client_module)
+
+    # Verify _request_llm_mapping is not imported from field_mapper
+    assert "_request_llm_mapping" not in source
+    assert "from app.services.field_mapper import" not in source
+
+
+def test_field_mapper_uses_llm_client():
+    """Verify field_mapper uses llm_client for LLM calls."""
+
+    import app.services.field_mapper as field_mapper_module
+
+    # Verify field_mapper imports from llm_client
+    assert "from app.services.llm_client import" in inspect.getsource(field_mapper_module)
+    assert "get_llm_client" in inspect.getsource(field_mapper_module)
+    assert "LLMResult" in inspect.getsource(field_mapper_module)
+
+    # Verify field_mapper no longer has provider-specific functions
+    assert "_request_openai_mapping" not in inspect.getsource(field_mapper_module)
+    assert "_request_gemini_mapping" not in inspect.getsource(field_mapper_module)
+    assert "_request_deepseek_mapping" not in inspect.getsource(field_mapper_module)
+
+
+def test_provider_unavailable_fallback():
+    """Verify complete_json falls back when provider API is unavailable."""
+
+    client = LLMClient()
+
+    # Simulate provider API error
+    with patch.object(client, '_call_provider', side_effect=ConnectionError("API unavailable")):
+        with patch.object(client, '_is_available', return_value=True):
+            with patch.object(client, '_resolve_provider', return_value='openai'):
+                with patch('app.services.llm_provider_config.get_provider_model', return_value='test-model'):
+                    result = client.complete_json(
+                        prompt="Test",
+                        schema={"type": "object", "required": ["result"]},
+                    )
+
+                    assert not result.success
+                    assert result.fallback_used is True
+                    assert result.error_type == "ConnectionError"

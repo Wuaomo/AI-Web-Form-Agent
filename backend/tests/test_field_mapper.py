@@ -13,10 +13,10 @@ from app.database import Base
 from app.models import FormField, LlmApiUsageLog, Profile, Task, WorkflowMemoryItem
 from app.services.field_mapper import (
     _build_llm_prompt,
-    _request_deepseek_mapping,
     map_fields_with_llm,
     map_fields_with_llm_result,
 )
+from app.services.llm_client import LLMResult
 from app.services.retrieval_service import MEMORY_STALE_AFTER_DAYS
 from app.services.workflow_memory import build_field_memory_text
 from app.workflow_constants import MEMORY_TYPE_CONFIRMED_MAPPING
@@ -90,7 +90,7 @@ class LLMFieldMapperTests(unittest.TestCase):
 
         with patch(
             "app.services.field_mapper._request_llm_mapping",
-            return_value=llm_json,
+            return_value=LLMResult(success=True, content=None, raw_response=llm_json),
         ):
             mapped = map_fields_with_llm(self.task_id, self.db)
 
@@ -145,8 +145,11 @@ class LLMFieldMapperTests(unittest.TestCase):
         )
 
         with patch(
-            "app.services.field_mapper._request_llm_mapping",
-            side_effect=[first_llm_json, second_llm_json],
+            "app.services.llm_client.LLMClient.suggest_mapping",
+            side_effect=[
+                LLMResult(success=True, content=None, raw_response=first_llm_json),
+                LLMResult(success=True, content=None, raw_response=second_llm_json),
+            ],
         ) as request_mapping:
             first_mapping = map_fields_with_llm(
                 self.task_id,
@@ -287,7 +290,7 @@ class LLMFieldMapperTests(unittest.TestCase):
         self.db.commit()
 
         llm_json = json.dumps({"mappings": []})
-        with patch("app.services.field_mapper._request_llm_mapping", return_value=llm_json):
+        with patch("app.services.llm_client.LLMClient.suggest_mapping", return_value=LLMResult(success=True, content=None, raw_response=llm_json)):
             result = map_fields_with_llm_result(self.task_id, self.db, provider="deepseek")
 
         mapped_by_id = {mapped.id: mapped for mapped in result.fields}
@@ -323,7 +326,7 @@ class LLMFieldMapperTests(unittest.TestCase):
                 ]
             }
         )
-        with patch("app.services.field_mapper._request_llm_mapping", return_value=llm_json):
+        with patch("app.services.llm_client.LLMClient.suggest_mapping", return_value=LLMResult(success=True, content=None, raw_response=llm_json)):
             result = map_fields_with_llm_result(self.task_id, self.db, provider="deepseek")
 
         mapped_by_id = {mapped.id: mapped for mapped in result.fields}
@@ -349,7 +352,7 @@ class LLMFieldMapperTests(unittest.TestCase):
         self.db.commit()
 
         llm_json = json.dumps({"mappings": []})
-        with patch("app.services.field_mapper._request_llm_mapping", return_value=llm_json):
+        with patch("app.services.llm_client.LLMClient.suggest_mapping", return_value=LLMResult(success=True, content=None, raw_response=llm_json)):
             result = map_fields_with_llm_result(self.task_id, self.db, provider="deepseek")
 
         mapped_by_id = {mapped.id: mapped for mapped in result.fields}
@@ -378,7 +381,7 @@ class LLMFieldMapperTests(unittest.TestCase):
         self.db.commit()
 
         llm_json = json.dumps({"mappings": []})
-        with patch("app.services.field_mapper._request_llm_mapping", return_value=llm_json):
+        with patch("app.services.llm_client.LLMClient.suggest_mapping", return_value=LLMResult(success=True, content=None, raw_response=llm_json)):
             result = map_fields_with_llm_result(self.task_id, self.db, provider="deepseek")
 
         mapped_by_id = {mapped.id: mapped for mapped in result.fields}
@@ -404,7 +407,7 @@ class LLMFieldMapperTests(unittest.TestCase):
         self.db.commit()
 
         llm_json = json.dumps({"mappings": []})
-        with patch("app.services.field_mapper._request_llm_mapping", return_value=llm_json):
+        with patch("app.services.llm_client.LLMClient.suggest_mapping", return_value=LLMResult(success=True, content=None, raw_response=llm_json)):
             result = map_fields_with_llm_result(self.task_id, self.db, provider="deepseek")
 
         mapped_by_id = {mapped.id: mapped for mapped in result.fields}
@@ -435,12 +438,12 @@ class LLMFieldMapperTests(unittest.TestCase):
 
         captured_prompt: list[str] = []
 
-        def fake_request(prompt: str, *_args, **_kwargs) -> str:
+        def fake_request(prompt: str, *_args, **_kwargs) -> LLMResult:
             captured_prompt.append(prompt)
-            return json.dumps({"mappings": []})
+            return LLMResult(success=True, content=None, raw_response=json.dumps({"mappings": []}))
 
         with patch(
-            "app.services.field_mapper._request_llm_mapping",
+            "app.services.llm_client.LLMClient.suggest_mapping",
             side_effect=fake_request,
         ):
             result = map_fields_with_llm_result(
@@ -514,7 +517,7 @@ class LLMFieldMapperTests(unittest.TestCase):
         )
 
         with patch(
-            "app.services.field_mapper._request_llm_mapping",
+            "app.services.llm_client.LLMClient.suggest_mapping",
             side_effect=AssertionError("cache hit should skip provider call"),
         ):
             second_result = map_fields_with_llm_result(
@@ -555,8 +558,8 @@ class LLMFieldMapperTests(unittest.TestCase):
         self.db.commit()
 
         with patch(
-            "app.services.field_mapper._request_llm_mapping",
-            side_effect=RuntimeError("LLM request failed"),
+            "app.services.llm_client.LLMClient.suggest_mapping",
+            side_effect=LLMResult(success=False, content=None, error_type="RuntimeError", reason="LLM request failed"),
         ):
             result = map_fields_with_llm_result(
                 self.task_id,
@@ -592,8 +595,8 @@ class LLMFieldMapperTests(unittest.TestCase):
         self.db.commit()
 
         with patch(
-            "app.services.field_mapper._request_llm_mapping",
-            side_effect=RuntimeError("LLM request failed"),
+            "app.services.llm_client.LLMClient.suggest_mapping",
+            side_effect=LLMResult(success=False, content=None, error_type="RuntimeError", reason="LLM request failed"),
         ):
             result = map_fields_with_llm_result(
                 self.task_id,
@@ -633,7 +636,7 @@ class LLMFieldMapperTests(unittest.TestCase):
 
         with patch(
             "app.services.field_mapper._request_llm_mapping",
-            return_value=llm_json,
+            return_value=LLMResult(success=True, content=None, raw_response=llm_json),
         ):
             mapped = map_fields_with_llm(self.task_id, self.db)
 
@@ -678,7 +681,7 @@ class LLMFieldMapperTests(unittest.TestCase):
 
         with patch(
             "app.services.field_mapper._request_llm_mapping",
-            return_value=llm_json,
+            return_value=LLMResult(success=True, content=None, raw_response=llm_json),
         ):
             mapped = map_fields_with_llm(self.task_id, self.db)
 
@@ -719,7 +722,7 @@ class LLMFieldMapperTests(unittest.TestCase):
 
         with patch(
             "app.services.field_mapper._request_llm_mapping",
-            return_value=llm_json,
+            return_value=LLMResult(success=True, content=None, raw_response=llm_json),
         ):
             result = map_fields_with_llm_result(self.task_id, self.db)
 
@@ -730,8 +733,8 @@ class LLMFieldMapperTests(unittest.TestCase):
         self._add_field(label="Contact Email", selector="#contact-email")
 
         with patch(
-            "app.services.field_mapper._request_llm_mapping",
-            side_effect=RuntimeError("LLM request failed"),
+            "app.services.llm_client.LLMClient.suggest_mapping",
+            side_effect=LLMResult(success=False, content=None, error_type="RuntimeError", reason="LLM request failed"),
         ):
             result = map_fields_with_llm_result(self.task_id, self.db)
 
@@ -824,7 +827,7 @@ class LLMFieldMapperTests(unittest.TestCase):
             patch("app.services.field_mapper.config.LLM_PROVIDER", "deepseek"),
             patch(
                 "app.services.field_mapper._request_deepseek_mapping",
-                return_value=llm_json,
+                return_value=LLMResult(success=True, content=None, raw_response=llm_json),
             ) as deepseek,
         ):
             mapped = map_fields_with_llm(self.task_id, self.db)
@@ -1081,12 +1084,9 @@ class LLMFieldMapperTests(unittest.TestCase):
     def test_deepseek_request_records_error_on_exception(self) -> None:
         self._add_field(label="Contact Email", selector="#contact-email")
 
-        with (
-            patch("app.services.field_mapper.config.DEEPSEEK_API_KEY", "test-key"),
-            patch(
-                "app.services.field_mapper._post_json",
-                side_effect=TimeoutError("API timeout"),
-            ),
+        with patch(
+            "app.services.llm_client.LLMClient.suggest_mapping",
+            side_effect=LLMResult(success=False, content=None, error_type="TimeoutError", reason="API timeout"),
         ):
             result = map_fields_with_llm_result(self.task_id, self.db, provider="deepseek")
 
@@ -1108,8 +1108,8 @@ class LLMFieldMapperTests(unittest.TestCase):
         self._add_field(label="Contact Email", selector="#contact-email")
 
         with patch(
-            "app.services.field_mapper._request_llm_mapping",
-            side_effect=RuntimeError("LLM request failed"),
+            "app.services.llm_client.LLMClient.suggest_mapping",
+            side_effect=LLMResult(success=False, content=None, error_type="RuntimeError", reason="LLM request failed"),
         ):
             result = map_fields_with_llm_result(self.task_id, self.db)
 

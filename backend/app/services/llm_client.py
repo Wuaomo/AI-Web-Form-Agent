@@ -1,23 +1,11 @@
-"""LLM Client Boundary - A thin layer between business services and LLM providers.
+"""LLM Client Boundary - The only provider-specific HTTP/API boundary.
 
 Provides a minimal, stable interface for LLM interactions while hiding
 provider-specific SDK details. Supports graceful fallback when LLM is unavailable
 or returns invalid output.
 
-Methods:
-    complete_json: Request structured JSON output with schema validation
-    summarize: Request text summarization
-    classify: Request text classification/categorization
-    suggest_mapping: Request form field mapping suggestions
-
-All methods return standardized LLMResult objects that include:
-    - success: Whether the call succeeded
-    - content: The parsed result (dict for JSON, str for text)
-    - raw_response: The raw LLM response string
-    - usage: Token usage and cost metadata
-    - fallback_used: Whether a fallback was triggered
-    - error_type: Error type if failed
-    - reason: Human-readable reason for outcome
+This file contains ALL provider-specific request logic. Business services
+should only call methods from this module, not directly access provider APIs.
 """
 
 import json
@@ -25,11 +13,13 @@ import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 from sqlalchemy.orm import Session
 
 from app import config
-from app.schemas import LLMProvider
+from app.schemas import LLMProvider, ProfileKey
 from app.services.llm_provider_config import (
     resolve_llm_provider,
     is_provider_configured,
@@ -40,6 +30,51 @@ from app.services.llm_usage_service import record_llm_api_usage
 from app.services.llm_cost_service import estimate_llm_cost
 
 logger = logging.getLogger(__name__)
+
+PROFILE_KEYS: tuple[ProfileKey, ...] = (
+    "first_name",
+    "last_name",
+    "full_name",
+    "email",
+    "university",
+    "major",
+    "phone",
+    "linkedin",
+    "github",
+    "self_intro",
+)
+
+LLM_MAPPING_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "mappings": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "field_id": {"type": "integer"},
+                    "mapped_profile_key": {
+                        "type": "string",
+                        "enum": list(PROFILE_KEYS),
+                    },
+                    "confidence": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1,
+                    },
+                },
+                "required": [
+                    "field_id",
+                    "mapped_profile_key",
+                    "confidence",
+                ],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["mappings"],
+    "additionalProperties": False,
+}
 
 
 @dataclass(frozen=True)
@@ -70,6 +105,271 @@ class LLMResult:
     reason: str = ""
 
 
+def _post_json(
+    url: str,
+    payload: dict[str, object],
+    headers: dict[str, str],
+) -> dict[str, object]:
+    """Send one JSON request using the standard library."""
+
+    request = Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", **headers},
+        method="POST",
+    )
+    with urlopen(
+        request,
+        timeout=config.LLM_REQUEST_TIMEOUT_SECONDS,
+    ) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _extract_openai_output_text(response: dict[str, object]) -> str:
+    """Extract structured text from a raw OpenAI Responses API response."""
+
+    output = response.get("output")
+    if not isinstance(output, list):
+        raise ValueError("OpenAI response did not contain output")
+
+    for item in output:
+        if not isinstance(item, dict):
+            continue
+        content = item.get("content")
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if (
+                isinstance(part, dict)
+                and part.get("type") == "output_text"
+                and isinstance(part.get("text"), str)
+            ):
+                return part["text"]
+
+    raise ValueError("OpenAI response did not contain output text")
+
+
+def _extract_chat_completion_output_text(
+    response: dict[str, object],
+    provider_name: str,
+) -> str:
+    """Extract text from an OpenAI-compatible chat completion response."""
+
+    try:
+        choices = response["choices"]
+        if not isinstance(choices, list):
+            raise TypeError
+        message = choices[0]["message"]
+        content = message["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise ValueError(
+            f"{provider_name} response did not contain output text"
+        ) from exc
+
+    if not isinstance(content, str) or not content:
+        raise ValueError(f"{provider_name} response did not contain output text")
+    return content
+
+
+def _usage_int(usage: dict[str, object], key: str) -> int | None:
+    """Return an integer usage metric when the provider sent one."""
+
+    value = usage.get(key)
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return None
+
+
+def _extract_deepseek_usage(response: dict[str, object], latency_ms: int = 0) -> dict[str, object]:
+    """Build internal token and cache metrics from DeepSeek's usage payload."""
+
+    usage = response.get("usage")
+    if not isinstance(usage, dict):
+        return {
+            "provider": "deepseek",
+            "model": config.DEEPSEEK_MODEL,
+            "usage_available": False,
+            "latency_ms": latency_ms,
+        }
+
+    prompt_tokens = _usage_int(usage, "prompt_tokens") or 0
+    completion_tokens = _usage_int(usage, "completion_tokens") or 0
+    total_tokens = _usage_int(usage, "total_tokens")
+    cache_hit_tokens = _usage_int(usage, "prompt_cache_hit_tokens") or 0
+    cache_miss_tokens = _usage_int(usage, "prompt_cache_miss_tokens")
+
+    if total_tokens is None:
+        total_tokens = prompt_tokens + completion_tokens
+    if cache_miss_tokens is None:
+        cache_miss_tokens = max(prompt_tokens - cache_hit_tokens, 0)
+
+    cache_hit = cache_hit_tokens > 0
+    cache_hit_rate = cache_hit_tokens / prompt_tokens if prompt_tokens else 0
+
+    cache_source = "provider_prompt_cache" if cache_hit else "no_cache"
+
+    return {
+        "provider": "deepseek",
+        "model": config.DEEPSEEK_MODEL,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "cache_hit_tokens": cache_hit_tokens,
+        "cache_miss_tokens": cache_miss_tokens,
+        "cache_hit": cache_hit,
+        "cache_hit_rate": cache_hit_rate,
+        "latency_ms": latency_ms,
+        "cache_source": cache_source,
+    }
+
+
+def _log_deepseek_usage(usage: dict[str, object]) -> None:
+    """Record DeepSeek usage metrics without exposing prompt or response text."""
+
+    logger.info(
+        "DeepSeek API usage: %s",
+        json.dumps(usage, ensure_ascii=False),
+    )
+
+
+def _record_deepseek_usage(
+    response: dict[str, object],
+    task_id: int | None,
+    db: Session | None,
+    latency_ms: int = 0,
+) -> None:
+    """Log usage and persist it when this request belongs to a task."""
+
+    usage = _extract_deepseek_usage(response, latency_ms=latency_ms)
+    _log_deepseek_usage(usage)
+    if task_id is not None:
+        record_llm_api_usage(task_id=task_id, usage=usage, db=db)
+
+
+def _record_deepseek_error(
+    *,
+    provider: str,
+    model: str,
+    task_id: int | None,
+    db: Session | None,
+    error_type: str,
+    latency_ms: int,
+) -> None:
+    """Record a failed DeepSeek API request with error details."""
+
+    usage = {
+        "provider": provider,
+        "model": model,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "cache_hit_tokens": 0,
+        "cache_miss_tokens": 0,
+        "cache_hit": False,
+        "cache_hit_rate": 0.0,
+        "latency_ms": latency_ms,
+        "error_type": error_type,
+        "fallback_used": True,
+        "cache_source": "no_cache",
+        "estimated_cost": 0.0,
+    }
+    logger.warning(
+        "DeepSeek API error: %s, latency_ms: %s",
+        error_type,
+        latency_ms,
+    )
+    if task_id is not None:
+        record_llm_api_usage(task_id=task_id, usage=usage, db=db)
+
+
+def _extract_openai_usage(response: dict[str, object], latency_ms: int = 0) -> dict[str, object]:
+    """Build internal token metrics from OpenAI's usage payload."""
+
+    usage = response.get("usage")
+    if not isinstance(usage, dict):
+        return {
+            "provider": "openai",
+            "model": config.OPENAI_MODEL,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 0,
+            "cache_hit": False,
+            "cache_hit_rate": 0.0,
+            "latency_ms": latency_ms,
+            "cache_source": "no_cache",
+        }
+
+    prompt_tokens = _usage_int(usage, "prompt_tokens") or 0
+    completion_tokens = _usage_int(usage, "completion_tokens") or 0
+    total_tokens = _usage_int(usage, "total_tokens")
+    cache_hit_tokens = _usage_int(usage, "prompt_cache_hit_tokens") or 0
+    cache_miss_tokens = _usage_int(usage, "prompt_cache_miss_tokens")
+
+    if total_tokens is None:
+        total_tokens = prompt_tokens + completion_tokens
+    if cache_miss_tokens is None:
+        cache_miss_tokens = max(prompt_tokens - cache_hit_tokens, 0)
+
+    cache_hit = cache_hit_tokens > 0
+    cache_hit_rate = cache_hit_tokens / prompt_tokens if prompt_tokens else 0
+
+    cache_source = "provider_prompt_cache" if cache_hit else "no_cache"
+
+    return {
+        "provider": "openai",
+        "model": config.OPENAI_MODEL,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "cache_hit_tokens": cache_hit_tokens,
+        "cache_miss_tokens": cache_miss_tokens,
+        "cache_hit": cache_hit,
+        "cache_hit_rate": cache_hit_rate,
+        "latency_ms": latency_ms,
+        "cache_source": cache_source,
+    }
+
+
+def _extract_gemini_usage(response: dict[str, object], latency_ms: int = 0) -> dict[str, object]:
+    """Build internal token metrics from Gemini's usage payload."""
+
+    prompt_tokens = 0
+    completion_tokens = 0
+    cache_hit_tokens = 0
+
+    try:
+        candidates = response.get("candidates")
+        if isinstance(candidates, list) and len(candidates) > 0:
+            usage_metadata = candidates[0].get("usageMetadata")
+            if isinstance(usage_metadata, dict):
+                prompt_tokens = _usage_int(usage_metadata, "promptTokenCount") or 0
+                completion_tokens = _usage_int(usage_metadata, "candidatesTokenCount") or 0
+    except (KeyError, IndexError, TypeError):
+        pass
+
+    total_tokens = prompt_tokens + completion_tokens
+    cache_miss_tokens = max(prompt_tokens - cache_hit_tokens, 0)
+    cache_hit = cache_hit_tokens > 0
+    cache_hit_rate = cache_hit_tokens / prompt_tokens if prompt_tokens else 0
+    cache_source = "provider_prompt_cache" if cache_hit else "no_cache"
+
+    return {
+        "provider": "gemini",
+        "model": config.GEMINI_MODEL,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "cache_hit_tokens": cache_hit_tokens,
+        "cache_miss_tokens": cache_miss_tokens,
+        "cache_hit": cache_hit,
+        "cache_hit_rate": cache_hit_rate,
+        "latency_ms": latency_ms,
+        "cache_source": cache_source,
+    }
+
+
 class LLMClient:
     """Thin LLM client boundary that abstracts provider-specific details."""
 
@@ -96,20 +396,18 @@ class LLMClient:
         task_id: int | None = None,
         db: Session | None = None,
     ) -> LLMResult:
-        """Request structured JSON output validated against a schema.
-
-        Args:
-            prompt: The input prompt for the LLM
-            schema: JSON schema to validate the response against
-            task_id: Optional task ID for usage tracking
-            db: Optional database session for usage logging
-
-        Returns:
-            LLMResult with parsed dict content if successful, or fallback result.
-        """
+        """Request structured JSON output validated against a schema."""
 
         if not self._is_available():
-            return self._create_unavailable_fallback("complete_json")
+            return LLMResult(
+                success=False,
+                content=None,
+                raw_response="",
+                usage=None,
+                fallback_used=True,
+                error_type="LLM_UNAVAILABLE",
+                reason="LLM provider not configured or unavailable",
+            )
 
         start_time = time.perf_counter()
         provider = self._resolve_provider()
@@ -131,15 +429,10 @@ class LLMClient:
             # Validate JSON
             parsed = self._parse_and_validate_json(raw_response, schema)
 
-            usage = self._extract_usage(provider, model, raw_response, latency_ms)
-            # Note: Usage recording is handled by the caller (e.g., field_mapper)
-            # to avoid duplicate logging
-
             return LLMResult(
                 success=True,
                 content=parsed,
                 raw_response=raw_response,
-                usage=usage,
                 reason="JSON completion successful",
             )
 
@@ -147,171 +440,11 @@ class LLMClient:
             latency_ms = int((time.perf_counter() - start_time) * 1000)
             error_type = type(exc).__name__
 
-            usage = LLMUsage(
-                provider=provider,
-                model=model,
-                latency_ms=latency_ms,
-            )
-            # Note: Usage recording is handled by the caller (e.g., field_mapper)
-            # to avoid duplicate logging
-
             logger.warning("LLM complete_json failed: %s", exc)
             return LLMResult(
                 success=False,
                 content=None,
                 raw_response="",
-                usage=usage,
-                fallback_used=True,
-                error_type=error_type,
-                reason=str(exc),
-            )
-
-    def summarize(
-        self,
-        text: str,
-        *,
-        task_id: int | None = None,
-        db: Session | None = None,
-    ) -> LLMResult:
-        """Request a concise summary of the given text."""
-
-        if not self._is_available():
-            return LLMResult(
-                success=False,
-                content="",
-                raw_response="",
-                usage=None,
-                fallback_used=True,
-                error_type="LLM_UNAVAILABLE",
-                reason="LLM provider not configured or unavailable",
-            )
-
-        start_time = time.perf_counter()
-        provider = self._resolve_provider()
-        model = get_provider_model(provider)
-
-        try:
-            prompt = f"""Summarize this text concisely in 3-5 sentences:
-
-{text}
-
-Summary:"""
-
-            raw_response = self._call_provider(
-                provider=provider,
-                model=model,
-                prompt=prompt,
-                response_format="text",
-            )
-
-            latency_ms = int((time.perf_counter() - start_time) * 1000)
-
-            usage = self._extract_usage(provider, model, raw_response, latency_ms)
-            self._record_usage(task_id, db, usage)
-
-            return LLMResult(
-                success=True,
-                content=raw_response.strip(),
-                raw_response=raw_response,
-                usage=usage,
-                reason="Summarization successful",
-            )
-
-        except Exception as exc:
-            latency_ms = int((time.perf_counter() - start_time) * 1000)
-            error_type = type(exc).__name__
-
-            usage = LLMUsage(
-                provider=provider,
-                model=model,
-                latency_ms=latency_ms,
-            )
-            self._record_failure_usage(task_id, db, usage, error_type)
-
-            logger.warning("LLM summarize failed: %s", exc)
-            return LLMResult(
-                success=False,
-                content="",
-                raw_response="",
-                usage=usage,
-                fallback_used=True,
-                error_type=error_type,
-                reason=str(exc),
-            )
-
-    def classify(
-        self,
-        text: str,
-        categories: list[str],
-        *,
-        task_id: int | None = None,
-        db: Session | None = None,
-    ) -> LLMResult:
-        """Classify text into one of the given categories."""
-
-        if not self._is_available():
-            return LLMResult(
-                success=False,
-                content="UNKNOWN",
-                raw_response="",
-                usage=None,
-                fallback_used=True,
-                error_type="LLM_UNAVAILABLE",
-                reason="LLM provider not configured or unavailable",
-            )
-
-        start_time = time.perf_counter()
-        provider = self._resolve_provider()
-        model = get_provider_model(provider)
-
-        try:
-            prompt = f"""Classify this text into one of these categories: {', '.join(categories)}
-
-Text: {text}
-
-Category:"""
-
-            raw_response = self._call_provider(
-                provider=provider,
-                model=model,
-                prompt=prompt,
-                response_format="text",
-            )
-
-            latency_ms = int((time.perf_counter() - start_time) * 1000)
-
-            usage = self._extract_usage(provider, model, raw_response, latency_ms)
-            self._record_usage(task_id, db, usage)
-
-            category = raw_response.strip()
-            if category not in categories:
-                category = "UNKNOWN"
-
-            return LLMResult(
-                success=True,
-                content=category,
-                raw_response=raw_response,
-                usage=usage,
-                reason=f"Classification successful: {category}",
-            )
-
-        except Exception as exc:
-            latency_ms = int((time.perf_counter() - start_time) * 1000)
-            error_type = type(exc).__name__
-
-            usage = LLMUsage(
-                provider=provider,
-                model=model,
-                latency_ms=latency_ms,
-            )
-            self._record_failure_usage(task_id, db, usage, error_type)
-
-            logger.warning("LLM classify failed: %s", exc)
-            return LLMResult(
-                success=False,
-                content="UNKNOWN",
-                raw_response="",
-                usage=usage,
                 fallback_used=True,
                 error_type=error_type,
                 reason=str(exc),
@@ -329,68 +462,8 @@ Category:"""
 
         This is a specialized variant of complete_json optimized for
         form field to profile key mapping tasks.
-
-        Args:
-            prompt: The mapping prompt with form field details
-            schema: JSON schema for the mapping response
-            task_id: Optional task ID for usage tracking
-            db: Optional database session for usage logging
-
-        Returns:
-            LLMResult with parsed mapping dict if successful.
         """
         return self.complete_json(prompt, schema, task_id=task_id, db=db)
-
-    def _create_unavailable_fallback(self, operation: str) -> LLMResult:
-        """Create a standardized fallback result when LLM is unavailable."""
-        logger.warning("LLM unavailable, falling back to rules for %s", operation)
-        return LLMResult(
-            success=False,
-            content=None,
-            raw_response="",
-            usage=None,
-            fallback_used=True,
-            error_type="LLM_UNAVAILABLE",
-            reason="LLM provider not configured or unavailable",
-        )
-
-    def _call_provider(
-        self,
-        provider: LLMProvider,
-        model: str,
-        prompt: str,
-        response_format: str = "text",
-        schema: dict[str, Any] | None = None,
-        task_id: int | None = None,
-        db: Session | None = None,
-    ) -> str:
-        """Call the appropriate LLM provider based on configuration.
-
-        This delegates to provider-specific implementations that are
-        currently in field_mapper.py. In the future, this will be the
-        only place where provider-specific code lives.
-        """
-
-        # For now, we reuse the existing implementation from field_mapper
-        # This avoids duplicating provider-specific logic
-        from app.services.field_mapper import _request_llm_mapping
-
-        if response_format == "json" and schema:
-            # Use field_mapper's LLM mapping which already handles JSON schema
-            return _request_llm_mapping(
-                prompt,
-                provider=provider,
-                task_id=task_id,
-                db=db,
-            )
-        else:
-            # For text format, use a simpler approach
-            return _request_llm_mapping(
-                prompt,
-                provider=provider,
-                task_id=task_id,
-                db=db,
-            )
 
     def _parse_and_validate_json(
         self,
@@ -400,10 +473,9 @@ Category:"""
         """Parse and validate JSON response against schema."""
 
         try:
-            # First try to parse as JSON
             parsed = json.loads(raw_response)
 
-            # Validate against schema (basic validation for now)
+            # Validate against schema (basic validation)
             self._validate_schema_basic(parsed, schema)
 
             return parsed
@@ -423,7 +495,6 @@ Category:"""
             if field not in data:
                 raise ValueError(f"Missing required field: {field}")
 
-        # Validate nested mappings if present
         properties = schema.get("properties", {})
         for prop_name, prop_schema in properties.items():
             if prop_name in data:
@@ -434,119 +505,154 @@ Category:"""
                 elif prop_type == "object" and not isinstance(prop_data, dict):
                     raise ValueError(f"Field '{prop_name}' must be an object")
 
-    def _extract_usage(
+    def _call_provider(
         self,
         provider: LLMProvider,
         model: str,
-        response: str,
-        latency_ms: int,
-    ) -> LLMUsage:
-        """Extract usage metrics from provider response.
+        prompt: str,
+        response_format: str = "text",
+        schema: dict[str, Any] | None = None,
+        task_id: int | None = None,
+        db: Session | None = None,
+    ) -> str:
+        """Call the appropriate LLM provider based on configuration."""
 
-        Note: This is a simplified version. In production, you would
-        extract actual token counts from the provider's response object.
-        """
+        if provider == "openai":
+            return self._request_openai_mapping(prompt, task_id=task_id, db=db)
+        if provider == "gemini":
+            return self._request_gemini_mapping(prompt, task_id=task_id, db=db)
+        if provider == "deepseek":
+            return self._request_deepseek_mapping(prompt, task_id=task_id, db=db)
+        raise ValueError("LLM_PROVIDER must be 'openai', 'gemini', or 'deepseek'")
 
-        # For now, estimate tokens
-        prompt_tokens = 0  # Would be extracted from actual API response
-        completion_tokens = len(response.split()) * 2  # Rough estimate
-        total_tokens = prompt_tokens + completion_tokens
-
-        estimated_cost = estimate_llm_cost(
-            provider=provider,
-            model=model,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-        )
-
-        return LLMUsage(
-            provider=provider,
-            model=model,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            total_tokens=total_tokens,
-            latency_ms=latency_ms,
-            estimated_cost=estimated_cost,
-        )
-
-    def _record_usage(
+    def _request_openai_mapping(
         self,
-        task_id: int | None,
-        db: Session | None,
-        usage: LLMUsage,
-    ) -> None:
-        """Record LLM usage to database."""
+        prompt: str,
+        task_id: int | None = None,
+        db: Session | None = None,
+    ) -> str:
+        """Request schema-constrained JSON from the OpenAI Responses API."""
 
-        if task_id is None:
-            return
+        if not config.OPENAI_API_KEY:
+            raise RuntimeError("OPENAI_API_KEY is not configured")
 
-        usage_dict = {
-            "provider": usage.provider,
-            "model": usage.model,
-            "prompt_tokens": usage.prompt_tokens,
-            "completion_tokens": usage.completion_tokens,
-            "total_tokens": usage.total_tokens,
-            "cache_hit_tokens": usage.cache_hit_tokens,
-            "cache_miss_tokens": usage.cache_miss_tokens,
-            "cache_hit": usage.cache_hit_tokens > 0,
-            "cache_hit_rate": (
-                usage.cache_hit_tokens / max(usage.prompt_tokens, 1)
+        start_time = time.perf_counter()
+        response = _post_json(
+            "https://api.openai.com/v1/responses",
+            {
+                "model": config.OPENAI_MODEL,
+                "instructions": (
+                    "You map form fields to profile keys. Output mapping data only."
+                ),
+                "input": prompt,
+                "text": {
+                    "format": {
+                        "type": "json_schema",
+                        "name": "form_field_mappings",
+                        "schema": LLM_MAPPING_SCHEMA,
+                        "strict": True,
+                    }
+                },
+            },
+            {"Authorization": f"Bearer {config.OPENAI_API_KEY}"},
+        )
+        latency_ms = int((time.perf_counter() - start_time) * 1000)
+        usage = _extract_openai_usage(response, latency_ms=latency_ms)
+        logger.info("OpenAI API usage: %s", json.dumps(usage, ensure_ascii=False))
+        if task_id is not None:
+            record_llm_api_usage(task_id=task_id, usage=usage, db=db)
+        return _extract_openai_output_text(response)
+
+    def _request_gemini_mapping(
+        self,
+        prompt: str,
+        task_id: int | None = None,
+        db: Session | None = None,
+    ) -> str:
+        """Request schema-constrained JSON from Gemini generateContent."""
+
+        if not config.GEMINI_API_KEY:
+            raise RuntimeError("GEMINI_API_KEY is not configured")
+
+        start_time = time.perf_counter()
+        response = _post_json(
+            (
+                "https://generativelanguage.googleapis.com/v1beta/models/"
+                f"{config.GEMINI_MODEL}:generateContent"
             ),
-            "latency_ms": usage.latency_ms,
-            "estimated_cost": usage.estimated_cost,
-        }
+            {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "responseMimeType": "application/json",
+                    "responseSchema": LLM_MAPPING_SCHEMA,
+                },
+            },
+            {"x-goog-api-key": config.GEMINI_API_KEY},
+        )
+        latency_ms = int((time.perf_counter() - start_time) * 1000)
+        usage = _extract_gemini_usage(response, latency_ms=latency_ms)
+        logger.info("Gemini API usage: %s", json.dumps(usage, ensure_ascii=False))
+        if task_id is not None:
+            record_llm_api_usage(task_id=task_id, usage=usage, db=db)
 
         try:
-            record_llm_api_usage(task_id=task_id, usage=usage_dict, db=db)
-        except Exception as exc:
-            logger.warning("Failed to record LLM usage: %s", exc)
+            return response["candidates"][0]["content"]["parts"][0]["text"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise ValueError("Gemini response did not contain output text") from exc
 
-    def _record_failure_usage(
+    def _request_deepseek_mapping(
         self,
-        task_id: int | None,
-        db: Session | None,
-        usage: LLMUsage,
-        error_type: str,
-    ) -> None:
-        """Record failed LLM usage with error details."""
+        prompt: str,
+        task_id: int | None = None,
+        db: Session | None = None,
+    ) -> str:
+        """Request JSON field mappings from DeepSeek's OpenAI-compatible API."""
 
-        if task_id is None:
-            return
+        if not config.DEEPSEEK_API_KEY:
+            raise RuntimeError("DEEPSEEK_API_KEY is not configured")
 
-        usage_dict = {
-            "provider": usage.provider,
-            "model": usage.model,
-            "prompt_tokens": usage.prompt_tokens,
-            "completion_tokens": usage.completion_tokens,
-            "total_tokens": usage.total_tokens,
-            "cache_hit_tokens": usage.cache_hit_tokens,
-            "cache_miss_tokens": usage.cache_miss_tokens,
-            "cache_hit": False,
-            "cache_hit_rate": 0.0,
-            "latency_ms": usage.latency_ms,
-            "error_type": error_type,
-            "fallback_used": True,
-            "cache_source": "no_cache",
-            "estimated_cost": 0.0,
-        }
-
-        try:
-            record_llm_api_usage(task_id=task_id, usage=usage_dict, db=db)
-        except Exception as exc:
-            logger.warning("Failed to record LLM failure usage: %s", exc)
-
-
-# Global singleton for convenience
-_llm_client: LLMClient | None = None
+        logger.warning(
+            "Calling DeepSeek mapping API with model %s",
+            config.DEEPSEEK_MODEL,
+        )
+        start_time = time.perf_counter()
+        response = _post_json(
+            "https://api.deepseek.com/chat/completions",
+            {
+                "model": config.DEEPSEEK_MODEL,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You map form fields to profile keys. Output valid JSON "
+                            "only, using this shape: "
+                            '{"mappings":[{"field_id":1,'
+                            '"mapped_profile_key":"email","confidence":0.9}]}.'
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                "response_format": {"type": "json_object"},
+                "thinking": {"type": "disabled"},
+                "max_tokens": 2000,
+                "stream": False,
+            },
+            {"Authorization": f"Bearer {config.DEEPSEEK_API_KEY}"},
+        )
+        latency_ms = int((time.perf_counter() - start_time) * 1000)
+        _record_deepseek_usage(response, task_id=task_id, db=db, latency_ms=latency_ms)
+        output_text = _extract_chat_completion_output_text(response, "DeepSeek")
+        logger.warning("DeepSeek mapping API returned output text")
+        return output_text
 
 
 def get_llm_client(provider: LLMProvider | None = None) -> LLMClient:
-    """Get or create the global LLM client instance."""
+    """Create a new LLM client instance.
 
-    global _llm_client
-    if _llm_client is None or provider is not None:
-        _llm_client = LLMClient(provider=provider)
-    return _llm_client
+    Unlike a singleton, this always returns a new instance to avoid
+    state leakage between different provider configurations.
+    """
+    return LLMClient(provider=provider)
 
 
 def llm_is_available(provider: LLMProvider | None = None) -> bool:
