@@ -174,6 +174,7 @@ export const api = {
   listTaskCheckpoints: (taskId) => request(`/tasks/${taskId}/checkpoints`),
   getTaskVerificationResults: (taskId) => request(`/tasks/${taskId}/verification-results`),
   getTaskAgentReviews: (taskId) => request(`/tasks/${taskId}/agent-reviews`),
+  getTaskAgentSteps: (taskId) => request(`/tasks/${taskId}/agent-steps`),
   runTaskAgentReviews: (taskId, roles = []) =>
     request(`/tasks/${taskId}/agent-reviews`, {
       method: "POST",

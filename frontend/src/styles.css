@@ -472,6 +472,18 @@ textarea {
   font-size: 0.85rem;
 }
 
+.badge-danger {
+  color: #922b35;
+  background: #fff0f1;
+  border: 1px solid #efc2c6;
+}
+
+.badge-warning {
+  color: #795118;
+  background: #fff8e8;
+  border: 1px solid #efd596;
+}
+
 .profile-card dl,
 .detail-list {
   display: grid;
@@ -1229,6 +1241,215 @@ th {
   font-size: 0.75rem;
   line-height: 1.3;
   white-space: normal;
+}
+
+.agent-steps-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.agent-steps-header h3 {
+  margin-bottom: 0;
+}
+
+.agent-steps-timeline {
+  display: grid;
+  gap: 1rem;
+}
+
+.agent-step {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.agent-step-line-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 20px;
+  flex-shrink: 0;
+}
+
+.agent-step-line {
+  width: 2px;
+  flex: 1;
+  min-height: 40px;
+  background: #e3e7ee;
+}
+
+.agent-step-line.last {
+  display: none;
+}
+
+.agent-step-node {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #e3e7ee;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.agent-step-node.agent-step-status-pending {
+  border-color: #d5a92d;
+}
+
+.agent-step-node.agent-step-status-active {
+  border-color: #3157b8;
+  background: #3157b8;
+}
+
+.agent-step-node.agent-step-status-success {
+  border-color: #2f9e62;
+  background: #2f9e62;
+}
+
+.agent-step-node.agent-step-status-failed {
+  border-color: #c33d48;
+  background: #c33d48;
+}
+
+.agent-step-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0;
+}
+
+.agent-step-node.agent-step-status-active .agent-step-status-dot,
+.agent-step-node.agent-step-status-success .agent-step-status-dot,
+.agent-step-node.agent-step-status-failed .agent-step-status-dot {
+  opacity: 1;
+  background: #fff;
+}
+
+.agent-step-content {
+  flex: 1;
+  padding: 0.75rem;
+  background: #f8fafc;
+  border: 1px solid #e3e7ee;
+  border-radius: 0.45rem;
+}
+
+.agent-step-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.agent-step-header strong {
+  display: block;
+  margin-bottom: 0.15rem;
+}
+
+.agent-step-header .muted-text {
+  margin-bottom: 0;
+}
+
+.agent-step-status {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.agent-step-status.agent-step-status-pending {
+  color: #795118;
+  background: #fff8e8;
+}
+
+.agent-step-status.agent-step-status-active {
+  color: #fff;
+  background: #3157b8;
+}
+
+.agent-step-status.agent-step-status-success {
+  color: #22633f;
+  background: #ecf8f0;
+}
+
+.agent-step-status.agent-step-status-failed {
+  color: #922b35;
+  background: #fff0f1;
+}
+
+.agent-step-result {
+  margin: 0.4rem 0;
+  color: #3e4858;
+  font-size: 0.88rem;
+}
+
+.agent-step-error {
+  margin-top: 0.5rem;
+  padding: 0.6rem;
+  background: #fff0f1;
+  border: 1px solid #efc2c6;
+  border-radius: 0.35rem;
+  color: #922b35;
+  font-size: 0.85rem;
+}
+
+.agent-step-error strong {
+  display: block;
+  margin-bottom: 0.2rem;
+}
+
+.agent-step-recovery {
+  margin: 0.4rem 0 0;
+  padding: 0.4rem;
+  background: #fff8e8;
+  border-radius: 0.25rem;
+  font-size: 0.82rem;
+}
+
+.agent-step-recovery strong {
+  display: inline;
+  margin-bottom: 0;
+}
+
+.agent-step-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.agent-step-evidence-tag {
+  padding: 0.15rem 0.4rem;
+  color: #405274;
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: #edf1f8;
+  border-radius: 0.25rem;
+}
+
+.agent-step-screenshot-link {
+  padding: 0.15rem 0.4rem;
+  color: #3157b8;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-decoration: none;
+  background: #eaf3ff;
+  border-radius: 0.25rem;
+}
+
+.agent-step-screenshot-link:hover {
+  background: #dcebff;
+}
+
+.agent-step-timestamp {
+  margin-top: 0.4rem;
+  margin-bottom: 0;
 }
 
 @media (max-width: 720px) {
