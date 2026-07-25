@@ -34,6 +34,7 @@ def create_span(
     latency_ms: int = 0,
     screenshot_id: int | None = None,
     error_message: str | None = None,
+    reliability_signals: list[dict] | None = None,
 ) -> WorkflowSpan:
     """Persist one workflow span."""
 
@@ -56,6 +57,10 @@ def create_span(
     span.input = input
     span.output = output
     span.span_metadata = metadata
+    if reliability_signals:
+        if span.span_metadata is None:
+            span.span_metadata = {}
+        span.span_metadata["reliability_signals"] = reliability_signals
     db.add(span)
     db.flush()
     return span
@@ -77,6 +82,7 @@ def finish_span(
     latency_ms: int | None = None,
     screenshot_id: int | None = None,
     error_message: str | None = None,
+    reliability_signals: list[dict] | None = None,
 ) -> WorkflowSpan:
     """Update a span when the workflow operation ends."""
 
@@ -85,6 +91,10 @@ def finish_span(
         span.output = output
     if metadata is not None:
         span.span_metadata = metadata
+    if reliability_signals:
+        if span.span_metadata is None:
+            span.span_metadata = {}
+        span.span_metadata["reliability_signals"] = reliability_signals
     if provider is not None:
         span.provider = provider
     if model is not None:

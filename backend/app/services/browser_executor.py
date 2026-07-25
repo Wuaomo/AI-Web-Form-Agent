@@ -18,9 +18,47 @@ from app.models import (
 )
 from app.services.browser_session import run_with_persistent_page
 from app.services.action_trace_service import record_action_trace
+from app.services.reliability_detector import (
+    detect_reliability_signals,
+    should_block_or_review,
+)
+from app.services.workflow_state_service import set_workflow_status
 
 SCREENSHOTS_DIR = BACKEND_DIR / "screenshots"
 NON_FILLABLE_FIELD_TYPES = {"button", "file", "submit", "reset", "image"}
+
+
+def _handle_reliability_signals(
+    db: Session,
+    task_id: int,
+    *,
+    selector: str | None = None,
+    action: str | None = None,
+    error_message: str | None = None,
+    step_name: str | None = None,
+) -> None:
+    """Check reliability signals and update task state if needed.
+
+    This implements review-first behavior: signals trigger review/block/fail
+    states instead of automatic retry or recovery.
+    """
+
+    if db is None:
+        return
+
+    should_stop, recommended_state, reason = should_block_or_review(
+        db,
+        task_id,
+        selector=selector,
+        action=action,
+        error_message=error_message,
+        step_name=step_name,
+    )
+
+    if should_stop:
+        task = db.get(Task, task_id)
+        if task:
+            set_workflow_status(task, recommended_state, reason=reason)
 
 
 class FieldVerificationData:
@@ -321,6 +359,14 @@ def _fill_fields(
                     reason=VERIFICATION_REASON_SELECTOR_NOT_FOUND,
                     message=str(exc),
                 )
+            )
+            _handle_reliability_signals(
+                db,
+                task_id,
+                selector=field.selector,
+                action="fill",
+                error_message=str(exc),
+                step_name="fill_form",
             )
             raise
 
