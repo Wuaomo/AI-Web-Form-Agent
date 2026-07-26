@@ -628,3 +628,42 @@ class AgentStepResponse(BaseModel):
     screenshot_id: int | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
+
+
+class PageIntakeAnalyzeRequest(BaseModel):
+    """Request payload for the page intake analysis endpoint."""
+
+    url: str
+    profile_id: int
+    user_goal: str = ""
+    task_id: int | None = None
+
+
+class PageIntakeEvidenceResponse(BaseModel):
+    """One piece of evidence supporting the page classification."""
+
+    source: str
+    text: str
+    reason: str
+
+
+class PageIntakeDetectedFieldResponse(BaseModel):
+    """A simplified form field detected during page intake."""
+
+    label: str | None
+    field_type: str
+    required: bool
+    selector: str
+
+
+class PageIntakeResponse(BaseModel):
+    """Structured page intake analysis result returned by the API."""
+
+    page_type: str
+    recommended_workflow: str
+    confidence: float
+    summary: str
+    detected_fields: list[PageIntakeDetectedFieldResponse] = Field(default_factory=list)
+    risk_flags: list[str] = Field(default_factory=list)
+    blocked_reasons: list[str] = Field(default_factory=list)
+    evidence: list[PageIntakeEvidenceResponse] = Field(default_factory=list)
