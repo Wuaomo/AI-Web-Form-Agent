@@ -4,6 +4,7 @@ import Layout from "./components/Layout";
 import Benchmarks from "./pages/Benchmarks";
 import CreateTask from "./pages/CreateTask";
 import Dashboard from "./pages/Dashboard";
+import AnalyzePage from "./pages/AnalyzePage";
 import ApprovalCenter from "./pages/ApprovalCenter";
 import Memory from "./pages/Memory";
 import Profiles from "./pages/Profiles";
@@ -16,6 +17,7 @@ function App() {
     <Routes>
       <Route element={<Layout />}>
         <Route index element={<Dashboard />} />
+        <Route path="intake" element={<AnalyzePage />} />
         <Route path="workflows" element={<WorkflowTemplates />} />
         <Route path="benchmarks" element={<Benchmarks />} />
         <Route path="approvals" element={<ApprovalCenter />} />
