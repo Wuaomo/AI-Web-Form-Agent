@@ -73,13 +73,22 @@ function AnalyzePage() {
         workflow_type: intake.recommended_workflow,
       });
 
-      if (intake.recommended_workflow === "web_data_extract") {
+      const persistedIntake = await api.analyzePageIntake({
+        url: form.url,
+        profile_id: Number(form.profile_id),
+        user_goal: form.user_goal,
+        task_id: task.id,
+      });
+
+      const workflowType = persistedIntake.recommended_workflow;
+
+      if (workflowType === "web_data_extract") {
         await api.extractTaskPage(task.id);
         navigate(`/tasks/${task.id}`);
         return;
       }
 
-      if (intake.recommended_workflow === "job_research_summary") {
+      if (workflowType === "job_research_summary") {
         await api.generateJobSummary(task.id);
         navigate(`/tasks/${task.id}`);
         return;
@@ -95,7 +104,10 @@ function AnalyzePage() {
         return;
       }
 
-      const mappingMode = mappingModeForWorkflow(intake.recommended_workflow);
+      const mappingMode =
+        workflowType === "form_fill"
+          ? "rules"
+          : mappingModeForWorkflow(workflowType);
       await api.mapTaskFields(task.id, { mode: mappingMode });
       navigate(`/tasks/${task.id}/review-mapping`);
     } catch (requestError) {

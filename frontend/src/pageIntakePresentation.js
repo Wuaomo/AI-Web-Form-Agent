@@ -12,6 +12,7 @@ const RISK_LABELS = {
   otp: "One-time code blocked",
   payment: "Payment blocked",
   destructive_action: "Destructive action review",
+  password: "Password blocked",
 };
 
 export function workflowLabel(workflowType) {

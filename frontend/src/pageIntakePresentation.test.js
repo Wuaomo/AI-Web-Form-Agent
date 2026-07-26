@@ -25,6 +25,7 @@ test("riskLabel returns human-readable names for known risk flags", () => {
   assert.equal(riskLabel("otp"), "One-time code blocked");
   assert.equal(riskLabel("payment"), "Payment blocked");
   assert.equal(riskLabel("destructive_action"), "Destructive action review");
+  assert.equal(riskLabel("password"), "Password blocked");
 });
 
 test("riskLabel falls back to raw value for unknown flags", () => {
