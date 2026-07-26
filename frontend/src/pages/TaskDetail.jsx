@@ -40,6 +40,11 @@ import {
   groupReviewsByRole,
 } from "../agentReviewPresentation";
 import {
+  presentAgentStep,
+  hasFailedSteps,
+  hasPendingApproval,
+} from "../agentStepPresentation";
+import {
   buildTraceSummary,
   getVisibleTraceSpans,
   phaseLabel,
@@ -85,6 +90,7 @@ function TaskDetail() {
   const [runningReview, setRunningReview] = useState(null);
   const [showAllFailedSpans, setShowAllFailedSpans] = useState(false);
   const [summaryCopied, setSummaryCopied] = useState(false);
+  const [agentSteps, setAgentSteps] = useState([]);
   const agentReviewInFlight = useRef(false);
 
   async function getTaskPlanOrNull(currentTaskId) {
@@ -142,8 +148,9 @@ function TaskDetail() {
       api.getTaskTrace(taskId).catch(() => []),
       getTaskPlanOrNull(taskId),
       api.listApprovals({ taskId }).catch(() => []),
+      api.getTaskAgentSteps(taskId).catch(() => []),
     ])
-      .then(async ([taskResult, screenshotItems, profileItems, providerItems, logItems, usageResult, checkpointItems, jobItems, verificationItems, reviewItems, traceItems, planResult, approvalItems]) => {
+      .then(async ([taskResult, screenshotItems, profileItems, providerItems, logItems, usageResult, checkpointItems, jobItems, verificationItems, reviewItems, traceItems, planResult, approvalItems, agentStepItems]) => {
         setTask(taskResult);
         setScreenshots(screenshotItems);
         setProfiles(profileItems);
@@ -157,6 +164,7 @@ function TaskDetail() {
         setWorkflowTrace(traceItems);
         setTaskPlan(planResult);
         setApprovalRequests(approvalItems);
+        setAgentSteps(agentStepItems);
         setSelectedLlmProvider(getSavedLlmProvider(providerItems));
 
         const runtimeState = await getWorkflowRuntimeOrNull(
@@ -174,7 +182,7 @@ function TaskDetail() {
   }, [taskId]);
 
   async function refreshTaskData(nextTask = null) {
-    const [taskResult, screenshotItems, logItems, usageResult, checkpointItems, jobItems, verificationItems, reviewItems, traceItems, planResult, approvalItems] = await Promise.all([
+    const [taskResult, screenshotItems, logItems, usageResult, checkpointItems, jobItems, verificationItems, reviewItems, traceItems, planResult, approvalItems, agentStepItems] = await Promise.all([
       nextTask ? Promise.resolve(nextTask) : api.getTask(taskId),
       api.listTaskScreenshots(taskId),
       api.listTaskLogs(taskId),
@@ -186,6 +194,7 @@ function TaskDetail() {
       api.getTaskTrace(taskId).catch(() => []),
       getTaskPlanOrNull(taskId),
       api.listApprovals({ taskId }).catch(() => []),
+      api.getTaskAgentSteps(taskId).catch(() => []),
     ]);
     setTask(taskResult);
     setScreenshots(screenshotItems);
@@ -198,6 +207,7 @@ function TaskDetail() {
     setWorkflowTrace(traceItems);
     setTaskPlan(planResult);
     setApprovalRequests(approvalItems);
+    setAgentSteps(agentStepItems);
   }
 
   async function runAgentReview(role) {
@@ -776,9 +786,87 @@ function TaskDetail() {
             ) : (
               <p>No workflow plan has been created yet.</p>
             )}
-          </div>
+        </div>
 
-          {verificationResults.length > 0 && (
+      {agentSteps.length > 0 && (
+        <div className="card">
+          <div className="agent-steps-header">
+            <h3>Agent Steps</h3>
+            {hasFailedSteps(agentSteps) && (
+              <span className="badge badge-danger">Failed steps</span>
+            )}
+            {hasPendingApproval(agentSteps) && (
+              <span className="badge badge-warning">Awaiting approval</span>
+            )}
+          </div>
+          <div className="agent-steps-timeline">
+            {agentSteps.map((step, index) => {
+              const presented = presentAgentStep(step);
+              return (
+                <div key={step.step_id} className="agent-step">
+                  <div className="agent-step-line-container">
+                    <div className={`agent-step-line ${index === agentSteps.length - 1 ? "last" : ""}`} />
+                    <div className={`agent-step-node ${presented.statusClass}`}>
+                      <span className="agent-step-status-dot" />
+                    </div>
+                  </div>
+                  <div className="agent-step-content">
+                    <div className="agent-step-header">
+                      <div>
+                        <strong>{presented.toolLabel}</strong>
+                        <span className="muted-text">{step.goal}</span>
+                      </div>
+                      <span className={`agent-step-status ${presented.statusClass}`}>
+                        {presented.statusLabel}
+                      </span>
+                    </div>
+                    {step.output_summary && (
+                      <p className="agent-step-result">{step.output_summary}</p>
+                    )}
+                    {step.error && (
+                      <div className="agent-step-error">
+                        <strong>Error:</strong> {step.error}
+                        {step.recovery_hint && (
+                          <p className="agent-step-recovery">
+                            <strong>Recovery:</strong> {step.recovery_hint}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {presented.evidenceLabels.length > 0 && (
+                      <div className="agent-step-evidence">
+                        <span className="muted-text">Evidence:</span>
+                        {presented.evidenceLabels.map((label, i) => (
+                          <span key={i} className="agent-step-evidence-tag">
+                            {label}
+                          </span>
+                        ))}
+                        {step.screenshot_id && (
+                          <a
+                            href={`${API_BASE_URL}/tasks/${taskId}/screenshots/${step.screenshot_id}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="agent-step-screenshot-link"
+                          >
+                            View screenshot
+                          </a>
+                        )}
+                      </div>
+                    )}
+                    {presented.startedAtFormatted && (
+                      <p className="muted-text agent-step-timestamp">
+                        {presented.startedAtFormatted}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {verificationResults.length > 0 && (
             <div className="card">
               <h3>Verification Results</h3>
               <div className="verification-grid">

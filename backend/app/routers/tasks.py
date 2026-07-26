@@ -23,6 +23,7 @@ from app.models import ActionLog, AgentReview, FormField, Job, Profile, Screensh
 from app.schemas import (
     ActionLogResponse,
     AgentReviewResponse,
+    AgentStepResponse,
     FieldVerificationResultResponse,
     FormFieldMappingUpdate,
     FormFieldResponse,
@@ -108,6 +109,7 @@ from app.services.workflow_state_service import (
     sync_legacy_status,
 )
 from app.services.workflow_trace_service import safe_create_span, safe_finish_span
+from app.services.agent_step_timeline import build_agent_steps_for_task
 from app.workflow_templates import require_enabled_template
 from app.workflow_constants import (
     APPROVAL_STATUS_REJECTED,
@@ -2294,3 +2296,18 @@ async def confirm_task_submission(
         status=task.status,
         approval_id=approved_submit_request.id,
     )
+
+
+@router.get("/{task_id}/agent-steps", response_model=list[AgentStepResponse])
+def get_task_agent_steps(task_id: int, db: Session = Depends(get_db)) -> list[AgentStepResponse]:
+    """Return a unified timeline of workflow steps for one task.
+
+    Aggregates plan, trace spans, action logs, verification results,
+    approval requests, and screenshots into a consistent view.
+
+    Missing trace/screenshot data does not block returning plan steps.
+    Sensitive values are redacted from summaries.
+    """
+
+    task = get_task_or_404(task_id, db)
+    return build_agent_steps_for_task(db, task)
