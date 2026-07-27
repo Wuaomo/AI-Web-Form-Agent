@@ -21,6 +21,7 @@ from app.routers.benchmarks import router as benchmarks_router
 from app.routers.jobs import router as jobs_router
 from app.routers.llm_usage import router as llm_usage_router
 from app.routers.mcp_tools import router as mcp_tools_router
+from app.routers.page_intake import router as page_intake_router
 from app.routers.profiles import router as profiles_router
 from app.routers.tasks import router as tasks_router
 from app.routers.traces import router as traces_router
@@ -67,6 +68,7 @@ app.add_middleware(
 app.include_router(profiles_router)
 app.include_router(workflows_router)
 app.include_router(tasks_router)
+app.include_router(page_intake_router)
 app.include_router(traces_router)
 app.include_router(approvals_router)
 app.include_router(jobs_router)

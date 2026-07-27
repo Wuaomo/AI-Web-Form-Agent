@@ -186,4 +186,10 @@ export const api = {
   listTaskJobs: (taskId) => request(`/tasks/${taskId}/jobs`),
   cancelJob: (jobId) => request(`/jobs/${jobId}/cancel`, { method: "POST" }),
   listWorkerHeartbeats: () => request("/workers/heartbeats"),
+
+  analyzePageIntake: (payload) =>
+    request("/page-intake/analyze", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 };
