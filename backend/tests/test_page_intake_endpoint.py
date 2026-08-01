@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
+from sqlalchemy import Engine, create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -23,7 +23,7 @@ TEST_PROFILE_ID = 1
 TEST_USER_GOAL = "review this questionnaire"
 
 
-def build_environment() -> tuple[TestClient, Session]:
+def build_environment() -> tuple[TestClient, Session, Engine]:
     """Build an isolated API environment for page intake endpoint tests."""
 
     engine = create_engine(
@@ -41,7 +41,7 @@ def build_environment() -> tuple[TestClient, Session]:
     app.include_router(page_intake_router)
     app.dependency_overrides[get_db] = override_get_db
 
-    return TestClient(app), session
+    return TestClient(app), session, engine
 
 
 def _create_profile_and_task(session: Session) -> tuple[Profile, Task]:
@@ -58,6 +58,7 @@ def _create_profile_and_task(session: Session) -> tuple[Profile, Task]:
     )
     session.add(task)
     session.flush()
+    session.commit()
 
     return profile, task
 
@@ -85,7 +86,7 @@ def _sample_result() -> PageIntakeResult:
 def test_preview_mode_returns_200_without_span_or_checkpoint() -> None:
     """POST without task_id returns 200 and does not create span or checkpoint."""
 
-    client, session = build_environment()
+    client, session, engine = build_environment()
 
     mock_result = _sample_result()
     mock_safe_create_span = MagicMock(return_value=None)
@@ -117,16 +118,17 @@ def test_preview_mode_returns_200_without_span_or_checkpoint() -> None:
     mock_safe_create_span.assert_not_called()
     mock_safe_finish_span.assert_not_called()
 
-    checkpoint_count = len(list(session.scalars(select(TaskCheckpoint))))
-    assert checkpoint_count == 0
-
     session.close()
+    with Session(engine) as verify_session:
+        checkpoint_count = len(list(verify_session.scalars(select(TaskCheckpoint))))
+        assert checkpoint_count == 0
+
 
 
 def test_unknown_task_id_returns_404() -> None:
     """POST with non-existent task_id returns 404 Task not found."""
 
-    client, session = build_environment()
+    client, session, _engine = build_environment()
 
     response = client.post(
         "/page-intake/analyze",
@@ -147,7 +149,7 @@ def test_unknown_task_id_returns_404() -> None:
 def test_mismatched_task_url_returns_400() -> None:
     """POST with task_id whose url does not match request returns 400."""
 
-    client, session = build_environment()
+    client, session, _engine = build_environment()
     _profile, task = _create_profile_and_task(session)
 
     response = client.post(
@@ -168,7 +170,7 @@ def test_mismatched_task_url_returns_400() -> None:
 def test_mismatched_task_profile_returns_400() -> None:
     """POST with task_id whose profile_id does not match request returns 400."""
 
-    client, session = build_environment()
+    client, session, _engine = build_environment()
     profile, task = _create_profile_and_task(session)
 
     response = client.post(
@@ -189,7 +191,7 @@ def test_mismatched_task_profile_returns_400() -> None:
 def test_matching_task_writes_success_checkpoint() -> None:
     """POST with matching task_id writes a PAGE_INTAKE SUCCESS checkpoint."""
 
-    client, session = build_environment()
+    client, session, engine = build_environment()
     _profile, task = _create_profile_and_task(session)
 
     mock_result = _sample_result()
@@ -214,22 +216,23 @@ def test_matching_task_writes_success_checkpoint() -> None:
 
     assert response.status_code == 200
 
-    checkpoint = session.scalar(
-        select(TaskCheckpoint).where(
-            TaskCheckpoint.task_id == task.id,
-            TaskCheckpoint.stage == "PAGE_INTAKE",
-        )
-    )
-    assert checkpoint is not None
-    assert checkpoint.status == CHECKPOINT_SUCCESS
-
+    task_id = task.id
     session.close()
+    with Session(engine) as verify_session:
+        checkpoint = verify_session.scalar(
+            select(TaskCheckpoint).where(
+                TaskCheckpoint.task_id == task_id,
+                TaskCheckpoint.stage == "PAGE_INTAKE",
+            )
+        )
+        assert checkpoint is not None
+        assert checkpoint.status == CHECKPOINT_SUCCESS
 
 
 def test_matching_task_returns_500_and_writes_failed_checkpoint() -> None:
     """POST with matching task_id and service error returns 500 and writes FAILED checkpoint."""
 
-    client, session = build_environment()
+    client, session, engine = build_environment()
     _profile, task = _create_profile_and_task(session)
 
     with patch(
@@ -253,13 +256,14 @@ def test_matching_task_returns_500_and_writes_failed_checkpoint() -> None:
 
     assert response.status_code == 500
 
-    checkpoint = session.scalar(
-        select(TaskCheckpoint).where(
-            TaskCheckpoint.task_id == task.id,
-            TaskCheckpoint.stage == "PAGE_INTAKE",
-        )
-    )
-    assert checkpoint is not None
-    assert checkpoint.status == CHECKPOINT_FAILED
-
+    task_id = task.id
     session.close()
+    with Session(engine) as verify_session:
+        checkpoint = verify_session.scalar(
+            select(TaskCheckpoint).where(
+                TaskCheckpoint.task_id == task_id,
+                TaskCheckpoint.stage == "PAGE_INTAKE",
+            )
+        )
+        assert checkpoint is not None
+        assert checkpoint.status == CHECKPOINT_FAILED

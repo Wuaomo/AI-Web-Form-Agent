@@ -3,7 +3,6 @@
 from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -74,6 +73,7 @@ async def analyze_page_intake_endpoint(
                 input_hash=f"{request.url}:{request.profile_id}:{request.user_goal}",
                 output=asdict(result),
             )
+            db.commit()
 
         if span_id is not None:
             safe_finish_span(
@@ -122,6 +122,7 @@ async def analyze_page_intake_endpoint(
                 input_hash=f"{request.url}:{request.profile_id}:{request.user_goal}",
                 error_message=str(exc),
             )
+            db.commit()
 
         if span_id is not None:
             safe_finish_span(
