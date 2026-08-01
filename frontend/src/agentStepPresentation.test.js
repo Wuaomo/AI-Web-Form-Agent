@@ -24,6 +24,16 @@ test("presentAgentStep converts tool names to user-readable labels", () => {
   assert.equal(presented.statusLabel, "Completed");
 });
 
+test("presentAgentStep labels page intake steps", () => {
+  const presented = presentAgentStep({
+    step_id: "page_intake",
+    tool: "page_intake",
+    status: "SUCCESS",
+  });
+
+  assert.equal(presented.toolLabel, "Page intake");
+});
+
 test("presentAgentStep handles all status types", () => {
   assert.equal(presentAgentStep({ status: "PENDING" }).statusLabel, "Pending");
   assert.equal(presentAgentStep({ status: "STARTED" }).statusLabel, "In progress");
