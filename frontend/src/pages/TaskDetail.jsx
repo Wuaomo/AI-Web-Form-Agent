@@ -44,6 +44,7 @@ import {
   hasFailedSteps,
   hasPendingApproval,
 } from "../agentStepPresentation";
+import { buildPageIntakeBrief } from "../pageIntakePresentation";
 import {
   buildTraceSummary,
   getVisibleTraceSpans,
@@ -398,6 +399,7 @@ function TaskDetail() {
   const pendingApprovals = approvalRequests.filter((item) => item.status === "PENDING");
   const extractionData = getExtractionData(taskCheckpoints);
   const summaryData = getSummaryData(taskCheckpoints);
+  const preflightBrief = buildPageIntakeBrief(taskCheckpoints);
 
   async function resolveApproval(approval, action) {
     setBusyAction(`${action}-approval`);
@@ -556,6 +558,68 @@ function TaskDetail() {
               This site requires login before the page can be analyzed. Log in
               in the browser window, then close it to continue.
             </div>
+          )}
+
+          {preflightBrief && (
+            <article className="card page-overview-card">
+              <div>
+                <p className="eyebrow">Preflight brief</p>
+                <h3>Page Intake</h3>
+                <p className="muted-text">
+                  The agent reviewed the page before choosing this workflow.
+                </p>
+              </div>
+              <div className="page-overview-grid">
+                <div>
+                  <dt>Page type</dt>
+                  <dd>{preflightBrief.pageType}</dd>
+                </div>
+                <div>
+                  <dt>Recommended workflow</dt>
+                  <dd>{preflightBrief.workflowLabel}</dd>
+                </div>
+                <div>
+                  <dt>Confidence</dt>
+                  <dd>{preflightBrief.confidenceText}</dd>
+                </div>
+              </div>
+              <dl className="detail-list">
+                <div>
+                  <dt>Status</dt>
+                  <dd>{preflightBrief.status}</dd>
+                </div>
+                <div>
+                  <dt>Fields found</dt>
+                  <dd>{preflightBrief.detectedFieldCount}</dd>
+                </div>
+              </dl>
+              {preflightBrief.riskLabels.length > 0 && (
+                <div>
+                  <h4>Risks</h4>
+                  <div className="risk-list">
+                    {preflightBrief.riskLabels.map((label) => (
+                      <span key={label} className="badge badge-warning">
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {preflightBrief.evidenceItems.length > 0 && (
+                <div>
+                  <h4>Evidence</h4>
+                  <div className="evidence-list">
+                    {preflightBrief.evidenceItems.slice(0, 3).map((item, index) => (
+                      <div key={index} className="evidence-item">
+                        <span className="badge">{item.source}</span>
+                        <p className="muted-text">{item.text}</p>
+                        <p>{item.reason}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </article>
           )}
 
           <article className="card run-panel">

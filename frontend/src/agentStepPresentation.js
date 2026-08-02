@@ -5,6 +5,7 @@
 
 function toolLabel(toolName) {
   const labels = {
+    page_intake: "Page intake",
     open_url: "Open URL",
     extract_form: "Extract form",
     map_fields: "Map fields",

@@ -58,6 +58,11 @@ function AnalyzePage() {
     }
   }
 
+  function updateForm(patch) {
+    setForm((current) => ({ ...current, ...patch }));
+    setIntake(null);
+  }
+
   async function startWorkflow() {
     if (!intake) {
       return;
@@ -143,7 +148,7 @@ function AnalyzePage() {
           <input
             type="url"
             value={form.url}
-            onChange={(event) => setForm({ ...form, url: event.target.value })}
+            onChange={(event) => updateForm({ url: event.target.value })}
             placeholder="https://example.com/application"
             required
           />
@@ -153,7 +158,7 @@ function AnalyzePage() {
           Profile
           <select
             value={form.profile_id}
-            onChange={(event) => setForm({ ...form, profile_id: event.target.value })}
+            onChange={(event) => updateForm({ profile_id: event.target.value })}
             required
             disabled={loading || profiles.length === 0}
           >
@@ -171,7 +176,7 @@ function AnalyzePage() {
           <textarea
             rows="3"
             value={form.user_goal}
-            onChange={(event) => setForm({ ...form, user_goal: event.target.value })}
+            onChange={(event) => updateForm({ user_goal: event.target.value })}
             placeholder="What do you want to achieve on this page?"
           />
         </label>

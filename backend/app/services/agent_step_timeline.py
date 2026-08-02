@@ -12,6 +12,7 @@ from app.models import (
     FieldVerificationResult,
     Screenshot,
     Task,
+    TaskCheckpoint,
     WorkflowSpan,
 )
 from app.services.tool_registry import get_tool
@@ -163,6 +164,37 @@ def _find_logs_for_step(
     return related
 
 
+def _build_page_intake_step(checkpoint: TaskCheckpoint) -> AgentStepResponse:
+    """Build a timeline step from the persisted page intake checkpoint."""
+
+    output = checkpoint.output
+    evidence = [
+        str(item.get("text"))
+        for item in output.get("evidence", [])
+        if isinstance(item, dict) and item.get("text")
+    ]
+    confidence = float(output.get("confidence") or 0)
+    detected_fields = output.get("detected_fields", [])
+    field_count = len(detected_fields) if isinstance(detected_fields, list) else 0
+    workflow = output.get("recommended_workflow", "unknown")
+    return AgentStepResponse(
+        step_id="page_intake",
+        tool="page_intake",
+        goal="Understand page and choose workflow",
+        status=checkpoint.status,
+        output_summary=f"recommended={workflow}; confidence={confidence:.2f}; fields={field_count}",
+        error=checkpoint.error_message,
+        recovery_hint=(
+            "Review the page manually and retry intake."
+            if checkpoint.status == "FAILED"
+            else None
+        ),
+        evidence=evidence,
+        started_at=checkpoint.created_at,
+        finished_at=checkpoint.updated_at,
+    )
+
+
 def build_agent_steps_for_task(db: Session, task: Task) -> list[AgentStepResponse]:
     """Return a unified timeline of workflow steps for one task.
 
@@ -208,6 +240,15 @@ def build_agent_steps_for_task(db: Session, task: Task) -> list[AgentStepRespons
         )
     )
 
+    page_intake_checkpoint = db.scalar(
+        select(TaskCheckpoint)
+        .where(
+            TaskCheckpoint.task_id == task.id,
+            TaskCheckpoint.stage == "PAGE_INTAKE",
+        )
+        .order_by(TaskCheckpoint.created_at.desc(), TaskCheckpoint.id.desc())
+    )
+
     screenshots_by_stage: dict[str, Screenshot] = {}
     for screenshot in db.scalars(
         select(Screenshot).where(Screenshot.task_id == task.id)
@@ -215,6 +256,9 @@ def build_agent_steps_for_task(db: Session, task: Task) -> list[AgentStepRespons
         screenshots_by_stage[screenshot.stage] = screenshot
 
     agent_steps: list[AgentStepResponse] = []
+
+    if page_intake_checkpoint is not None:
+        agent_steps.append(_build_page_intake_step(page_intake_checkpoint))
 
     for plan_step in plan_steps:
         step_id = plan_step["step_id"]

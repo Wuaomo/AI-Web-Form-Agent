@@ -12,6 +12,7 @@ from app.models import (
     ActionLog,
     Profile,
     Task,
+    TaskCheckpoint,
     WorkflowSpan,
     WORKFLOW_STATUS_CREATED,
     WORKFLOW_TYPE_FORM_FILL,
@@ -100,6 +101,41 @@ def test_build_agent_steps_returns_plan_steps_without_trace(session, task_with_p
     assert steps[0].input_summary is None
     assert steps[0].output_summary is None
     assert steps[0].error is None
+
+
+def test_build_agent_steps_prepends_page_intake_checkpoint(session, task_with_plan):
+    """Verify page intake checkpoint appears before planned workflow steps."""
+
+    checkpoint = TaskCheckpoint(
+        task_id=task_with_plan.id,
+        stage="PAGE_INTAKE",
+        status="SUCCESS",
+        output={
+            "page_type": "questionnaire",
+            "recommended_workflow": "security_questionnaire",
+            "confidence": 0.85,
+            "detected_fields": [{"selector": "#company"}],
+            "evidence": [
+                {
+                    "source": "page_text",
+                    "text": "matched: security",
+                    "reason": "security signal",
+                }
+            ],
+        },
+    )
+    session.add(checkpoint)
+    session.flush()
+
+    steps = build_agent_steps_for_task(session, task_with_plan)
+
+    assert steps[0].step_id == "page_intake"
+    assert steps[0].tool == "page_intake"
+    assert steps[0].goal == "Understand page and choose workflow"
+    assert steps[0].status == "SUCCESS"
+    assert steps[0].output_summary == "recommended=security_questionnaire; confidence=0.85; fields=1"
+    assert "matched: security" in steps[0].evidence
+    assert steps[1].step_id == "open_url"
 
 
 def test_build_agent_steps_includes_trace_status(session, task_with_plan):
