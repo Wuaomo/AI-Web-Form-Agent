@@ -6,7 +6,7 @@ import pytest
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
-from app.services.form_extractor import _EXTRACT_FIELDS_SCRIPT
+from app.services.form_extractor import _EXTRACT_FIELDS_SCRIPT, _LOGIN_DETECTION_SCRIPT
 
 
 def extract_fields_from_html(tmp_path: Path, html: str) -> list[dict[str, object]]:
@@ -29,6 +29,26 @@ def extract_fields_from_html(tmp_path: Path, html: str) -> list[dict[str, object
         browser.close()
 
     return fields
+
+
+def detect_login_from_html(tmp_path: Path, html: str) -> bool:
+    """Render a small page and run the production login detector script."""
+
+    html_path = tmp_path / "page.html"
+    html_path.write_text(html, encoding="utf-8")
+
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except PlaywrightError as exc:
+            pytest.skip(f"Chromium is not installed for Playwright: {exc}")
+
+        page = browser.new_page()
+        page.goto(html_path.as_uri())
+        login_required = page.evaluate(_LOGIN_DETECTION_SCRIPT)
+        browser.close()
+
+    return bool(login_required)
 
 
 def test_extractor_skips_actions_uploads_and_generic_internal_inputs(
@@ -102,4 +122,25 @@ def test_extractor_returns_options_for_select_and_radio_fields(
         {"label": "Remote", "value": "remote", "selector": "#remote"},
         {"label": "Office", "value": "office", "selector": "#office"},
     ]
+
+
+def test_login_detector_does_not_block_questionnaire_password_fields(
+    tmp_path: Path,
+) -> None:
+    assert not detect_login_from_html(
+        tmp_path,
+        """
+        <main>
+          <h1>Vendor Security Questionnaire</h1>
+          <form>
+            <label>Security contact email <input name="email" type="email"></label>
+            <label>Do you enforce multi-factor authentication?<textarea name="mfa"></textarea></label>
+            <label>Do you encrypt data at rest?<select name="encryption"><option>Yes</option></select></label>
+            <label>Data retention period <input name="retention" type="text"></label>
+            <label>Administrator password <input name="admin_password" type="password"></label>
+            <label><input name="attestation" type="checkbox"> I confirm these answers were reviewed.</label>
+          </form>
+        </main>
+        """,
+    )
 

@@ -736,6 +736,7 @@ _LOGIN_DETECTION_SCRIPT = """
   const url = window.location.href.toLowerCase();
   const title = document.title.toLowerCase();
   const bodyText = (document.body?.innerText || "").toLowerCase();
+  const isFileUrl = window.location.protocol === "file:";
   const passwordInputs = document.querySelectorAll('input[type="password"]').length;
   const visibleInputs = Array.from(
     document.querySelectorAll('input:not([type="hidden"]), textarea, select')
@@ -748,8 +749,7 @@ _LOGIN_DETECTION_SCRIPT = """
       rect.height > 0;
   });
 
-  if (passwordInputs > 0) return true;
-  if (/login|signin|passport|auth|account/.test(url)) return true;
+  if (!isFileUrl && /login|signin|passport|auth|account/.test(url)) return true;
   if (/登录|登陆|扫码登录|账号登录|密码登录|sign in|log in/.test(title)) return true;
 
   const loginWords = [
@@ -762,6 +762,6 @@ _LOGIN_DETECTION_SCRIPT = """
     "log in",
   ];
   const hasLoginCopy = loginWords.some(word => bodyText.includes(word));
-  return hasLoginCopy && visibleInputs.length <= 6;
+  return (hasLoginCopy || passwordInputs > 0) && visibleInputs.length <= 3;
 }
 """
