@@ -13,6 +13,41 @@ function getTaskStatus(task) {
   return task?.workflow_status || task?.status;
 }
 
+function isWindowsFileUrl(url = "") {
+  return /^file:\/\/\/[a-z]:/i.test(url);
+}
+
+function textIncludes(text, terms) {
+  const normalized = String(text || "").toLowerCase();
+  return terms.some((term) => normalized.includes(term));
+}
+
+function recoveryHintFor(task, detail, source) {
+  const combined = `${task?.url || ""} ${detail || ""} ${source || ""}`;
+
+  if (isWindowsFileUrl(task?.url) || textIncludes(combined, ["file:///c:/"])) {
+    return "If this is the Docker demo, use a container path such as file:///app/examples/security-questionnaire.html. Docker cannot read Windows host file URLs.";
+  }
+
+  if (textIncludes(combined, ["login", "sign in", "authentication"])) {
+    return "The agent will not bypass login. Use manual login for real sites, or switch to a public/local demo page for a no-login run.";
+  }
+
+  if (textIncludes(combined, ["provider", "api key", "llm", "model"])) {
+    return "For local demos, switch mapping to rules mode or configure an LLM provider before retrying suggestions.";
+  }
+
+  if (textIncludes(combined, ["timeout", "net::", "network", "url"])) {
+    return "Check that the URL is reachable from the backend browser. In Docker, prefer HTTP URLs or file:///app/examples/... demo files.";
+  }
+
+  if (textIncludes(combined, ["selector", "playwright", "browser"])) {
+    return "Re-run analysis before retrying execution. The page structure or browser session may have changed.";
+  }
+
+  return "Open Advanced / Debug for trace evidence, then retry the failed step.";
+}
+
 export function getTaskRunSummary(task) {
   const fields = task?.form_fields || [];
   const fillableFields = fields.filter(isFillableField);
@@ -168,6 +203,19 @@ export function getTaskRunState(task, checkpoints = []) {
   return baseState;
 }
 
+export function getLoginRequiredSummary(task) {
+  if (getTaskStatus(task) !== "LOGIN_REQUIRED") {
+    return null;
+  }
+
+  return {
+    title: "Login required",
+    detail: "This page needs a user login before analysis can continue.",
+    source: "Login gate",
+    recoveryHint: recoveryHintFor(task, "login required", "Login gate"),
+  };
+}
+
 const failureTitleByTracePhase = {
   extraction: "Analysis failed",
   mapping: "Mapping failed",
@@ -186,26 +234,33 @@ export function getRunFailureSummary(task, checkpoints = [], traceSpans = []) {
     .at(-1);
 
   if (latestFailedSpan) {
+    const title =
+      failureTitleByTracePhase[latestFailedSpan.phase] ||
+      getTaskRunState(task, checkpoints).statusLabel;
+    const detail = latestFailedSpan.error_message || "Check advanced details for the failed step.";
+    const source = `${phaseLabel(latestFailedSpan.phase)} / ${latestFailedSpan.name || "Unknown"}`;
     return {
-      title:
-        failureTitleByTracePhase[latestFailedSpan.phase] ||
-        getTaskRunState(task, checkpoints).statusLabel,
-      detail: latestFailedSpan.error_message || "Check advanced details for the failed step.",
-      source: `${phaseLabel(latestFailedSpan.phase)} / ${latestFailedSpan.name || "Unknown"}`,
+      title,
+      detail,
+      source,
+      recoveryHint: recoveryHintFor(task, detail, source),
     };
   }
 
   const latestFailedCheckpoint = checkpoints
     .filter((checkpoint) => checkpoint?.status === "FAILED")
     .at(-1);
+  const detail =
+    latestFailedCheckpoint?.error_message ||
+    latestFailedCheckpoint?.failure_reason ||
+    "Check advanced details for the failed step.";
+  const source = latestFailedCheckpoint?.stage || "Run";
 
   return {
     title: getTaskRunState(task, checkpoints).statusLabel,
-    detail:
-      latestFailedCheckpoint?.error_message ||
-      latestFailedCheckpoint?.failure_reason ||
-      "Check advanced details for the failed step.",
-    source: latestFailedCheckpoint?.stage || "Run",
+    detail,
+    source,
+    recoveryHint: recoveryHintFor(task, detail, source),
   };
 }
 

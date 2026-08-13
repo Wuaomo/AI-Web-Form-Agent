@@ -17,6 +17,7 @@ import {
 } from "../llmUsagePresentation";
 import Message from "../components/Message";
 import {
+  getLoginRequiredSummary,
   getRunFailureSummary,
   getTaskRunState,
   getVisibleRunSummaryItems,
@@ -60,6 +61,10 @@ import {
   workflowPlanApprovalLabel,
 } from "../workflowPlanPresentation";
 import { getExtractionData, getSummaryData } from "../webExtractionPresentation";
+import {
+  pendingApprovalRequests,
+  shouldShowApprovalsOnMain,
+} from "../taskDetailPresentation";
 
 function TaskDetail() {
   const { taskId } = useParams();
@@ -395,8 +400,11 @@ function TaskDetail() {
   const visibleFailedSpans = getVisibleTraceSpans(orderedTrace, showAllFailedSpans);
   const canExpandTrace = shouldShowTraceExpansion(orderedTrace);
   const failureSummary = getRunFailureSummary(task, taskCheckpoints, orderedTrace);
+  const loginRequiredSummary = getLoginRequiredSummary(task);
+  const attentionSummary = failureSummary || loginRequiredSummary;
   const plannedSteps = getWorkflowPlanSteps(taskPlan);
-  const pendingApprovals = approvalRequests.filter((item) => item.status === "PENDING");
+  const pendingApprovals = pendingApprovalRequests(approvalRequests);
+  const showMainApprovals = shouldShowApprovalsOnMain(approvalRequests);
   const extractionData = getExtractionData(taskCheckpoints);
   const summaryData = getSummaryData(taskCheckpoints);
   const preflightBrief = buildPageIntakeBrief(taskCheckpoints);
@@ -525,6 +533,172 @@ function TaskDetail() {
     }
   }
 
+  function renderApprovalRequestsCard(requests, { showEmpty = true } = {}) {
+    if (!showEmpty && requests.length === 0) return null;
+    return (
+      <div className="card">
+        <div className="job-item-header">
+          <h3>Approval Requests</h3>
+          <Link to="/approvals">Open Approval Center</Link>
+        </div>
+        {requests.length === 0 ? (
+          <p>No approval requests yet.</p>
+        ) : (
+          <ul className="job-list">
+            {requests.map((approval) => (
+              <li key={approval.id} className="job-item">
+                <div className="job-item-header">
+                  <strong>{approval.step_name}</strong>
+                  <span className="badge">{approval.status}</span>
+                </div>
+                <div className="muted-text">{approval.reason}</div>
+                <div className="muted-text">
+                  {approval.risk_type} · {approval.risk_level}
+                </div>
+                <div className="muted-text">{formatChinaTime(approval.created_at)}</div>
+                {approval.status === "PENDING" && (
+                  <div className="agent-review-actions">
+                    <button
+                      type="button"
+                      className="button button-small"
+                      onClick={() => resolveApproval(approval, "approve")}
+                      disabled={Boolean(busyAction)}
+                    >
+                      Approve
+                    </button>
+                    <button
+                      type="button"
+                      className="button button-small button-secondary"
+                      onClick={() => resolveApproval(approval, "reject")}
+                      disabled={Boolean(busyAction)}
+                    >
+                      Reject
+                    </button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        {requests.some((approval) => approval.status === "PENDING") && (
+          <p className="muted-text">
+            Resolve pending approvals here or in the Approval Center before retrying risky actions.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  function renderWorkflowPlanCard() {
+    return (
+      <div className="card">
+        <h3>Workflow Plan</h3>
+        {taskPlan ? (
+          <>
+            <p className="muted-text">{taskPlan.goal}</p>
+            <ul className="job-list">
+              {plannedSteps.map((step) => (
+                <li key={step.step_id} className="job-item">
+                  <div className="job-item-header">
+                    <strong>{step.step_id}</strong>
+                    {workflowPlanApprovalLabel(step) && (
+                      <span className="badge">{workflowPlanApprovalLabel(step)}</span>
+                    )}
+                  </div>
+                  <div>{step.tool}</div>
+                  <div className="muted-text">{step.reason}</div>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p>No workflow plan has been created yet.</p>
+        )}
+      </div>
+    );
+  }
+
+  function renderAgentStepsCard() {
+    if (agentSteps.length === 0) return null;
+    return (
+      <div className="card">
+        <div className="agent-steps-header">
+          <h3>Agent Steps</h3>
+          {hasFailedSteps(agentSteps) && (
+            <span className="badge badge-danger">Failed steps</span>
+          )}
+          {hasPendingApproval(agentSteps) && (
+            <span className="badge badge-warning">Awaiting approval</span>
+          )}
+        </div>
+        <div className="agent-steps-timeline">
+          {agentSteps.map((step, index) => {
+            const presented = presentAgentStep(step);
+            return (
+              <div key={step.step_id} className="agent-step">
+                <div className="agent-step-line-container">
+                  <div className={`agent-step-line ${index === agentSteps.length - 1 ? "last" : ""}`} />
+                  <div className={`agent-step-node ${presented.statusClass}`}>
+                    <span className="agent-step-status-dot" />
+                  </div>
+                </div>
+                <div className="agent-step-content">
+                  <div className="agent-step-header">
+                    <div>
+                      <strong>{presented.toolLabel}</strong>
+                      <span className="muted-text">{step.goal}</span>
+                    </div>
+                    <span className={`agent-step-status ${presented.statusClass}`}>
+                      {presented.statusLabel}
+                    </span>
+                  </div>
+                  {step.output_summary && (
+                    <p className="agent-step-result">{step.output_summary}</p>
+                  )}
+                  {step.error && (
+                    <div className="agent-step-error">
+                      <strong>Error:</strong> {step.error}
+                      {step.recovery_hint && (
+                        <p className="agent-step-recovery">
+                          <strong>Recovery:</strong> {step.recovery_hint}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {presented.evidenceLabels.length > 0 && (
+                    <div className="agent-step-evidence">
+                      <span className="muted-text">Evidence:</span>
+                      {presented.evidenceLabels.map((label, i) => (
+                        <span key={i} className="agent-step-evidence-tag">
+                          {label}
+                        </span>
+                      ))}
+                      {step.screenshot_id && (
+                        <a
+                          href={`${API_BASE_URL}/tasks/${taskId}/screenshots/${step.screenshot_id}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="agent-step-screenshot-link"
+                        >
+                          View screenshot
+                        </a>
+                      )}
+                    </div>
+                  )}
+                  {presented.startedAtFormatted && (
+                    <p className="muted-text agent-step-timestamp">
+                      {presented.startedAtFormatted}
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <section>
       <Message type="error">{error}</Message>
@@ -553,10 +727,9 @@ function TaskDetail() {
             <span className="badge badge-large">{runState.statusLabel}</span>
           </div>
 
-          {task.status === "LOGIN_REQUIRED" && (
+          {loginRequiredSummary && (
             <div className="message message-warning">
-              This site requires login before the page can be analyzed. Log in
-              in the browser window, then close it to continue.
+              {loginRequiredSummary.detail} {loginRequiredSummary.recoveryHint}
             </div>
           )}
 
@@ -765,170 +938,19 @@ function TaskDetail() {
             )}
           </article>
 
-          {failureSummary && (
+          {attentionSummary && (
             <div className="card failure-summary-card">
               <div>
                 <p className="eyebrow">Needs attention</p>
-                <h3>{failureSummary.title}</h3>
-                <p>{failureSummary.detail}</p>
-                <p className="muted-text">{failureSummary.source}</p>
+                <h3>{attentionSummary.title}</h3>
+                <p>{attentionSummary.detail}</p>
+                <p>{attentionSummary.recoveryHint}</p>
+                <p className="muted-text">{attentionSummary.source}</p>
               </div>
             </div>
           )}
 
-          <div className="card">
-            <div className="job-item-header">
-              <h3>Approval Requests</h3>
-              <Link to="/approvals">Open Approval Center</Link>
-            </div>
-            {approvalRequests.length === 0 ? (
-              <p>No approval requests yet.</p>
-            ) : (
-              <ul className="job-list">
-                {approvalRequests.map((approval) => (
-                  <li key={approval.id} className="job-item">
-                    <div className="job-item-header">
-                      <strong>{approval.step_name}</strong>
-                      <span className="badge">{approval.status}</span>
-                    </div>
-                    <div className="muted-text">{approval.reason}</div>
-                    <div className="muted-text">
-                      {approval.risk_type} · {approval.risk_level}
-                    </div>
-                    <div className="muted-text">{formatChinaTime(approval.created_at)}</div>
-                    {approval.status === "PENDING" && (
-                      <div className="agent-review-actions">
-                        <button
-                          type="button"
-                          className="button button-small"
-                          onClick={() => resolveApproval(approval, "approve")}
-                          disabled={Boolean(busyAction)}
-                        >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          className="button button-small button-secondary"
-                          onClick={() => resolveApproval(approval, "reject")}
-                          disabled={Boolean(busyAction)}
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-            {pendingApprovals.length > 0 && (
-              <p className="muted-text">
-                Resolve pending approvals here or in the Approval Center before retrying risky actions.
-              </p>
-            )}
-          </div>
-
-          <div className="card">
-            <h3>Workflow Plan</h3>
-            {taskPlan ? (
-              <>
-                <p className="muted-text">{taskPlan.goal}</p>
-                <ul className="job-list">
-                  {plannedSteps.map((step) => (
-                    <li key={step.step_id} className="job-item">
-                      <div className="job-item-header">
-                        <strong>{step.step_id}</strong>
-                        {workflowPlanApprovalLabel(step) && (
-                          <span className="badge">{workflowPlanApprovalLabel(step)}</span>
-                        )}
-                      </div>
-                      <div>{step.tool}</div>
-                      <div className="muted-text">{step.reason}</div>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : (
-              <p>No workflow plan has been created yet.</p>
-            )}
-        </div>
-
-      {agentSteps.length > 0 && (
-        <div className="card">
-          <div className="agent-steps-header">
-            <h3>Agent Steps</h3>
-            {hasFailedSteps(agentSteps) && (
-              <span className="badge badge-danger">Failed steps</span>
-            )}
-            {hasPendingApproval(agentSteps) && (
-              <span className="badge badge-warning">Awaiting approval</span>
-            )}
-          </div>
-          <div className="agent-steps-timeline">
-            {agentSteps.map((step, index) => {
-              const presented = presentAgentStep(step);
-              return (
-                <div key={step.step_id} className="agent-step">
-                  <div className="agent-step-line-container">
-                    <div className={`agent-step-line ${index === agentSteps.length - 1 ? "last" : ""}`} />
-                    <div className={`agent-step-node ${presented.statusClass}`}>
-                      <span className="agent-step-status-dot" />
-                    </div>
-                  </div>
-                  <div className="agent-step-content">
-                    <div className="agent-step-header">
-                      <div>
-                        <strong>{presented.toolLabel}</strong>
-                        <span className="muted-text">{step.goal}</span>
-                      </div>
-                      <span className={`agent-step-status ${presented.statusClass}`}>
-                        {presented.statusLabel}
-                      </span>
-                    </div>
-                    {step.output_summary && (
-                      <p className="agent-step-result">{step.output_summary}</p>
-                    )}
-                    {step.error && (
-                      <div className="agent-step-error">
-                        <strong>Error:</strong> {step.error}
-                        {step.recovery_hint && (
-                          <p className="agent-step-recovery">
-                            <strong>Recovery:</strong> {step.recovery_hint}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    {presented.evidenceLabels.length > 0 && (
-                      <div className="agent-step-evidence">
-                        <span className="muted-text">Evidence:</span>
-                        {presented.evidenceLabels.map((label, i) => (
-                          <span key={i} className="agent-step-evidence-tag">
-                            {label}
-                          </span>
-                        ))}
-                        {step.screenshot_id && (
-                          <a
-                            href={`${API_BASE_URL}/tasks/${taskId}/screenshots/${step.screenshot_id}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="agent-step-screenshot-link"
-                          >
-                            View screenshot
-                          </a>
-                        )}
-                      </div>
-                    )}
-                    {presented.startedAtFormatted && (
-                      <p className="muted-text agent-step-timestamp">
-                        {presented.startedAtFormatted}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+          {showMainApprovals && renderApprovalRequestsCard(pendingApprovals, { showEmpty: false })}
 
       {verificationResults.length > 0 && (
             <div className="card">
@@ -1111,6 +1133,10 @@ function TaskDetail() {
           >
             <summary>Advanced / Debug</summary>
             <div className="advanced-panel-body">
+              {renderApprovalRequestsCard(approvalRequests)}
+              {renderWorkflowPlanCard()}
+              {renderAgentStepsCard()}
+
               <div className="card">
                 <div className="workflow-trace-header">
                   <div>

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  getLoginRequiredSummary,
   getRunFailureSummary,
   getVisibleRunSummaryItems,
   getTaskRunSummary,
@@ -192,6 +193,38 @@ test("getRunFailureSummary uses the latest failed trace error for failed runs", 
     title: "Mapping failed",
     detail: "Provider rejected the request",
     source: "Mapping / map_fields",
+    recoveryHint: "For local demos, switch mapping to rules mode or configure an LLM provider before retrying suggestions.",
+  });
+});
+
+test("getRunFailureSummary explains Docker Windows file URL failures", () => {
+  const summary = getRunFailureSummary(
+    {
+      ...baseTask,
+      status: "FAILED",
+      url: "file:///C:/Users/wuaomo/Documents/AI%20Web%20Form%20Agent/backend/examples/security-questionnaire.html",
+    },
+    [{ stage: "ANALYSIS", status: "FAILED", error_message: "Analysis failed" }],
+    [],
+  );
+
+  assert.equal(summary.title, "Analysis failed");
+  assert.match(summary.recoveryHint, /Docker demo/);
+  assert.match(summary.recoveryHint, /file:\/\/\/app\/examples\/security-questionnaire\.html/);
+});
+
+test("getLoginRequiredSummary explains login boundaries", () => {
+  const summary = getLoginRequiredSummary({
+    ...baseTask,
+    status: "LOGIN_REQUIRED",
+    url: "https://example.com/private-form",
+  });
+
+  assert.deepEqual(summary, {
+    title: "Login required",
+    detail: "This page needs a user login before analysis can continue.",
+    source: "Login gate",
+    recoveryHint: "The agent will not bypass login. Use manual login for real sites, or switch to a public/local demo page for a no-login run.",
   });
 });
 
