@@ -19,6 +19,7 @@ from app.routers.admin import router as admin_router
 from app.routers.approvals import router as approvals_router
 from app.routers.benchmarks import router as benchmarks_router
 from app.routers.jobs import router as jobs_router
+from app.routers.knowledge_sources import router as knowledge_sources_router
 from app.routers.llm_usage import router as llm_usage_router
 from app.routers.mcp_tools import router as mcp_tools_router
 from app.routers.page_intake import router as page_intake_router
@@ -72,6 +73,7 @@ app.include_router(page_intake_router)
 app.include_router(traces_router)
 app.include_router(approvals_router)
 app.include_router(jobs_router)
+app.include_router(knowledge_sources_router)
 app.include_router(llm_usage_router)
 app.include_router(benchmarks_router)
 app.include_router(mcp_tools_router)

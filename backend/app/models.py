@@ -359,6 +359,37 @@ class WorkflowMemoryItem(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class KnowledgeSource(Base):
+    """A user-uploaded document used as retrieval evidence."""
+
+    __tablename__ = "knowledge_sources"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    filename: Mapped[str] = mapped_column(String(500), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(100), default="text/plain", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    chunks: Mapped[list["KnowledgeChunk"]] = relationship(
+        back_populates="source",
+        cascade="all, delete-orphan",
+    )
+
+
+class KnowledgeChunk(Base):
+    """A searchable section from a user-uploaded knowledge source."""
+
+    __tablename__ = "knowledge_chunks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_id: Mapped[int] = mapped_column(ForeignKey("knowledge_sources.id"), nullable=False)
+    section_title: Mapped[str] = mapped_column(String(500), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    source: Mapped["KnowledgeSource"] = relationship(back_populates="chunks")
+
+
 class BenchmarkCaseResult(Base):
     """Metrics and failures for one benchmark case in a run."""
 

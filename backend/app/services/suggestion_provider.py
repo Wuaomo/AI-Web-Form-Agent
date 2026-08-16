@@ -223,7 +223,7 @@ def _try_langchain_suggestions(
             ]
         if workflow_type == "security_questionnaire":
             policy_hits_by_field[fid] = [
-                hit.model_dump() for hit in retrieve_policy_sources(query, limit=3)
+                hit.model_dump() for hit in retrieve_policy_sources(query, limit=3, db=db)
             ]
 
     input_payload: dict[str, object] = {
@@ -310,7 +310,7 @@ def _suggest_with_rules(
             )
 
         if workflow_type == "security_questionnaire":
-            policy_hits = retrieve_policy_sources(query, limit=3)
+            policy_hits = retrieve_policy_sources(query, limit=3, db=db)
 
         source_ids = [hit.source_id for hit in policy_hits]
         memory_ids = [hit.memory_id for hit in memory_hits]

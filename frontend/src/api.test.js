@@ -53,11 +53,47 @@ test("mutations use their configured HTTP method", async () => {
     await api.createTaskPlan(7, "Fill this internship application.");
     await api.approveApproval(9);
     await api.rejectApproval(9);
+    await api.createKnowledgeSource({
+      filename: "security-policy.md",
+      content: "# Security Policy",
+    });
+    await api.deleteKnowledgeSource(3);
 
     assert.deepEqual(
       urls.map((entry) => entry.method),
-      ["GET", "GET", "GET", "GET", "POST", "POST", "POST", "POST"],
+      ["GET", "GET", "GET", "GET", "POST", "POST", "POST", "POST", "POST", "DELETE"],
     );
+  } finally {
+    clearApiCache();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("knowledge source API client uses correct paths", async () => {
+  clearApiCache();
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, method: options.method || "GET", body: options.body });
+    return jsonResponse({ ok: true });
+  };
+
+  try {
+    await api.listKnowledgeSources();
+    await api.createKnowledgeSource({
+      filename: "security-policy.md",
+      content: "# Security Policy",
+    });
+    await api.deleteKnowledgeSource(12);
+
+    assert.equal(calls.length, 3);
+    assert.ok(calls[0].url.endsWith("/knowledge-sources"));
+    assert.equal(calls[0].method, "GET");
+    assert.ok(calls[1].url.endsWith("/knowledge-sources"));
+    assert.equal(calls[1].method, "POST");
+    assert.equal(JSON.parse(calls[1].body).filename, "security-policy.md");
+    assert.ok(calls[2].url.endsWith("/knowledge-sources/12"));
+    assert.equal(calls[2].method, "DELETE");
   } finally {
     clearApiCache();
     globalThis.fetch = originalFetch;

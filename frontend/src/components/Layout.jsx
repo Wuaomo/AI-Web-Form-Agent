@@ -6,6 +6,7 @@ const navigation = [
   { to: "/workflows", label: "Workflows" },
   { to: "/approvals", label: "Approvals" },
   { to: "/profiles", label: "Profiles" },
+  { to: "/knowledge", label: "Knowledge" },
   { to: "/memory", label: "Memory" },
   { to: "/benchmarks", label: "Evaluation" },
 ];
