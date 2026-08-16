@@ -90,6 +90,14 @@ export const api = {
   listWorkflowMemory: () => request("/admin/workflow-memory"),
   deleteWorkflowMemory: (memoryId) =>
     request(`/admin/workflow-memory/${memoryId}`, { method: "DELETE" }),
+  listKnowledgeSources: () => request("/knowledge-sources"),
+  createKnowledgeSource: (source) =>
+    request("/knowledge-sources", {
+      method: "POST",
+      body: JSON.stringify(source),
+    }),
+  deleteKnowledgeSource: (sourceId) =>
+    request(`/knowledge-sources/${sourceId}`, { method: "DELETE" }),
 
   listProfiles: () => request("/profiles"),
   createProfile: (profile) =>

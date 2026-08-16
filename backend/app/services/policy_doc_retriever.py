@@ -10,7 +10,10 @@ import hashlib
 import re
 from pathlib import Path
 
+from sqlalchemy.orm import Session
+
 from app.database import BACKEND_DIR
+from app.models import KnowledgeChunk, KnowledgeSource
 from app.services.policy_answer_retrieval import _sections
 from app.services.retrieval_service import jaccard_similarity
 from app.services.suggestion_types import PolicySourceHit
@@ -65,6 +68,7 @@ def retrieve_policy_sources(
     *,
     limit: int = 3,
     policy_paths: list[Path] | None = None,
+    db: Session | None = None,
 ) -> list[PolicySourceHit]:
     """Retrieve ranked policy source hits for a query.
 
@@ -77,6 +81,9 @@ def retrieve_policy_sources(
     policy_paths:
         Markdown files to search. Defaults to the bundled
         ``mock-security-policy.md`` fixture.
+    db:
+        Optional database session used to include user-uploaded knowledge
+        source chunks.
 
     Returns
     -------
@@ -105,6 +112,27 @@ def retrieve_policy_sources(
                     title=title,
                     section=section_title,
                     snippet=_snippet_from_body(body),
+                    score=round(score, 4),
+                )
+            )
+
+    if db is not None:
+        rows = (
+            db.query(KnowledgeChunk, KnowledgeSource)
+            .join(KnowledgeSource, KnowledgeChunk.source_id == KnowledgeSource.id)
+            .all()
+        )
+        for chunk, source in rows:
+            score = jaccard_similarity(query, f"{chunk.section_title}\n{chunk.text}")
+            if score < 0.15:
+                continue
+            hits.append(
+                PolicySourceHit(
+                    source_id=f"knowledge-{source.id}-{chunk.id}",
+                    document_id=f"knowledge-{source.id}",
+                    title=source.title,
+                    section=chunk.section_title,
+                    snippet=_snippet_from_body(chunk.text),
                     score=round(score, 4),
                 )
             )

@@ -335,6 +335,24 @@ class WorkflowTemplateResponse(BaseModel):
     approval_policy: dict[str, str] = Field(default_factory=dict)
 
 
+class KnowledgeSourceCreate(BaseModel):
+    """Text content from a local knowledge file selected in the browser."""
+
+    filename: str
+    content: str
+
+
+class KnowledgeSourceResponse(BaseModel):
+    """A user-managed knowledge source available to retrieval."""
+
+    id: int
+    title: str
+    filename: str
+    content_type: str
+    chunk_count: int
+    created_at: datetime
+
+
 class WorkflowSpanResponse(BaseModel):
     """One persisted workflow trace span."""
 

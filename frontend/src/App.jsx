@@ -6,6 +6,7 @@ import CreateTask from "./pages/CreateTask";
 import Dashboard from "./pages/Dashboard";
 import AnalyzePage from "./pages/AnalyzePage";
 import ApprovalCenter from "./pages/ApprovalCenter";
+import KnowledgeSources from "./pages/KnowledgeSources";
 import Memory from "./pages/Memory";
 import Profiles from "./pages/Profiles";
 import ReviewMapping from "./pages/ReviewMapping";
@@ -22,6 +23,7 @@ function App() {
         <Route path="benchmarks" element={<Benchmarks />} />
         <Route path="approvals" element={<ApprovalCenter />} />
         <Route path="profiles" element={<Profiles />} />
+        <Route path="knowledge" element={<KnowledgeSources />} />
         <Route path="memory" element={<Memory />} />
         <Route path="tasks/new" element={<CreateTask />} />
         <Route path="tasks/:taskId" element={<TaskDetail />} />
