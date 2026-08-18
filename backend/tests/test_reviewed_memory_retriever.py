@@ -11,7 +11,10 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base
 from app.models import WorkflowMemoryItem
 from app.services.reviewed_memory_retriever import retrieve_reviewed_memory
-from app.workflow_constants import MEMORY_TYPE_CONFIRMED_MAPPING
+from app.workflow_constants import (
+    MEMORY_TYPE_CONFIRMED_MAPPING,
+    MEMORY_TYPE_CONFIRMED_QUESTIONNAIRE_ANSWER,
+)
 
 
 @pytest.fixture
@@ -196,3 +199,36 @@ def test_retrieve_reviewed_memory_does_not_write(session: Session) -> None:
 
     count_after = session.query(WorkflowMemoryItem).count()
     assert count_before == count_after
+
+
+def test_retrieve_reviewed_memory_returns_questionnaire_answer_preview(
+    session: Session,
+) -> None:
+    item = WorkflowMemoryItem(
+        memory_type=MEMORY_TYPE_CONFIRMED_QUESTIONNAIRE_ANSWER,
+        workflow_type="security_questionnaire",
+        source_domain="example.com",
+        field_signature="answer-sig-001",
+        field_text=(
+            "question: Do you enforce multi-factor authentication?\n"
+            "answer: Yes"
+        ),
+        mapped_profile_key="reviewed_answer",
+        value_kind="questionnaire_answer",
+        confidence=1.0,
+        success_count=1,
+        last_used_at=datetime.now(timezone.utc),
+    )
+    session.add(item)
+    session.commit()
+
+    hits = retrieve_reviewed_memory(
+        session,
+        profile_id=1,
+        workflow_type="security_questionnaire",
+        query="multi factor authentication enforced",
+    )
+
+    assert hits
+    assert hits[0].profile_key == "reviewed_answer"
+    assert hits[0].value_preview == "Yes"

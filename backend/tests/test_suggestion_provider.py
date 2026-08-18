@@ -8,8 +8,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base
-from app.models import FormField, Profile, Task
+from app.models import FormField, Profile, Task, WorkflowMemoryItem
 from app.services.suggestion_provider import suggest_answers
+from app.workflow_constants import MEMORY_TYPE_CONFIRMED_QUESTIONNAIRE_ANSWER
 
 
 @pytest.fixture
@@ -219,6 +220,48 @@ def test_suggest_answers_includes_policy_source_for_questionnaire(session: Sessi
     first = suggestions[0]
     assert first.answer_status == "suggested"
     assert first.source_ids
+
+
+def test_suggest_answers_uses_reviewed_questionnaire_answer_memory(
+    session: Session,
+) -> None:
+    task, profile, fields = _make_setup(session, workflow_type="security_questionnaire")
+    fields[0].label = "Is multi-factor authentication required for administrators?"
+    fields[0].field_type = "radio"
+    fields[0].options = [
+        {"label": "Yes", "value": "Yes"},
+        {"label": "No", "value": "No"},
+    ]
+    memory = WorkflowMemoryItem(
+        memory_type=MEMORY_TYPE_CONFIRMED_QUESTIONNAIRE_ANSWER,
+        workflow_type="security_questionnaire",
+        source_domain="example.com",
+        field_signature="answer-sig-001",
+        field_text=(
+            "question: Do you enforce multi-factor authentication for admin users?\n"
+            "answer: Yes"
+        ),
+        mapped_profile_key="reviewed_answer",
+        value_kind="questionnaire_answer",
+        confidence=1.0,
+        success_count=1,
+    )
+    session.add(memory)
+    session.flush()
+
+    suggestions = suggest_answers(
+        session,
+        task=task,
+        fields=fields,
+        profile=profile,
+        mode="rules",
+    )
+
+    first = suggestions[0]
+    assert first.answer_status == "suggested"
+    assert first.suggested_value == "Yes"
+    assert str(memory.id) in first.memory_ids
+    assert "reviewed answer memory" in first.reason.lower()
 
 
 def test_suggest_answers_llm_mode_falls_back_to_rules(session: Session) -> None:

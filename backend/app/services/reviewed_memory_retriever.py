@@ -15,7 +15,10 @@ from sqlalchemy.orm import Session
 from app.models import WorkflowMemoryItem
 from app.services.retrieval_service import _is_stale, jaccard_similarity
 from app.services.suggestion_types import MemoryHit
-from app.workflow_constants import MEMORY_TYPE_CONFIRMED_MAPPING
+from app.workflow_constants import (
+    MEMORY_TYPE_CONFIRMED_MAPPING,
+    MEMORY_TYPE_CONFIRMED_QUESTIONNAIRE_ANSWER,
+)
 
 SENSITIVE_TOKENS = {
     "password",
@@ -41,6 +44,17 @@ SENSITIVE_TOKENS = {
 
 MAX_HITS = 5
 MIN_SCORE = 0.15
+
+
+def _answer_preview(item: WorkflowMemoryItem) -> str | None:
+    """Extract reviewed questionnaire answer text from memory field_text."""
+
+    if item.memory_type != MEMORY_TYPE_CONFIRMED_QUESTIONNAIRE_ANSWER:
+        return None
+    for line in (item.field_text or "").splitlines():
+        if line.lower().startswith("answer:"):
+            return line.split(":", 1)[1].strip() or None
+    return None
 
 
 def _is_sensitive_item(item: WorkflowMemoryItem) -> bool:
@@ -69,6 +83,7 @@ def retrieve_reviewed_memory(
     profile_id: int,
     workflow_type: str,
     query: str,
+    memory_types: set[str] | None = None,
 ) -> list[MemoryHit]:
     """Retrieve reviewed, non-sensitive memory hits for a query.
 
@@ -93,9 +108,13 @@ def retrieve_reviewed_memory(
         as review-only. Sensitive items are excluded entirely.
     """
 
+    selected_types = memory_types or {
+        MEMORY_TYPE_CONFIRMED_MAPPING,
+        MEMORY_TYPE_CONFIRMED_QUESTIONNAIRE_ANSWER,
+    }
     stmt = select(WorkflowMemoryItem).where(
         WorkflowMemoryItem.workflow_type == workflow_type,
-        WorkflowMemoryItem.memory_type == MEMORY_TYPE_CONFIRMED_MAPPING,
+        WorkflowMemoryItem.memory_type.in_(selected_types),
     )
     candidates = list(db.scalars(stmt))
 
@@ -120,7 +139,7 @@ def retrieve_reviewed_memory(
             MemoryHit(
                 memory_id=str(item.id),
                 profile_key=item.mapped_profile_key,
-                value_preview=None,
+                value_preview=_answer_preview(item),
                 source_task_id=None,
                 reviewed_at=reviewed_at.isoformat() if reviewed_at else None,
                 stale=stale,

@@ -31,6 +31,11 @@ from app.services.policy_doc_retriever import retrieve_policy_sources
 from app.services.reviewed_memory_retriever import retrieve_reviewed_memory
 from app.services.suggestion_types import AnswerSuggestion
 from app.services.workflow_memory import is_memory_eligible_field
+from app.workflow_constants import (
+    MEMORY_TYPE_CONFIRMED_MAPPING,
+    MEMORY_TYPE_CONFIRMED_QUESTIONNAIRE_ANSWER,
+    WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +80,15 @@ def _question_text(field: FormField) -> str:
         field.form_title,
     ]
     return " ".join(value for value in parts if value)
+
+
+def _memory_types_for_workflow(workflow_type: str) -> set[str]:
+    if workflow_type == WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE:
+        return {
+            MEMORY_TYPE_CONFIRMED_MAPPING,
+            MEMORY_TYPE_CONFIRMED_QUESTIONNAIRE_ANSWER,
+        }
+    return {MEMORY_TYPE_CONFIRMED_MAPPING}
 
 
 def _suggest_from_profile(
@@ -219,6 +233,7 @@ def _try_langchain_suggestions(
                     profile_id=task.profile_id or 0,
                     workflow_type=workflow_type,
                     query=query,
+                    memory_types=_memory_types_for_workflow(workflow_type),
                 )
             ]
         if workflow_type == "security_questionnaire":
@@ -307,6 +322,7 @@ def _suggest_with_rules(
                 profile_id=task.profile_id or 0,
                 workflow_type=workflow_type,
                 query=query,
+                memory_types=_memory_types_for_workflow(workflow_type),
             )
 
         if workflow_type == "security_questionnaire":
@@ -319,6 +335,25 @@ def _suggest_with_rules(
         non_reusable_policy = any(
             hit.score < 0.3 for hit in policy_hits
         )
+
+        answer_memory_hits = [
+            hit for hit in memory_hits if hit.value_preview and not hit.stale
+        ]
+        if answer_memory_hits:
+            top_mem = answer_memory_hits[0]
+            suggestions.append(
+                _build_suggestion(
+                    field,
+                    answer_status="suggested",
+                    suggested_value=top_mem.value_preview,
+                    confidence=min(top_mem.confidence + 0.1, 0.86),
+                    reason="Suggested from reviewed answer memory — review before applying",
+                    source_ids=source_ids,
+                    memory_ids=memory_ids,
+                    safety_flags=["reviewed_answer_memory"],
+                )
+            )
+            continue
 
         if profile_value is not None:
             combined_confidence = profile_confidence

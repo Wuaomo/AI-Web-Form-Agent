@@ -11,7 +11,12 @@ from sqlalchemy.orm import Session
 
 from app.models import FormField, Task, WorkflowMemoryItem
 from app.services.mapping_cache import field_signature
-from app.workflow_constants import MEMORY_TYPE_CONFIRMED_MAPPING, WORKFLOW_TYPE_FORM_FILL
+from app.workflow_constants import (
+    MEMORY_TYPE_CONFIRMED_MAPPING,
+    MEMORY_TYPE_CONFIRMED_QUESTIONNAIRE_ANSWER,
+    WORKFLOW_TYPE_FORM_FILL,
+    WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
+)
 
 NON_FILLABLE_FIELD_TYPES = {"button", "file", "submit", "reset", "image"}
 
@@ -88,6 +93,14 @@ def build_field_memory_text(field: FormField) -> str:
     ).strip()
 
 
+def build_questionnaire_answer_memory_text(field: FormField) -> str:
+    """Build reviewed question/answer memory text for questionnaire reuse."""
+
+    question = (field.label or field.name or field.placeholder or "").strip()
+    answer = str(field.mapped_value or "").strip()
+    return "\n".join([f"question: {question}", f"answer: {answer}"]).strip()
+
+
 def is_fillable_field(field: FormField) -> bool:
     """Return whether this field is eligible for automated fill/memory."""
 
@@ -154,6 +167,16 @@ def should_save_mapping_memory(field: FormField) -> bool:
     return is_memory_eligible_field(field)
 
 
+def should_save_answer_memory(task: Task, field: FormField) -> bool:
+    """Return whether a reviewed questionnaire answer can be reused."""
+
+    if (task.workflow_type or "") != WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE:
+        return False
+    if not str(field.mapped_value or "").strip():
+        return False
+    return is_memory_eligible_field(field)
+
+
 def _source_domain(task: Task) -> str | None:
     try:
         parsed = urlparse(task.url)
@@ -202,6 +225,47 @@ def save_confirmed_mapping_memory(
     return item
 
 
+def save_confirmed_answer_memory(
+    db: Session,
+    *,
+    task: Task,
+    field: FormField,
+) -> WorkflowMemoryItem | None:
+    """Persist one reviewed questionnaire answer to workflow memory."""
+
+    if not should_save_answer_memory(task, field):
+        return None
+
+    question_text = build_questionnaire_answer_memory_text(field)
+    signature = field_signature(field)
+    existing = db.scalar(
+        select(WorkflowMemoryItem).where(
+            WorkflowMemoryItem.memory_type == MEMORY_TYPE_CONFIRMED_QUESTIONNAIRE_ANSWER,
+            WorkflowMemoryItem.field_signature == signature,
+            WorkflowMemoryItem.field_text == question_text,
+        )
+    )
+    if existing:
+        existing.success_count += 1
+        existing.last_used_at = utc_now()
+        db.add(existing)
+        return existing
+
+    item = WorkflowMemoryItem(
+        memory_type=MEMORY_TYPE_CONFIRMED_QUESTIONNAIRE_ANSWER,
+        workflow_type=task.workflow_type or WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
+        source_domain=_source_domain(task),
+        field_signature=signature,
+        field_text=question_text,
+        mapped_profile_key="reviewed_answer",
+        value_kind="questionnaire_answer",
+        success_count=1,
+        last_used_at=utc_now(),
+    )
+    db.add(item)
+    return item
+
+
 def save_confirmed_mappings_for_task(
     db: Session,
     *,
@@ -212,7 +276,10 @@ def save_confirmed_mappings_for_task(
 
     saved: list[WorkflowMemoryItem] = []
     for field in fields:
-        item = save_confirmed_mapping_memory(db, task=task, field=field)
-        if item is not None:
-            saved.append(item)
+        for item in (
+            save_confirmed_mapping_memory(db, task=task, field=field),
+            save_confirmed_answer_memory(db, task=task, field=field),
+        ):
+            if item is not None:
+                saved.append(item)
     return saved
