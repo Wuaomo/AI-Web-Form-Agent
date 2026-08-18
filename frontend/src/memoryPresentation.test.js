@@ -23,3 +23,14 @@ test("memory presentation helpers format reviewed memory rows", () => {
   assert.equal(memoryStatusLabel({ stale: false }), "Reviewed");
 });
 
+test("memory presentation helpers format questionnaire answer memory rows", () => {
+  const item = {
+    value_kind: "questionnaire_answer",
+    mapped_profile_key: "reviewed_answer",
+    field_text: "question: Do you enforce MFA?\nanswer: Yes",
+  };
+
+  assert.equal(memoryProfileKeyLabel(item), "Reviewed answer");
+  assert.equal(memoryFieldPreview(item), "Do you enforce MFA?");
+});
+

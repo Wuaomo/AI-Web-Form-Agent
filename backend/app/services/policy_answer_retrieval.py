@@ -7,9 +7,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.database import BACKEND_DIR
-from app.models import FormField
+from sqlalchemy.orm import Session
+
+from app.models import FormField, Task
+from app.services.reviewed_memory_retriever import retrieve_reviewed_memory
 from app.services.retrieval_service import jaccard_similarity
 from app.services.workflow_memory import is_memory_eligible_field
+from app.workflow_constants import MEMORY_TYPE_CONFIRMED_QUESTIONNAIRE_ANSWER
 
 
 DEFAULT_POLICY_PATHS = [
@@ -121,6 +125,8 @@ def apply_policy_answer_suggestions(
     *,
     fields: list[FormField],
     policy_paths: list[Path] | None = None,
+    db: Session | None = None,
+    task: Task | None = None,
 ) -> list[dict[str, object]]:
     """Apply source-backed questionnaire suggestions to unmapped safe fields."""
 
@@ -130,8 +136,41 @@ def apply_policy_answer_suggestions(
             continue
         if not is_memory_eligible_field(field):
             continue
+        question = _field_question(field)
+        memory_hits = []
+        if db is not None and task is not None:
+            memory_hits = [
+                hit
+                for hit in retrieve_reviewed_memory(
+                    db,
+                    profile_id=task.profile_id or 0,
+                    workflow_type=task.workflow_type,
+                    query=question,
+                    memory_types={MEMORY_TYPE_CONFIRMED_QUESTIONNAIRE_ANSWER},
+                )
+                if hit.value_preview and not hit.stale
+            ]
+        if memory_hits:
+            top_hit = memory_hits[0]
+            mapped_value = _coerce_to_option_value(field, top_hit.value_preview or "")
+            field.mapped_value = mapped_value
+            field.mapped_profile_key = _custom_key(field)
+            field.confidence = min(top_hit.confidence + 0.1, 0.86)
+            evidence.append(
+                {
+                    "field_id": field.id,
+                    "field_label": field.label,
+                    "suggested_value": mapped_value,
+                    "source": "reviewed_answer_memory",
+                    "matched_section": top_hit.profile_key,
+                    "score": top_hit.confidence,
+                    "status": "needs_review",
+                    "memory_id": top_hit.memory_id,
+                }
+            )
+            continue
         suggestion = suggest_policy_answer(
-            _field_question(field),
+            question,
             policy_paths=policy_paths,
         )
         if suggestion is None:

@@ -12,10 +12,15 @@ from app.models import FormField, Profile, Task, WorkflowMemoryItem
 from app.services.workflow_memory import (
     build_field_memory_text,
     is_one_time_field,
+    save_confirmed_answer_memory,
     save_confirmed_mapping_memory,
     should_save_mapping_memory,
 )
-from app.workflow_constants import MEMORY_TYPE_CONFIRMED_MAPPING
+from app.workflow_constants import (
+    MEMORY_TYPE_CONFIRMED_MAPPING,
+    MEMORY_TYPE_CONFIRMED_QUESTIONNAIRE_ANSWER,
+    WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
+)
 
 
 @pytest.fixture
@@ -104,6 +109,28 @@ def test_confirmed_mapping_saves_profile_key_but_not_raw_value(session: Session)
     assert item.memory_type == MEMORY_TYPE_CONFIRMED_MAPPING
     assert item.mapped_profile_key == "github"
     assert not hasattr(item, "mapped_value")
+
+
+def test_questionnaire_answer_memory_saves_reviewed_safe_answer(session: Session) -> None:
+    task = _create_task(session)
+    task.workflow_type = WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE
+    field = FormField(
+        task_id=task.id,
+        label="Do you enforce multi-factor authentication?",
+        selector="#mfa",
+        field_type="radio",
+        required=True,
+        mapped_value="Yes",
+    )
+
+    item = save_confirmed_answer_memory(session, task=task, field=field)
+    session.commit()
+
+    assert item is not None
+    assert item.memory_type == MEMORY_TYPE_CONFIRMED_QUESTIONNAIRE_ANSWER
+    assert item.mapped_profile_key == "reviewed_answer"
+    assert "question: Do you enforce multi-factor authentication?" in item.field_text
+    assert "answer: Yes" in item.field_text
 
 
 def test_duplicate_memory_increments_success_count(session: Session) -> None:

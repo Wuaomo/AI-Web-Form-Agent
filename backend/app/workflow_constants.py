@@ -55,6 +55,7 @@ SPAN_PHASE_EVALUATION = "evaluation"
 SPAN_PHASE_MEMORY = "memory"
 
 MEMORY_TYPE_CONFIRMED_MAPPING = "confirmed_mapping"
+MEMORY_TYPE_CONFIRMED_QUESTIONNAIRE_ANSWER = "confirmed_questionnaire_answer"
 MEMORY_TYPE_BENCHMARK_EXPECTED = "benchmark_expected"
 MEMORY_TYPE_SUCCESSFUL_RUN = "successful_run"
 

@@ -7,6 +7,9 @@ export function memorySourceLabel(item = {}) {
 }
 
 export function memoryProfileKeyLabel(item = {}) {
+  if (item.value_kind === "questionnaire_answer") {
+    return "Reviewed answer";
+  }
   return item.mapped_profile_key
     ? `profile.${item.mapped_profile_key}`
     : "Unmapped";
@@ -15,6 +18,6 @@ export function memoryProfileKeyLabel(item = {}) {
 export function memoryFieldPreview(item = {}) {
   const text = item.field_text || "";
   const firstLine = text.split("\n").find(Boolean) || "";
-  return firstLine.replace(/^label:\s*/i, "") || "Saved field";
+  return firstLine.replace(/^(label|question):\s*/i, "") || "Saved field";
 }
 

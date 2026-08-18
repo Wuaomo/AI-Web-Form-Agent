@@ -1361,6 +1361,8 @@ def map_task_fields(
         if task.workflow_type == WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE:
             source_suggestions = apply_policy_answer_suggestions(
                 fields=fields,
+                db=db,
+                task=task,
             )
 
         apply_workflow_status(task, WORKFLOW_STATUS_MAPPING_READY, reason="mapping_completed")
