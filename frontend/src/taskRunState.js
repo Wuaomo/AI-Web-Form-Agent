@@ -48,6 +48,20 @@ function recoveryHintFor(task, detail, source) {
   return "Open Advanced / Debug for trace evidence, then retry the failed step.";
 }
 
+function evidenceHintFor(phaseOrStage) {
+  const key = String(phaseOrStage || "").toLowerCase();
+  const hintByKey = {
+    analysis: "Check the task URL and latest analysis checkpoint before retrying.",
+    extraction: "Check the task URL, extraction checkpoint, and Workflow Trace before retrying.",
+    mapping: "Check Workflow Trace and LLM Usage for the failed suggestion step.",
+    fill: "Check the browser screenshot, action logs, and Workflow Trace for the failed fill step.",
+    browser: "Check the browser screenshot, action logs, and Workflow Trace for the failed fill step.",
+    verification: "Check Verification Results, screenshot, and Workflow Trace for the failed selector.",
+    approval: "Check pending approvals and Workflow Trace before continuing.",
+  };
+  return hintByKey[key] || "Check Workflow Trace and Debug Report for the latest failed step.";
+}
+
 export function getTaskRunSummary(task) {
   const fields = task?.form_fields || [];
   const fillableFields = fields.filter(isFillableField);
@@ -243,6 +257,7 @@ export function getRunFailureSummary(task, checkpoints = [], traceSpans = []) {
       title,
       detail,
       source,
+      evidenceHint: evidenceHintFor(latestFailedSpan.phase),
       recoveryHint: recoveryHintFor(task, detail, source),
     };
   }
@@ -260,6 +275,7 @@ export function getRunFailureSummary(task, checkpoints = [], traceSpans = []) {
     title: getTaskRunState(task, checkpoints).statusLabel,
     detail,
     source,
+    evidenceHint: evidenceHintFor(latestFailedCheckpoint?.stage),
     recoveryHint: recoveryHintFor(task, detail, source),
   };
 }
