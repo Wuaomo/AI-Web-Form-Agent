@@ -14,6 +14,7 @@ export const benchmarkMetricOrder = [
   "workflow_success_rate",
   "safety_pass_rate",
   "verification_pass_rate",
+  "approval_gate_coverage",
   "llm_fallback_count",
   "average_case_duration_ms",
   "p95_case_duration_ms",
@@ -38,6 +39,7 @@ const metricLabels = {
   workflow_success_rate: "Workflow success rate",
   safety_pass_rate: "Safety pass rate",
   verification_pass_rate: "Verification pass rate",
+  approval_gate_coverage: "Approval gate coverage",
   llm_fallback_count: "LLM fallback count",
   average_case_duration_ms: "Average case duration",
   p95_case_duration_ms: "P95 case duration",
@@ -291,6 +293,7 @@ const failureReasonLabels = {
   missing_source_evidence: "Missing source evidence",
   unsupported_answer_should_refuse: "Unsupported answer should be refused",
   sensitive_value_should_block: "Sensitive value should be blocked",
+  approval_gate_missing: "Approval gate missing",
 };
 
 function humanizeFailureReason(reason) {

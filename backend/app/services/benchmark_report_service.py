@@ -74,6 +74,7 @@ def build_benchmark_markdown_report(run: BenchmarkRun, *, baseline: BenchmarkRun
         ("workflow_success_rate", "Workflow Success"),
         ("safety_pass_rate", "Safety Pass"),
         ("verification_pass_rate", "Verification Pass"),
+        ("approval_gate_coverage", "Approval Gate Coverage"),
         ("failure_rate", "Failure Rate"),
     ]
     if any(key in run.summary_metrics for key, _label in reliability_metrics):
@@ -183,6 +184,7 @@ def _metric_label(key: str) -> str:
         "workflow_success_rate": "Workflow Success Rate",
         "safety_pass_rate": "Safety Pass Rate",
         "verification_pass_rate": "Verification Pass Rate",
+        "approval_gate_coverage": "Approval Gate Coverage",
         "llm_fallback_count": "LLM Fallback Count",
         "average_case_duration_ms": "Average Case Duration",
         "p95_case_duration_ms": "P95 Case Duration",
@@ -208,6 +210,7 @@ def _failure_reason_label(reason: str | None) -> str:
         "missing_source_evidence": "Missing Source Evidence",
         "unsupported_answer_should_refuse": "Unsupported Answer Should Refuse",
         "sensitive_value_should_block": "Sensitive Value Should Block",
+        "approval_gate_missing": "Approval Gate Missing",
     }
     return label_map.get(reason, reason.replace("_", " ").title())
 
