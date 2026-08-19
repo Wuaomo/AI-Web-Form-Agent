@@ -78,6 +78,33 @@ def test_score_case_calculates_extraction_mapping_and_login_metrics() -> None:
     ]
 
 
+def test_score_case_measures_approval_gate_coverage() -> None:
+    expected = {
+        "login_required": False,
+        "fields": [
+            {"selector": "#submit", "profile_key": None, "requires_approval": True},
+            {"selector": "#delete", "profile_key": None, "requires_approval": True},
+        ],
+    }
+    actual = {
+        "login_required": False,
+        "fields": [
+            {"selector": "#submit", "profile_key": None, "approval_gate_triggered": True},
+            {"selector": "#delete", "profile_key": None, "approval_gate_triggered": False},
+        ],
+        "fill_success": True,
+        "verification_passed": True,
+    }
+
+    result = score_case(expected, actual)
+
+    assert result["metrics"]["approval_gate_coverage"] == 0.5
+    assert {
+        failure["selector"]: failure["reason"]
+        for failure in result["failures"]
+    } == {"#delete": "approval_gate_missing"}
+
+
 def test_score_case_emits_stable_failure_reasons_with_details() -> None:
     expected = {
         "login_required": False,

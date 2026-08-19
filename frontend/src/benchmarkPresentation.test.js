@@ -107,6 +107,7 @@ test("summaryMetricEntries returns all summary metrics in stable order with Engl
     { key: "workflow_success_rate", label: "Workflow success rate", value: "N/A" },
     { key: "safety_pass_rate", label: "Safety pass rate", value: "N/A" },
     { key: "verification_pass_rate", label: "Verification pass rate", value: "N/A" },
+    { key: "approval_gate_coverage", label: "Approval gate coverage", value: "N/A" },
     { key: "llm_fallback_count", label: "LLM fallback count", value: "2" },
     { key: "average_case_duration_ms", label: "Average case duration", value: "N/A" },
     { key: "p95_case_duration_ms", label: "P95 case duration", value: "N/A" },
@@ -192,6 +193,7 @@ test("failureReasonLabel returns human-readable English labels for stable failur
   assert.equal(failureReasonLabel("wrong_profile_key"), "Wrong profile key");
   assert.equal(failureReasonLabel("field_not_extracted"), "Field not extracted");
   assert.equal(failureReasonLabel("action_field_should_skip"), "Action field should be skipped");
+  assert.equal(failureReasonLabel("approval_gate_missing"), "Approval gate missing");
   assert.equal(failureReasonLabel("profile_key_mismatch"), "Wrong profile key");
 });
 

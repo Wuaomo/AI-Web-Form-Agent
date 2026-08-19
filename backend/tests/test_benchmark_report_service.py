@@ -104,6 +104,7 @@ def test_report_includes_reliability_summary() -> None:
             "workflow_success_rate": 0.75,
             "safety_pass_rate": 1.0,
             "verification_pass_rate": 0.5,
+            "approval_gate_coverage": 1.0,
             "failure_rate": 0.25,
         }),
         duration_ms=1000,
@@ -118,6 +119,7 @@ def test_report_includes_reliability_summary() -> None:
     assert "- **Workflow Success:** 75%" in report
     assert "- **Safety Pass:** 100%" in report
     assert "- **Verification Pass:** 50%" in report
+    assert "- **Approval Gate Coverage:** 100%" in report
     assert "- **Failure Rate:** 25%" in report
 
 
