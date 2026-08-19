@@ -193,7 +193,33 @@ test("getRunFailureSummary uses the latest failed trace error for failed runs", 
     title: "Mapping failed",
     detail: "Provider rejected the request",
     source: "Mapping / map_fields",
+    evidenceHint: "Check Workflow Trace and LLM Usage for the failed suggestion step.",
     recoveryHint: "For local demos, switch mapping to rules mode or configure an LLM provider before retrying suggestions.",
+  });
+});
+
+test("getRunFailureSummary points verification failures to field evidence", () => {
+  const summary = getRunFailureSummary(
+    { ...baseTask, status: "FAILED" },
+    [],
+    [
+      {
+        id: 3,
+        phase: "verification",
+        name: "verify_fields",
+        status: "FAILED",
+        error_message: "Value mismatch on #email",
+        created_at: "2026-07-07T10:02:00Z",
+      },
+    ],
+  );
+
+  assert.deepEqual(summary, {
+    title: "Verification failed",
+    detail: "Value mismatch on #email",
+    source: "Verification / verify_fields",
+    evidenceHint: "Check Verification Results, screenshot, and Workflow Trace for the failed selector.",
+    recoveryHint: "Open Advanced / Debug for trace evidence, then retry the failed step.",
   });
 });
 
@@ -209,6 +235,7 @@ test("getRunFailureSummary explains Docker Windows file URL failures", () => {
   );
 
   assert.equal(summary.title, "Analysis failed");
+  assert.equal(summary.evidenceHint, "Check the task URL and latest analysis checkpoint before retrying.");
   assert.match(summary.recoveryHint, /Docker demo/);
   assert.match(summary.recoveryHint, /file:\/\/\/app\/examples\/security-questionnaire\.html/);
 });

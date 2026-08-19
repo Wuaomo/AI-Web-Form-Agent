@@ -944,6 +944,7 @@ function TaskDetail() {
                 <p className="eyebrow">Needs attention</p>
                 <h3>{attentionSummary.title}</h3>
                 <p>{attentionSummary.detail}</p>
+                {attentionSummary.evidenceHint && <p>{attentionSummary.evidenceHint}</p>}
                 <p>{attentionSummary.recoveryHint}</p>
                 <p className="muted-text">{attentionSummary.source}</p>
               </div>
