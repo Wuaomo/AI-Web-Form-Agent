@@ -9,6 +9,7 @@ import {
   failureReasonLabel,
   formatDuration,
   formatRegressionStatus,
+  getMemoryLiftSummary,
   metricEntries,
   parseModeDetail,
   selectDefaultProviderId,
@@ -142,6 +143,7 @@ function Benchmarks() {
     compareRunA && compareRunB
       ? compareRunMetrics(compareRunA.summary_metrics || {}, compareRunB.summary_metrics || {})
       : [];
+  const memoryLiftSummary = getMemoryLiftSummary(compareRunA, compareRunB);
 
   return (
     <section>
@@ -435,26 +437,35 @@ function Benchmarks() {
                     </label>
                   </div>
                   {compareRunA && compareRunB ? (
-                    <table className="data-table">
-                      <thead>
-                        <tr>
-                          <th>Metric</th>
-                          <th>A</th>
-                          <th>B</th>
-                          <th>Delta (A - B)</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {compareEntries.map((entry) => (
-                          <tr key={entry.key}>
-                            <td>{entry.label}</td>
-                            <td>{entry.current}</td>
-                            <td>{entry.baseline}</td>
-                            <td>{entry.delta}</td>
+                    <>
+                      {memoryLiftSummary ? (
+                        <div className="message message-success">
+                          <strong>{memoryLiftSummary.title}</strong>
+                          <p>{memoryLiftSummary.detail}</p>
+                          <span>{memoryLiftSummary.caption}</span>
+                        </div>
+                      ) : null}
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>Metric</th>
+                            <th>A</th>
+                            <th>B</th>
+                            <th>Delta (A - B)</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {compareEntries.map((entry) => (
+                            <tr key={entry.key}>
+                              <td>{entry.label}</td>
+                              <td>{entry.current}</td>
+                              <td>{entry.baseline}</td>
+                              <td>{entry.delta}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </>
                   ) : (
                     <p style={{ margin: 0, color: "var(--muted)" }}>
                       Select two runs to compare summary metrics.
