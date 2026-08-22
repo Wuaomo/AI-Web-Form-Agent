@@ -247,6 +247,44 @@ export function compareRunMetrics(currentMetrics = {}, baselineMetrics = {}) {
   });
 }
 
+function numericDelta(current, baseline) {
+  if (
+    current === null ||
+    current === undefined ||
+    baseline === null ||
+    baseline === undefined ||
+    Number.isNaN(Number(current)) ||
+    Number.isNaN(Number(baseline))
+  ) {
+    return null;
+  }
+  return Number(current) - Number(baseline);
+}
+
+export function getMemoryLiftSummary(currentRun, baselineRun) {
+  if (!currentRun || !baselineRun) {
+    return null;
+  }
+
+  const currentDetail = parseModeDetail(currentRun.mode_detail);
+  const baselineDetail = parseModeDetail(baselineRun.mode_detail);
+  const averageDelta = numericDelta(currentRun.average_score, baselineRun.average_score);
+  const answerDelta = numericDelta(
+    currentRun.summary_metrics?.answer_accuracy,
+    baselineRun.summary_metrics?.answer_accuracy,
+  );
+  const evidenceDelta = numericDelta(
+    currentRun.summary_metrics?.source_evidence_coverage,
+    baselineRun.summary_metrics?.source_evidence_coverage,
+  );
+
+  return {
+    title: `Memory-assisted run improved average score by ${formatMetricDeltaValue("average_score", averageDelta)}.`,
+    detail: `Answer accuracy ${formatMetricDeltaValue("answer_accuracy", answerDelta)}, source evidence coverage ${formatMetricDeltaValue("source_evidence_coverage", evidenceDelta)}.`,
+    caption: `Run #${currentRun.id} memory ${currentDetail.memoryMode || "unknown"} compared with Run #${baselineRun.id} memory ${baselineDetail.memoryMode || "unknown"}.`,
+  };
+}
+
 export function formatMetricDeltaValue(key, delta) {
   if (delta === null || delta === undefined || Number.isNaN(Number(delta))) {
     return "—";

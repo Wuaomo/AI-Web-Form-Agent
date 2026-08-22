@@ -11,6 +11,7 @@ import {
   formatMetricDeltaValue,
   formatMetricPercent,
   formatMetricValue,
+  getMemoryLiftSummary,
   formatRegressionStatus,
   metricEntries,
   normalizeFailureReason,
@@ -283,5 +284,39 @@ test("compareRunMetrics emits stable delta formatting", () => {
   );
   const mappingEntry = deltas.find((entry) => entry.key === "mapping_accuracy");
   assert.equal(mappingEntry.delta, "+20%");
+});
+
+test("getMemoryLiftSummary explains memory-assisted improvement for portfolio demos", () => {
+  const summary = getMemoryLiftSummary(
+    {
+      id: 12,
+      average_score: 0.9,
+      mode_detail: "stress_mode=standard;memory_mode=on",
+      summary_metrics: {
+        answer_accuracy: 0.8,
+        source_evidence_coverage: 1,
+      },
+    },
+    {
+      id: 11,
+      average_score: 0.7,
+      mode_detail: "stress_mode=standard;memory_mode=off",
+      summary_metrics: {
+        answer_accuracy: 0.6,
+        source_evidence_coverage: 0.5,
+      },
+    },
+  );
+
+  assert.deepEqual(summary, {
+    title: "Memory-assisted run improved average score by +20%.",
+    detail: "Answer accuracy +20%, source evidence coverage +50%.",
+    caption: "Run #12 memory on compared with Run #11 memory off.",
+  });
+});
+
+test("getMemoryLiftSummary returns null until both runs are selected", () => {
+  assert.equal(getMemoryLiftSummary(null, { id: 1 }), null);
+  assert.equal(getMemoryLiftSummary({ id: 2 }, null), null);
 });
 
