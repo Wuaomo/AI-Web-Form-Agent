@@ -1,0 +1,139 @@
+\documentclass[11pt]{article}
+
+\usepackage[
+  paperwidth=611.28pt,
+  paperheight=790.49pt,
+  left=0.50in,
+  right=0.50in,
+  top=0.40in,
+  bottom=0.50in
+]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{mathptmx}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{titlesec}
+\usepackage{xcolor}
+\usepackage{tabularx}
+\usepackage{ragged2e}
+
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0pt}
+\setlength{\emergencystretch}{2em}
+
+\hypersetup{
+  colorlinks=false,
+  pdfauthor={Wu Aomo},
+  pdftitle={Wu Aomo NUS ISS CV}
+}
+
+\titleformat{\section}
+  {\large\bfseries}
+  {}
+  {0pt}
+  {}
+  [\titlerule]
+\titlespacing*{\section}{0pt}{0.55em}{0.35em}
+
+\newcommand{\resumeHeader}[3]{
+  \begin{center}
+    {\LARGE\bfseries #1}\\[-0.05em]
+    {\large Email: #2\hspace{1.35em} Mobile: #3}
+  \end{center}
+  \vspace{0.95em}
+}
+
+\newcommand{\entry}[4]{
+  \begin{tabularx}{\textwidth}{@{}Xr@{}}
+    {\bfseries #1} & {\bfseries #2} \\
+  \end{tabularx}
+  #3\\
+  #4
+}
+
+\newcommand{\projectEntry}[4]{
+  \begin{tabularx}{\textwidth}{@{}Xr@{}}
+    {\bfseries #1} & {\bfseries #2} \\
+  \end{tabularx}
+  #3\\
+  Code: \href{#4}{#4}
+}
+
+\setlist[itemize]{
+  leftmargin=1.25em,
+  topsep=0.05em,
+  itemsep=0.08em,
+  parsep=0pt,
+  partopsep=0pt
+}
+
+\begin{document}
+
+\resumeHeader{Wu Aomo}{e1671989@u.nus.edu}{+65 90151246}
+
+\section*{Education}
+
+\entry
+  {National University of Singapore}
+  {Jul 2025 - Present}
+  {Graduate Diploma in Systems Analysis (GDipSA)}
+  {
+    \begin{itemize}
+      \item Relevant Coursework: Agile Software Delivery, Software Analysis and Design, Web Application Development, Mobile Application Development
+    \end{itemize}
+  }
+
+\vspace{0.12em}
+
+\entry
+  {Chongqing University}
+  {Sep 2022 - Jun 2026}
+  {B.Eng. in Biomedical Engineering}
+  {
+    \begin{itemize}
+      \item Relevant Coursework: Programming in Python, Data Structure and Algorithm, Database Technology and Applications
+    \end{itemize}
+  }
+
+\section*{Related Experience}
+
+\projectEntry
+  {Medical Image Registration System Based on Deep Learning and Computer Vision}
+  {Nov 2025 - May 2026}
+  {Chongqing University}
+  {https://github.com/Wuaomo/ML-in-medical-registration-system}
+
+\begin{itemize}
+  \item Built a PyTorch-based medical image registration pipeline for 1,000+ medical images, covering preprocessing, model inference, similarity evaluation, and result visualization.
+  \item Improved registration quality by increasing NCC similarity from 0.60 to 0.80 through preprocessing and model workflow optimisation.
+  \item Reduced per-image inference latency from 60s to 40s by optimising data loading, preprocessing, and execution flow.
+  \item Developed OpenCV tools for image inspection, parameter configuration, result comparison, and automated video generation to improve experiment reproducibility.
+\end{itemize}
+
+\vspace{0.10em}
+
+\projectEntry
+  {AI Web Form Agent: Review-First AI Browser Workflow Assistant}
+  {May 2026 - Present}
+  {National University of Singapore}
+  {https://github.com/Wuaomo/AI-Web-Form-Agent}
+
+\begin{itemize}
+  \item Built a FastAPI + React workflow assistant that extracts web form or questionnaire fields, maps profile or policy-backed answers, and fills approved values through Playwright.
+  \item Used LangGraph to orchestrate review-gated workflows and LangChain for optional retrieval/suggestions, while preserving a no-API-key rules mode for local Docker demos.
+  \item Built a local evaluation workbench across 16 fixtures, tracking mapping quality, source evidence, safety pass rate, browser verification, regression deltas, latency, tokens, and cost signals.
+\end{itemize}
+
+\section*{Skills and Languages}
+
+\begin{itemize}
+  \item Languages: Mandarin Chinese (Native), English (Working Proficiency)
+  \item Programming: Python, JavaScript, SQL, Java, C/C++
+  \item AI / ML: Deep learning, computer vision, image registration, model evaluation, LLM-assisted workflows, prompt engineering
+  \item Frameworks \& Libraries: PyTorch, OpenCV, NumPy, pandas, FastAPI, Flask, React, LangGraph, LangChain, SQLAlchemy
+  \item Testing \& Tools: pytest, Git, GitHub, Docker, Playwright, SQLite, PostgreSQL
+\end{itemize}
+
+\end{document}
