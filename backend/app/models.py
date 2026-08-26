@@ -356,6 +356,7 @@ class WorkflowMemoryItem(Base):
     confidence: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
     success_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    disabled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 

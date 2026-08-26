@@ -50,6 +50,26 @@ function Memory() {
     }
   }
 
+  async function disableMemory(item) {
+    if (!window.confirm(`Disable memory for ${memoryProfileKeyLabel(item)}?`)) {
+      return;
+    }
+    setBusyId(item.id);
+    setError("");
+    setNotice("");
+    try {
+      const updated = await api.disableWorkflowMemory(item.id);
+      setItems((current) =>
+        current.map((entry) => (entry.id === updated.id ? updated : entry)),
+      );
+      setNotice("Memory disabled.");
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <section>
       <div className="page-heading">
@@ -95,6 +115,16 @@ function Memory() {
                   <td>{memoryStatusLabel(item)}</td>
                   <td>{item.reviewed_at || "-"}</td>
                   <td>
+                    {!item.disabled_at && (
+                      <button
+                        className="text-button"
+                        type="button"
+                        onClick={() => disableMemory(item)}
+                        disabled={busyId === item.id}
+                      >
+                        {busyId === item.id ? "Disabling..." : "Disable"}
+                      </button>
+                    )}
                     <button
                       className="text-button"
                       type="button"

@@ -1,4 +1,7 @@
 export function memoryStatusLabel(item = {}) {
+  if (item.disabled_at) {
+    return "Disabled";
+  }
   return item.stale ? "Stale" : "Reviewed";
 }
 

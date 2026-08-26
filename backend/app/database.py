@@ -82,6 +82,17 @@ def _ensure_workflow_memory_items_table(target_engine=engine) -> None:
 
     inspector = inspect(target_engine)
     if "workflow_memory_items" in inspector.get_table_names():
+        existing_columns = {
+            column["name"] for column in inspector.get_columns("workflow_memory_items")
+        }
+        if "disabled_at" not in existing_columns:
+            with target_engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "ALTER TABLE workflow_memory_items "
+                        "ADD COLUMN disabled_at DATETIME"
+                    )
+                )
         return
 
     with target_engine.begin() as connection:
@@ -100,6 +111,7 @@ def _ensure_workflow_memory_items_table(target_engine=engine) -> None:
                     confidence FLOAT NOT NULL DEFAULT 1.0,
                     success_count INTEGER NOT NULL DEFAULT 1,
                     last_used_at DATETIME,
+                    disabled_at DATETIME,
                     created_at DATETIME
                 )
                 """

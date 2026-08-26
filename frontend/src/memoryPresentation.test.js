@@ -21,6 +21,7 @@ test("memory presentation helpers format reviewed memory rows", () => {
   assert.equal(memoryFieldPreview(item), "Portfolio URL");
   assert.equal(memoryStatusLabel(item), "Stale");
   assert.equal(memoryStatusLabel({ stale: false }), "Reviewed");
+  assert.equal(memoryStatusLabel({ disabled_at: "2026-08-26T00:00:00Z" }), "Disabled");
 });
 
 test("memory presentation helpers format questionnaire answer memory rows", () => {

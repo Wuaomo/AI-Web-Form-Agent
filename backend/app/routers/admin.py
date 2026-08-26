@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app import config
 from app.database import get_db
-from app.models import Task, TaskActionTrace, WorkflowMemoryItem
+from app.models import Task, TaskActionTrace, WorkflowMemoryItem, utc_now
 from app.schemas import TaskActionTraceResponse
 from app.services.retrieval_service import _is_stale, _isoformat
 
@@ -41,8 +41,13 @@ def _workflow_memory_response(item: WorkflowMemoryItem) -> dict[str, object]:
         "success_count": item.success_count,
         "reviewed_at": _isoformat(item.created_at),
         "last_used_at": _isoformat(item.last_used_at),
+        "disabled_at": _isoformat(item.disabled_at),
         "stale": stale,
-        "governance_status": "stale_review_recommended" if stale else "reviewed",
+        "governance_status": (
+            "disabled"
+            if item.disabled_at is not None
+            else "stale_review_recommended" if stale else "reviewed"
+        ),
         "created_at": _isoformat(item.created_at),
     }
 
@@ -81,6 +86,29 @@ def delete_workflow_memory(
         )
     db.delete(item)
     db.commit()
+
+
+@router.post(
+    "/workflow-memory/{memory_id}/disable",
+    dependencies=[Depends(require_admin_token)],
+)
+def disable_workflow_memory(
+    memory_id: int,
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    """Disable one reviewed memory item without deleting its audit trail."""
+
+    item = db.get(WorkflowMemoryItem, memory_id)
+    if item is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow memory item not found",
+        )
+    if item.disabled_at is None:
+        item.disabled_at = utc_now()
+        db.commit()
+        db.refresh(item)
+    return _workflow_memory_response(item)
 
 
 @router.get(

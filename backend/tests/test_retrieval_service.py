@@ -159,3 +159,28 @@ def test_search_similar_field_mappings_returns_source_and_stale_governance(sessi
     assert results[0]["last_used_at"] == old_timestamp.isoformat()
     assert results[0]["stale"] is True
     assert results[0]["governance_status"] == "stale_review_recommended"
+
+
+def test_search_similar_field_mappings_skips_disabled_items(session: Session) -> None:
+    session.add(
+        WorkflowMemoryItem(
+            memory_type=MEMORY_TYPE_CONFIRMED_MAPPING,
+            workflow_type="form_fill",
+            source_domain="example.com",
+            field_signature="sig_disabled",
+            field_text="label: GitHub\nname: github_url\ntype: url\noptions: []",
+            mapped_profile_key="github",
+            disabled_at=datetime.now(timezone.utc),
+        )
+    )
+    session.commit()
+
+    results = search_similar_field_mappings(
+        session,
+        field_text="label: GitHub\nname: github_profile\ntype: url\noptions: []",
+        workflow_type="form_fill",
+        source_domain="example.com",
+        limit=5,
+    )
+
+    assert results == []

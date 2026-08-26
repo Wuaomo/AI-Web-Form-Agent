@@ -88,6 +88,8 @@ export const api = {
   getBenchmarkRun: (runId) => request(`/benchmarks/runs/${runId}`),
   getBenchmarkReport: (runId) => performTextRequest(`/benchmarks/runs/${runId}/report`),
   listWorkflowMemory: () => request("/admin/workflow-memory"),
+  disableWorkflowMemory: (memoryId) =>
+    request(`/admin/workflow-memory/${memoryId}/disable`, { method: "POST" }),
   deleteWorkflowMemory: (memoryId) =>
     request(`/admin/workflow-memory/${memoryId}`, { method: "DELETE" }),
   listKnowledgeSources: () => request("/knowledge-sources"),

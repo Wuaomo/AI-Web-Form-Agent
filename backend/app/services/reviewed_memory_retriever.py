@@ -115,6 +115,7 @@ def retrieve_reviewed_memory(
     stmt = select(WorkflowMemoryItem).where(
         WorkflowMemoryItem.workflow_type == workflow_type,
         WorkflowMemoryItem.memory_type.in_(selected_types),
+        WorkflowMemoryItem.disabled_at.is_(None),
     )
     candidates = list(db.scalars(stmt))
 

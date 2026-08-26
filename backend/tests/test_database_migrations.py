@@ -114,6 +114,39 @@ def test_init_db_creates_workflow_memory_items_table(tmp_path):
     assert "memory_type" in columns
     assert "field_signature" in columns
     assert "mapped_profile_key" in columns
+    assert "disabled_at" in columns
+
+
+def test_init_db_adds_disabled_at_to_existing_workflow_memory_items_table(tmp_path):
+    """Verify older workflow memory tables receive the disable governance column."""
+
+    from app.database import _ensure_workflow_memory_items_table
+
+    db_path = tmp_path / "legacy_memory_disable.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+
+    with engine.begin() as connection:
+        connection.execute(text("""
+            CREATE TABLE workflow_memory_items (
+                id INTEGER PRIMARY KEY,
+                memory_type VARCHAR(50) NOT NULL,
+                workflow_type VARCHAR(50) NOT NULL DEFAULT 'form_fill',
+                source_domain VARCHAR(300),
+                field_signature VARCHAR(64) NOT NULL,
+                field_text TEXT NOT NULL,
+                mapped_profile_key VARCHAR(100) NOT NULL,
+                value_kind VARCHAR(50) NOT NULL DEFAULT 'profile_value',
+                confidence FLOAT NOT NULL DEFAULT 1.0,
+                success_count INTEGER NOT NULL DEFAULT 1,
+                last_used_at DATETIME,
+                created_at DATETIME
+            )
+        """))
+
+    _ensure_workflow_memory_items_table(engine)
+
+    columns = {column["name"] for column in inspect(engine).get_columns("workflow_memory_items")}
+    assert "disabled_at" in columns
 
 
 def test_init_db_adds_missing_workflow_span_columns(tmp_path):

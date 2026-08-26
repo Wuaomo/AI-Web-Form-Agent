@@ -57,11 +57,12 @@ test("mutations use their configured HTTP method", async () => {
       filename: "security-policy.md",
       content: "# Security Policy",
     });
+    await api.disableWorkflowMemory(4);
     await api.deleteKnowledgeSource(3);
 
     assert.deepEqual(
       urls.map((entry) => entry.method),
-      ["GET", "GET", "GET", "GET", "POST", "POST", "POST", "POST", "POST", "DELETE"],
+      ["GET", "GET", "GET", "GET", "POST", "POST", "POST", "POST", "POST", "POST", "DELETE"],
     );
   } finally {
     clearApiCache();

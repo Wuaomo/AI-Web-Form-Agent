@@ -101,3 +101,30 @@ def test_delete_workflow_memory_removes_item(
     assert response.status_code == 204
     assert session.get(WorkflowMemoryItem, item.id) is None
 
+
+def test_disable_workflow_memory_keeps_item_with_governance_status(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    item = WorkflowMemoryItem(
+        memory_type=MEMORY_TYPE_CONFIRMED_MAPPING,
+        workflow_type="form_fill",
+        source_domain="example.com",
+        field_signature="sig_portfolio",
+        field_text="label: Portfolio URL\nname: portfolio\ntype: url\noptions: []",
+        mapped_profile_key="github",
+    )
+    session.add(item)
+    session.commit()
+
+    response = client.post(
+        f"/admin/workflow-memory/{item.id}/disable",
+        headers={"X-Admin-Token": "secret"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == item.id
+    assert response.json()["disabled_at"] is not None
+    assert response.json()["governance_status"] == "disabled"
+    assert session.get(WorkflowMemoryItem, item.id) is not None
+

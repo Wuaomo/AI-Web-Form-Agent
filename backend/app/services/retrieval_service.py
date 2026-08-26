@@ -89,6 +89,7 @@ def search_similar_field_mappings(
     query = select(WorkflowMemoryItem).where(
         WorkflowMemoryItem.workflow_type == workflow_type,
         WorkflowMemoryItem.memory_type == MEMORY_TYPE_CONFIRMED_MAPPING,
+        WorkflowMemoryItem.disabled_at.is_(None),
     )
     candidates = list(db.scalars(query))
     results: list[dict[str, object]] = []

@@ -232,3 +232,23 @@ def test_retrieve_reviewed_memory_returns_questionnaire_answer_preview(
     assert hits
     assert hits[0].profile_key == "reviewed_answer"
     assert hits[0].value_preview == "Yes"
+
+
+def test_retrieve_reviewed_memory_skips_disabled_items(session: Session) -> None:
+    _make_memory(
+        session,
+        field_text="label: Company Name",
+        mapped_profile_key="company_name",
+    )
+    item = session.query(WorkflowMemoryItem).one()
+    item.disabled_at = datetime.now(timezone.utc)
+    session.commit()
+
+    hits = retrieve_reviewed_memory(
+        session,
+        profile_id=1,
+        workflow_type="security_questionnaire",
+        query="company name",
+    )
+
+    assert hits == []

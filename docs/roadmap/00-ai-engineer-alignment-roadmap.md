@@ -96,8 +96,7 @@ Completed or mostly completed:
 
 Still missing from the revised direction:
 
-- full user-facing memory management UI, disable controls, and broader memory
-  governance beyond confirmed form-field mappings;
+- broader memory governance beyond confirmed form-field mappings;
 - portfolio screenshots/GIF assets that show the questionnaire workflow.
 
 ## Post-Portfolio Extensions

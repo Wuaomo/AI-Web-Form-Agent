@@ -31,10 +31,11 @@ Partially complete:
   manually delete a memory item.
 - The React Memory page can show reviewed memory and delete stale or incorrect
   saved mappings.
+- Reviewed memory can be disabled without deleting its audit trail, and disabled
+  memory is excluded from retrieval reuse.
 
 Not complete yet:
 
-- disable flow separate from delete;
 - richer per-profile memory filters;
 - reviewed-only governance for policy-document-derived answers.
 
