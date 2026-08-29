@@ -23,6 +23,21 @@ read a browser page
   -> verify and evaluate the result
 ```
 
+The next architecture direction is:
+
+```text
+user goal
+  -> agent planner
+  -> typed tool calls
+  -> action-level governance
+  -> proposal review
+  -> approved browser execution
+  -> verification and traces
+```
+
+For the detailed refactor proposal, see
+`docs/agent-runtime-refactor-rfc.zh.md`.
+
 ## Target AI Engineer Skills
 
 This roadmap is designed to demonstrate:
@@ -44,6 +59,33 @@ This roadmap is designed to demonstrate:
 6. Domain Workflow Templates
 7. Retrieval Quality and Memory Governance
 8. Agent Reliability Benchmark Suite
+
+## Agent Runtime Refactor Track
+
+This track refines the architecture under the existing product story. It should
+be implemented incrementally and should not break the local no-key demo,
+security questionnaire demo, vendor onboarding demo, or benchmark evidence.
+
+1. Add shared agent runtime schemas for runs, plans, tool calls, tool results,
+   proposals, evidence, review decisions, governance decisions, and verification
+   results.
+2. Turn the existing tool registry from metadata-only into executable typed
+   tools by wrapping current services first.
+3. Add action-level governance before tool execution so review, approval,
+   verification, and blocked decisions are made per tool call or proposed
+   action.
+4. Generalize Review Mapping into proposal review, where field values,
+   evidence-backed answers, memory writes, browser clicks, and final submit
+   actions share one review contract.
+5. Introduce a reusable governed LangGraph runtime with pause/resume and
+   human-in-the-loop interrupts; keep the existing security questionnaire graph
+   as a compatibility path until parity tests pass.
+6. Add optional structured LLM planning after the deterministic path is stable.
+   Model output must be schema-valid and cannot bypass governance.
+7. Add MCP and OpenAPI tools through the same Tool Runtime, allowlist, trace,
+   review, and governance path. Start with read-only tools.
+8. Evolve the frontend toward a Run Cockpit and Review Queue that show plan
+   steps, tool calls, proposals, evidence, verification, and compact traces.
 
 ## Current Implementation Snapshot
 
@@ -125,6 +167,11 @@ security questionnaire page
   -> stop before final submission
 ```
 
+Longer-term, domain workflows should become planning presets rather than the
+main runtime abstraction. The runtime should be able to accept a user goal,
+select tools, create evidence-backed proposals, pause for review when needed,
+execute approved browser actions, and verify the result.
+
 ## Non-Goals
 
 - No automatic final submission.
@@ -133,4 +180,7 @@ security questionnaire page
 - No general-purpose uncontrolled browser agent.
 - No fine-tuning or model editing until the core system is credible.
 - No chatbot UI unless it directly supports a reviewed browser workflow.
+- No big-bang migration to an external agent SDK before the project-owned
+  governance, review, verification, persistence, and evaluation contracts are
+  stable.
 
