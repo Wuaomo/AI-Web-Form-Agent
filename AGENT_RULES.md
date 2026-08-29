@@ -43,7 +43,7 @@ Do not resurrect the old `docs/trae-upgrade`, `docs/superpowers/plans`, or
 The project is a controlled local browser workflow assistant, not a bulk
 submission, scraping, or production browser-fleet platform.
 
-The core workflow is:
+The current concrete workflow is:
 
 ```text
 discover fields
@@ -55,6 +55,22 @@ discover fields
   -> verify fields and record traces
   -> wait for explicit approval
 ```
+
+The target runtime direction is more general:
+
+```text
+user goal
+  -> agent planner
+  -> typed tool calls
+  -> governance decision per tool call or proposed action
+  -> review queue for proposals that need human judgment
+  -> approved browser execution
+  -> verification, traces, and benchmark evidence
+```
+
+Workflow templates should provide planning hints, default tool sets, demo
+presets, and policy defaults. They should not force every future task into a
+hardcoded end-to-end workflow.
 
 The system should remain focused on:
 
@@ -77,6 +93,8 @@ The system should remain focused on:
 
 ## Architecture
 
+Current architecture:
+
 ```text
 React Frontend
   -> FastAPI Backend
@@ -87,6 +105,25 @@ React Frontend
     -> Policy Engine + Approval Gates
     -> Browser Execution
     -> Verification + Trace Recording
+    -> SQLite Persistence
+```
+
+Target architecture:
+
+```text
+React Frontend
+  -> FastAPI Backend
+    -> Agent Runtime API
+    -> Agent Planner
+    -> Tool Registry
+    -> Tool Runtime
+    -> Governance Engine
+    -> Review Queue
+    -> Browser Executor
+    -> Evidence Retrieval
+    -> Verification Service
+    -> Trace Store
+    -> Evaluation Harness
     -> SQLite Persistence
 ```
 
@@ -103,6 +140,22 @@ Primary backend modules:
 - `ActionTraceService`: records detailed browser execution traces.
 - `WorkflowTraceService`: records workflow-level spans and evidence.
 - `WorkflowMemory`: stores only reviewed, reusable, non-sensitive memory.
+
+Target runtime concepts:
+
+- `AgentRun`: the user goal, target URL, context, plan, status, and result.
+- `AgentPlan`: an inspectable list of planned tool calls, not a hardcoded workflow script.
+- `ToolCall` and `ToolResult`: the typed execution contract for internal,
+  browser, MCP, and OpenAPI tools.
+- `Proposal`: an agent suggestion that may need review, such as a field value,
+  answer, memory write, browser click, or submit action.
+- `EvidenceItem`: source-backed support for a proposal.
+- `ReviewDecision`: the user's approve, edit, reject, or needs-more-evidence
+  decision.
+- `GovernanceDecision`: action-level allow, review, approval, verify, or block
+  classification.
+- `VerificationResult`: evidence that an approved action changed the browser or
+  external state as expected.
 
 Persistent data:
 
@@ -194,11 +247,20 @@ Keep the project focused and portfolio-ready:
 
 ## Preferred Expansion Order
 
-1. Browser Workflow Assistant: make the app useful beyond form filling.
-2. Retrieval Memory Layer: show learning from reviewed corrections.
-3. Evaluation Workbench: prove rules, LLM, and memory behavior with metrics.
-4. Agent Observability: improve trace/debug only after the user path is clear.
-5. Portfolio Packaging: make the project easy to run, explain, and discuss.
-6. Domain Workflow Templates: add narrow, review-first workflow demos.
-7. Retrieval Quality and Memory Governance: make memory reuse trustworthy.
-8. Agent Reliability Benchmark Suite: measure end-to-end workflow reliability.
+1. Agent Runtime Schemas: introduce shared Pydantic models for runs, plans,
+   tool calls, proposals, evidence, review decisions, governance decisions, and
+   verification results.
+2. Executable Tool Runtime: wrap existing services as typed tools before adding
+   new agent behavior.
+3. Action-Level Governance: evaluate each tool call or proposed action before
+   execution.
+4. Proposal Review Queue: generalize field mapping review into reviewable
+   proposals with evidence.
+5. Governed Agent Graph: move from single-scenario LangGraph paths toward a
+   reusable pause/resume runtime.
+6. Optional LLM Planner: add structured model-driven planning without breaking
+   deterministic no-key mode.
+7. External Tool Adapters: add MCP and OpenAPI tools through the same Tool
+   Runtime and governance path, starting with read-only tools.
+8. Run Cockpit UI: replace workflow-specific surfaces gradually with run, plan,
+   tool call, proposal, evidence, and verification views.
