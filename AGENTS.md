@@ -6,6 +6,7 @@ For detailed project boundaries and architecture, also read:
 
 - `AGENT_RULES.md`
 - `docs/roadmap/00-ai-engineer-alignment-roadmap.md`
+- `docs/agent-runtime-refactor-rfc.zh.md`
 
 ## Current Goal
 
@@ -13,6 +14,28 @@ Build AI Web Form Agent as a portfolio-ready full-stack AI browser workflow
 assistant, not just a form filler.
 
 Use `docs/roadmap/` as the source of truth for future project direction.
+
+## Current Refactor Direction
+
+The next architecture direction is a governed, tool-using browser agent runtime:
+
+```text
+User goal
+  -> Agent planner
+  -> Typed tool calls
+  -> Action-level governance
+  -> Proposal review
+  -> Browser execution
+  -> Verification, traces, and benchmarks
+```
+
+Workflow templates remain useful as planning hints, demo presets, and default
+policy profiles. They should not become the permanent runtime boundary for every
+new use case.
+
+When starting a refactor session, do not attempt the full RFC at once. Pick one
+thin migration slice, keep existing demos working, and preserve the no-key local
+demo path.
 
 Current roadmap order:
 
