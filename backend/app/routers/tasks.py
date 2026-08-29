@@ -1,6 +1,5 @@
 """Task-related API endpoints."""
 
-import json
 import logging
 import re
 import time
@@ -110,6 +109,7 @@ from app.services.workflow_state_service import (
 )
 from app.services.workflow_trace_service import safe_create_span, safe_finish_span
 from app.services.agent_step_timeline import build_agent_steps_for_task
+from app.services.agent_runtime.form_field_persistence import replace_task_form_fields
 from app.workflow_templates import require_enabled_template
 from app.workflow_constants import (
     APPROVAL_STATUS_REJECTED,
@@ -523,32 +523,18 @@ def save_extracted_fields(
 ) -> None:
     """Persist extracted fields and move the task to mapping-ready state."""
 
-    db.execute(delete(FormField).where(FormField.task_id == task.id))
-    for field in analysis.fields:
-        db.add(
-            FormField(
-                task_id=task.id,
-                element_ref=field.element_ref,
-                form_title=field.form_title,
-                section_title=field.section_title,
-                label=field.label,
-                selector=field.selector,
-                field_type=field.field_type,
-                placeholder=field.placeholder,
-                name=field.name,
-                html_id=field.html_id,
-                current_value=field.current_value,
-                field_options=json.dumps(field.options, ensure_ascii=False),
-                required=field.required,
-            )
-        )
+    field_count = replace_task_form_fields(
+        db=db,
+        task=task,
+        fields=analysis.fields,
+    )
 
     set_workflow_status(task, WORKFLOW_STATUS_MAPPING_READY, reason="analysis_completed")
     create_log(
         task_id=task.id,
         step=get_next_log_step(task.id, db),
         action="extract_fields",
-        message=f"Extracted and saved {len(analysis.fields)} form fields.",
+        message=f"Extracted and saved {field_count} form fields.",
         status="SUCCESS",
         db=db,
     )
