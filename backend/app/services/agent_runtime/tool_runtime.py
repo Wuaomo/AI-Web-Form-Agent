@@ -86,6 +86,8 @@ class ToolRuntime:
         governance_decision = self._governance_engine.evaluate_tool_call(
             tool,
             tool_input,
+            tool_call_id=tool_call_id,
+            context=execution_context,
         )
         span = _create_trace_span(
             execution_context,
@@ -96,6 +98,22 @@ class ToolRuntime:
         )
         if governance_decision.decision == "BLOCKED":
             error_message = f"Tool call blocked by governance: {governance_decision.reason}"
+            _finish_trace_span(
+                execution_context,
+                span,
+                status=SPAN_STATUS_FAILED,
+                output={},
+                error=error_message,
+                latency_ms=0,
+            )
+            return _failed_result(
+                tool_call_id,
+                error_message,
+                governance_decision=governance_decision,
+            )
+
+        if governance_decision.decision in {"REVIEW_REQUIRED", "APPROVAL_REQUIRED"}:
+            error_message = f"Tool call paused by governance: {governance_decision.reason}"
             _finish_trace_span(
                 execution_context,
                 span,
