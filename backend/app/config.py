@@ -66,3 +66,18 @@ METRICS_SIDECAR_URL = os.getenv("METRICS_SIDECAR_URL", "")
 # for the local demo. Shape:
 # {"github":{"transport":"stdio","command":"npx","args":["-y","..."],"env":{"GITHUB_TOKEN":"GITHUB_TOKEN"}}}
 MCP_SERVERS_JSON = os.getenv("MCP_SERVERS_JSON", "")
+
+# External runtime tools stay disabled unless explicitly allowlisted. Accepts
+# JSON array or comma-separated tool names such as:
+# ["mcp.kb.search_documents","openapi.crm.read_account"]
+EXTERNAL_TOOL_ALLOWLIST = os.getenv("EXTERNAL_TOOL_ALLOWLIST", "")
+
+# Optional read-only OpenAPI tool specs. Keep blank for local demos.
+# Shape: [{"connector_id":"crm","operation_id":"read_account","method":"GET",
+# "path":"/accounts/{account_id}","description":"Read account.",
+# "input_schema":{"type":"object"},"output_schema":{"type":"object"}}]
+OPENAPI_TOOL_SPECS_JSON = os.getenv("OPENAPI_TOOL_SPECS_JSON", "")
+
+# Optional OpenAPI connector base URLs keyed by connector id.
+# Shape: {"crm":"https://crm.example.test/api"}
+OPENAPI_BASE_URLS_JSON = os.getenv("OPENAPI_BASE_URLS_JSON", "")

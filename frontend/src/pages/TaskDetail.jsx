@@ -60,6 +60,13 @@ import {
   getWorkflowPlanSteps,
   workflowPlanApprovalLabel,
 } from "../workflowPlanPresentation";
+import {
+  buildRunCockpitSummary,
+  getRunCockpitPlanSteps,
+  getRunCockpitToolCalls,
+  getRunCockpitVerificationDetails,
+  shouldShowRunCockpit,
+} from "../runCockpitPresentation";
 import { getExtractionData, getSummaryData } from "../webExtractionPresentation";
 import {
   pendingApprovalRequests,
@@ -93,6 +100,7 @@ function TaskDetail() {
   const [taskPlan, setTaskPlan] = useState(null);
   const [approvalRequests, setApprovalRequests] = useState([]);
   const [workflowRuntime, setWorkflowRuntime] = useState(null);
+  const [governedRuntime, setGovernedRuntime] = useState(null);
   const [runningReview, setRunningReview] = useState(null);
   const [showAllFailedSpans, setShowAllFailedSpans] = useState(false);
   const [summaryCopied, setSummaryCopied] = useState(false);
@@ -116,6 +124,17 @@ function TaskDetail() {
     }
     try {
       return await api.getWorkflowState(currentTaskId);
+    } catch (requestError) {
+      if (requestError.status === 404) {
+        return null;
+      }
+      throw requestError;
+    }
+  }
+
+  async function getGovernedWorkflowRuntimeOrNull(currentTaskId) {
+    try {
+      return await api.getGovernedWorkflowState(currentTaskId);
     } catch (requestError) {
       if (requestError.status === 404) {
         return null;
@@ -155,8 +174,9 @@ function TaskDetail() {
       getTaskPlanOrNull(taskId),
       api.listApprovals({ taskId }).catch(() => []),
       api.getTaskAgentSteps(taskId).catch(() => []),
+      getGovernedWorkflowRuntimeOrNull(taskId),
     ])
-      .then(async ([taskResult, screenshotItems, profileItems, providerItems, logItems, usageResult, checkpointItems, jobItems, verificationItems, reviewItems, traceItems, planResult, approvalItems, agentStepItems]) => {
+      .then(async ([taskResult, screenshotItems, profileItems, providerItems, logItems, usageResult, checkpointItems, jobItems, verificationItems, reviewItems, traceItems, planResult, approvalItems, agentStepItems, governedRuntimeState]) => {
         setTask(taskResult);
         setScreenshots(screenshotItems);
         setProfiles(profileItems);
@@ -171,6 +191,7 @@ function TaskDetail() {
         setTaskPlan(planResult);
         setApprovalRequests(approvalItems);
         setAgentSteps(agentStepItems);
+        setGovernedRuntime(governedRuntimeState);
         setSelectedLlmProvider(getSavedLlmProvider(providerItems));
 
         const runtimeState = await getWorkflowRuntimeOrNull(
@@ -188,7 +209,7 @@ function TaskDetail() {
   }, [taskId]);
 
   async function refreshTaskData(nextTask = null) {
-    const [taskResult, screenshotItems, logItems, usageResult, checkpointItems, jobItems, verificationItems, reviewItems, traceItems, planResult, approvalItems, agentStepItems] = await Promise.all([
+    const [taskResult, screenshotItems, logItems, usageResult, checkpointItems, jobItems, verificationItems, reviewItems, traceItems, planResult, approvalItems, agentStepItems, governedRuntimeState] = await Promise.all([
       nextTask ? Promise.resolve(nextTask) : api.getTask(taskId),
       api.listTaskScreenshots(taskId),
       api.listTaskLogs(taskId),
@@ -201,6 +222,7 @@ function TaskDetail() {
       getTaskPlanOrNull(taskId),
       api.listApprovals({ taskId }).catch(() => []),
       api.getTaskAgentSteps(taskId).catch(() => []),
+      getGovernedWorkflowRuntimeOrNull(taskId),
     ]);
     setTask(taskResult);
     setScreenshots(screenshotItems);
@@ -214,6 +236,7 @@ function TaskDetail() {
     setTaskPlan(planResult);
     setApprovalRequests(approvalItems);
     setAgentSteps(agentStepItems);
+    setGovernedRuntime(governedRuntimeState);
   }
 
   async function runAgentReview(role) {
@@ -241,6 +264,24 @@ function TaskDetail() {
       const runtimeState = await api.startWorkflow(taskId);
       setWorkflowRuntime(runtimeState);
       setNotice("Workflow started. Review suggestions before filling.");
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function startGovernedWorkflowRun() {
+    setBusyAction("start-governed-runtime");
+    setError("");
+    setNotice("");
+    try {
+      const runtimeState = await api.startGovernedWorkflow(taskId, {
+        plannerMode: "deterministic",
+      });
+      setGovernedRuntime(runtimeState);
+      await refreshTaskData();
+      setNotice("Governed runtime started.");
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -408,6 +449,12 @@ function TaskDetail() {
   const extractionData = getExtractionData(taskCheckpoints);
   const summaryData = getSummaryData(taskCheckpoints);
   const preflightBrief = buildPageIntakeBrief(taskCheckpoints);
+  const showRunCockpit = shouldShowRunCockpit(governedRuntime);
+  const runCockpitSummary = buildRunCockpitSummary(governedRuntime);
+  const runCockpitPlanSteps = getRunCockpitPlanSteps(governedRuntime);
+  const runCockpitToolCalls = getRunCockpitToolCalls(governedRuntime);
+  const runCockpitVerificationDetails =
+    getRunCockpitVerificationDetails(governedRuntime);
 
   async function resolveApproval(approval, action) {
     setBusyAction(`${action}-approval`);
@@ -699,6 +746,163 @@ function TaskDetail() {
     );
   }
 
+  function renderRunCockpit() {
+    return (
+      <div className="runtime-status-panel run-cockpit-panel">
+        <div className="runtime-status-header">
+          <div>
+            <p className="eyebrow">Run Cockpit</p>
+            <h3>{showRunCockpit ? runCockpitSummary.status : "Not started"}</h3>
+            <p>
+              {showRunCockpit
+                ? "Generic governed runtime state from the agent graph."
+                : "Start the generic governed runtime to inspect plan, tool, governance, and verification state."}
+            </p>
+          </div>
+          <button
+            className="button button-secondary"
+            type="button"
+            onClick={startGovernedWorkflowRun}
+            disabled={isBusy}
+          >
+            {busyAction === "start-governed-runtime"
+              ? "Starting..."
+              : "Start governed runtime"}
+          </button>
+        </div>
+
+        {showRunCockpit && (
+          <>
+            <div className="runtime-summary-grid" aria-label="Run cockpit summary">
+              <div>
+                <strong>{runCockpitSummary.plannerMode}</strong>
+                <span>Planner mode</span>
+              </div>
+              <div>
+                <strong>{runCockpitSummary.currentTool}</strong>
+                <span>Current tool call</span>
+              </div>
+              <div>
+                <strong>{runCockpitSummary.governanceDecision}</strong>
+                <span>Governance decision</span>
+              </div>
+              <div>
+                <strong>{runCockpitSummary.toolResultCount}</strong>
+                <span>Tool results</span>
+              </div>
+              <div>
+                <strong>{runCockpitSummary.verificationSummary}</strong>
+                <span>Verification</span>
+              </div>
+              <div>
+                <strong>{runCockpitSummary.error || "None"}</strong>
+                <span>Error</span>
+              </div>
+            </div>
+
+            {runCockpitSummary.governanceReason && (
+              <p className="muted-text">{runCockpitSummary.governanceReason}</p>
+            )}
+
+            <div className="run-cockpit-plan">
+              <h4>Verification evidence</h4>
+              {runCockpitVerificationDetails.mismatchCount > 0 ||
+              runCockpitVerificationDetails.evidenceItems.length > 0 ? (
+                <div className="evidence-list">
+                  {runCockpitVerificationDetails.mismatchCount > 0 && (
+                    <article className="evidence-item">
+                      <strong>
+                        {runCockpitVerificationDetails.mismatchCount} mismatch
+                        {runCockpitVerificationDetails.mismatchCount > 1 ? "es" : ""}
+                      </strong>
+                      <ul className="blocked-reasons">
+                        {runCockpitVerificationDetails.mismatches.map((mismatch) => (
+                          <li key={mismatch}>{mismatch}</li>
+                        ))}
+                      </ul>
+                      {runCockpitVerificationDetails.mismatchCount >
+                        runCockpitVerificationDetails.mismatches.length && (
+                        <p className="muted-text">
+                          ...and{" "}
+                          {runCockpitVerificationDetails.mismatchCount -
+                            runCockpitVerificationDetails.mismatches.length}{" "}
+                          more
+                        </p>
+                      )}
+                    </article>
+                  )}
+                  {runCockpitVerificationDetails.evidenceItems.map(
+                    (evidence, index) => (
+                      <article className="evidence-item" key={`${index}-${evidence}`}>
+                        <strong>Evidence {index + 1}</strong>
+                        <p>{evidence}</p>
+                      </article>
+                    ),
+                  )}
+                </div>
+              ) : (
+                <p className="muted-text">
+                  {runCockpitVerificationDetails.statusLabel === "Verified"
+                    ? "Verified; no detailed evidence returned."
+                    : "No verification evidence recorded yet."}
+                </p>
+              )}
+            </div>
+
+            <div className="run-cockpit-plan">
+              <h4>Tool calls</h4>
+              {runCockpitToolCalls.length > 0 ? (
+                <ul className="job-list">
+                  {runCockpitToolCalls.slice(-5).map((call) => (
+                    <li key={call.id} className="job-item">
+                      <div className="job-item-header">
+                        <strong>{call.toolName}</strong>
+                        <span className="badge">{call.status}</span>
+                      </div>
+                      <div className="muted-text">
+                        {call.stepId} / {call.governanceDecision}
+                      </div>
+                      {(call.evidenceCount > 0 ||
+                        call.proposalCount > 0 ||
+                        call.verificationCandidateCount > 0) && (
+                        <div className="muted-text">
+                          {call.evidenceCount} evidence / {call.proposalCount} proposals /{" "}
+                          {call.verificationCandidateCount} verification candidates
+                        </div>
+                      )}
+                      {call.error && <div className="agent-step-error">{call.error}</div>}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="muted-text">No tool calls recorded yet.</p>
+              )}
+            </div>
+
+            <div className="run-cockpit-plan">
+              <h4>Plan steps</h4>
+              {runCockpitPlanSteps.length > 0 ? (
+                <ul className="job-list">
+                  {runCockpitPlanSteps.map((step) => (
+                    <li key={step.id} className="job-item">
+                      <div className="job-item-header">
+                        <strong>{step.id}</strong>
+                        <span className="badge">{step.toolName}</span>
+                      </div>
+                      {step.reason && <div className="muted-text">{step.reason}</div>}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="muted-text">No plan steps returned.</p>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
   return (
     <section>
       <Message type="error">{error}</Message>
@@ -822,6 +1026,8 @@ function TaskDetail() {
                 </div>
               ))}
             </div>
+
+            {renderRunCockpit()}
 
             {task.workflow_type === "security_questionnaire" && (
               <div className="runtime-status-panel">

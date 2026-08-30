@@ -73,6 +73,17 @@ export const api = {
   listWorkflowTemplates: () => request("/workflows/templates"),
   startWorkflow: (taskId) =>
     request(`/workflows/${taskId}/start`, { method: "POST" }),
+  startGovernedWorkflow: (taskId, options = {}) => {
+    const params = new URLSearchParams();
+    if (options.plannerMode) {
+      params.set("planner_mode", options.plannerMode);
+    }
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    return request(`/workflows/${taskId}/governed/start${suffix}`, {
+      method: "POST",
+    });
+  },
+  getGovernedWorkflowState: (taskId) => request(`/workflows/${taskId}/governed`),
   getWorkflowState: (taskId) => request(`/workflows/${taskId}`),
   reviewWorkflow: (taskId, reviewData = {}) =>
     request(`/workflows/${taskId}/review`, {

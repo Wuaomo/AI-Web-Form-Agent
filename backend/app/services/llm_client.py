@@ -20,12 +20,7 @@ from sqlalchemy.orm import Session
 
 from app import config
 from app.schemas import LLMProvider, ProfileKey
-from app.services.llm_provider_config import (
-    resolve_llm_provider,
-    is_provider_configured,
-    get_provider_model,
-    get_provider_api_key,
-)
+from app.services import llm_provider_config
 from app.services.llm_usage_service import record_llm_api_usage
 from app.services.llm_cost_service import estimate_llm_cost
 
@@ -400,13 +395,13 @@ class LLMClient:
 
     def _resolve_provider(self) -> LLMProvider:
         """Resolve and return the selected LLM provider."""
-        return resolve_llm_provider(self.provider)
+        return llm_provider_config.resolve_llm_provider(self.provider)
 
     def _is_available(self) -> bool:
         """Check if the selected provider is configured and available."""
         try:
             provider = self._resolve_provider()
-            return is_provider_configured(provider)
+            return llm_provider_config.is_provider_configured(provider)
         except (ValueError, RuntimeError):
             return False
 
@@ -435,7 +430,7 @@ class LLMClient:
 
         start_time = time.perf_counter()
         provider = self._resolve_provider()
-        model = get_provider_model(provider)
+        model = llm_provider_config.get_provider_model(provider)
 
         try:
             raw_response = self._call_provider(

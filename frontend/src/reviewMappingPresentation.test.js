@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 
 import {
   buildReviewGroups,
+  buildReviewQueueSummary,
   computeAttentionSummary,
+  formatProposalTypeLabel,
   formatConfidence,
   formatMappingSummary,
   formatSourceSuggestion,
@@ -196,6 +198,54 @@ test("proposal review helpers expose generic evidence by field id", () => {
   assert.equal(byFieldId.get(10).proposal_type, "answer");
   assert.equal(byFieldId.get(10).evidence[0].source_type, "policy_doc");
   assert.equal(byFieldId.has(11), false);
+});
+
+test("buildReviewQueueSummary counts generic proposal review states and evidence", () => {
+  const summary = buildReviewQueueSummary([
+    {
+      proposal_type: "field_value",
+      status: "PENDING",
+      evidence: [{ id: "e-1" }],
+    },
+    {
+      proposal_type: "answer",
+      status: "APPROVED",
+      evidence: [],
+    },
+    {
+      proposal_type: "memory_write",
+      status: "REJECTED",
+      evidence: [{ id: "e-2" }, { id: "e-3" }],
+    },
+    {
+      proposal_type: "field_value",
+      status: "NEEDS_MORE_EVIDENCE",
+      evidence: [],
+    },
+  ]);
+
+  assert.deepEqual(summary, {
+    total: 4,
+    pending: 1,
+    approved: 1,
+    edited: 0,
+    rejected: 1,
+    needsMoreEvidence: 1,
+    evidenceBacked: 2,
+    byType: [
+      { type: "field_value", label: "Field value", count: 2 },
+      { type: "answer", label: "Answer", count: 1 },
+      { type: "memory_write", label: "Memory write", count: 1 },
+    ],
+  });
+});
+
+test("formatProposalTypeLabel returns stable proposal labels", () => {
+  assert.equal(formatProposalTypeLabel("field_value"), "Field value");
+  assert.equal(formatProposalTypeLabel("open_ended_answer"), "Open ended answer");
+  assert.equal(formatProposalTypeLabel("memory_write"), "Memory write");
+  assert.equal(formatProposalTypeLabel("browser_click"), "Browser click");
+  assert.equal(formatProposalTypeLabel("custom_type"), "Custom type");
 });
 
 test("field choice helpers expose structured select and radio options", () => {

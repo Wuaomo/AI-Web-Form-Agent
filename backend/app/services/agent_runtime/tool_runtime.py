@@ -61,6 +61,29 @@ class ToolRuntime:
 
         return self._tools.get(name)
 
+    def list_tool_metadata(self) -> list[dict[str, Any]]:
+        """Return planner-visible metadata for registered runtime tools."""
+
+        return [
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "risk_level": tool.risk_level,
+                "mutates_browser": tool.mutates_browser,
+                "mutates_external_system": tool.mutates_external_system,
+                "input_schema": tool.input_schema,
+            }
+            for tool in self._tools.values()
+        ]
+
+    def validate_tool_input(self, tool_name: str, tool_input: dict[str, Any]) -> str | None:
+        """Return a validation error for a tool call, if one exists."""
+
+        tool = self.get_tool(tool_name)
+        if tool is None:
+            return f"Unknown runtime tool: {tool_name}"
+        return _validate_input(tool.input_schema, tool_input)
+
     async def execute(
         self,
         *,

@@ -155,6 +155,63 @@ async def _list_server_tools(server: McpServerConfig) -> list[McpToolInfo]:
     ]
 
 
+def _result_to_json(result: object) -> dict[str, object]:
+    """Convert MCP SDK result objects into JSON-like dictionaries."""
+
+    if hasattr(result, "model_dump"):
+        dumped = result.model_dump()
+        return dumped if isinstance(dumped, dict) else {"result": dumped}
+    if isinstance(result, dict):
+        return result
+    return {"result": result}
+
+
+async def _call_server_tool(
+    server: McpServerConfig,
+    tool_name: str,
+    arguments: dict[str, object],
+) -> dict[str, object]:
+    try:
+        from mcp import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
+        from mcp.client.streamable_http import streamable_http_client
+    except ImportError as exc:
+        raise RuntimeError("Install mcp>=1.27,<2 to use MCP tools") from exc
+
+    if server.transport == "stdio":
+        assert server.command is not None
+        params = StdioServerParameters(
+            command=server.command,
+            args=list(server.args),
+            env=_resolved_env(server),
+        )
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool(tool_name, arguments)
+    else:
+        assert server.url is not None
+        async with streamable_http_client(server.url) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool(tool_name, arguments)
+
+    return _result_to_json(result)
+
+
+async def call_mcp_tool(
+    server_id: str,
+    tool_name: str,
+    arguments: dict[str, object],
+) -> dict[str, object]:
+    """Call one configured MCP tool and return a JSON-like result."""
+
+    configs = [server for server in load_mcp_server_configs() if server.id == server_id]
+    if not configs:
+        raise ValueError(f"Unknown MCP server: {server_id}")
+    return await _call_server_tool(configs[0], tool_name, arguments)
+
+
 async def discover_mcp_tools(
     server_id: str | None = None,
 ) -> tuple[list[McpToolInfo], list[dict[str, str]]]:

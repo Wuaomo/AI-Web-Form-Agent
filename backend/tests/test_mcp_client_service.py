@@ -11,6 +11,7 @@ from app.routers import mcp_tools
 from app.routers.mcp_tools import router
 from app.services.mcp_client_service import (
     McpToolInfo,
+    call_mcp_tool,
     discover_mcp_tools,
     load_mcp_server_configs,
 )
@@ -62,6 +63,11 @@ def test_load_mcp_server_configs_rejects_missing_stdio_command() -> None:
 def test_discover_mcp_tools_reports_unknown_server() -> None:
     with pytest.raises(ValueError, match="Unknown MCP server"):
         asyncio.run(discover_mcp_tools(server_id="missing"))
+
+
+def test_call_mcp_tool_reports_unknown_server() -> None:
+    with pytest.raises(ValueError, match="Unknown MCP server"):
+        asyncio.run(call_mcp_tool("missing", "search", {}))
 
 
 def test_mcp_tools_endpoint_returns_discovery_payload(monkeypatch) -> None:

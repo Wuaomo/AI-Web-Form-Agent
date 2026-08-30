@@ -11,6 +11,7 @@ import {
 import Message from "../components/Message";
 import {
   buildReviewGroups,
+  buildReviewQueueSummary,
   computeAttentionSummary,
   fieldDisplayName,
   formatConfidence,
@@ -627,6 +628,7 @@ function ReviewMapping() {
   const showProfileMemoryControl = shouldShowProfileMemoryControl();
   const sourceSuggestionsByFieldId = getSourceSuggestionsByFieldId(taskCheckpoints);
   const proposalReviewItemsByFieldId = getProposalReviewItemsByFieldId(reviewItems);
+  const reviewQueueSummary = buildReviewQueueSummary(reviewItems);
 
   return (
     <section>
@@ -650,6 +652,49 @@ function ReviewMapping() {
         providers={llmProviders}
         disabled={busy}
       />
+
+      <section className="review-queue-summary">
+        <div className="runtime-status-header">
+          <div>
+            <p className="eyebrow">Review Queue</p>
+            <h3>{reviewQueueSummary.total} proposals</h3>
+            <p className="muted-text">
+              Generic proposals for values, answers, and memory writes.
+            </p>
+          </div>
+          {reviewQueueSummary.byType.length > 0 && (
+            <div className="review-queue-type-tags">
+              {reviewQueueSummary.byType.map((item) => (
+                <span className="badge" key={item.type}>
+                  {item.label}: {item.count}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="runtime-summary-grid" aria-label="Review queue summary">
+          <div>
+            <strong>{reviewQueueSummary.pending}</strong>
+            <span>Pending</span>
+          </div>
+          <div>
+            <strong>{reviewQueueSummary.approved + reviewQueueSummary.edited}</strong>
+            <span>Accepted</span>
+          </div>
+          <div>
+            <strong>{reviewQueueSummary.rejected}</strong>
+            <span>Rejected</span>
+          </div>
+          <div>
+            <strong>{reviewQueueSummary.needsMoreEvidence}</strong>
+            <span>Needs evidence</span>
+          </div>
+          <div>
+            <strong>{reviewQueueSummary.evidenceBacked}</strong>
+            <span>Evidence-backed</span>
+          </div>
+        </div>
+      </section>
 
       {requiredMissing.length > 0 || lowConfidence.length > 0 || unmapped.length > 0 ? (
         <div className="attention-summary">

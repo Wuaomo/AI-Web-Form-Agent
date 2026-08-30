@@ -1,230 +1,162 @@
-# AI Web Form Agent 运行时重构 RFC
+# AI Web Form Agent 运行时整体重构 RFC
 
-## 1. 文档目的
+## 1. 结论
 
-这份文档提出一条面向 AI Web Form Agent 的底层重构路线。
+AI Web Form Agent 的目标不是继续堆更多 workflow type，也不是做一个无边界的自动浏览器。目标是把现有项目演进为：
 
-当前项目已经不只是一个网页表单填写器。它更适合继续演进为一个“由 Agent 驱动、由系统治理、由浏览器执行、由证据验证”的网页工作流运行时。
+```text
+受治理的工具调用型浏览器 Agent runtime
+```
 
-目标形态如下：
+这个 runtime 的核心路径是：
 
 ```text
 用户目标
-  -> Agent 理解任务并规划步骤
-  -> Agent 调用工具读取网页、检索资料、生成建议
-  -> 系统对工具调用和拟执行动作做风险治理
-  -> 用户只审查关键建议和高风险动作
-  -> 浏览器执行已批准动作
-  -> 系统验证执行结果
-  -> trace、截图、benchmark 记录证据
+  -> Agent planner 生成 typed plan
+  -> Tool Runtime 执行只读或已批准工具
+  -> Governance Engine 对每个工具调用和 proposal 做风险判断
+  -> Review Queue 暂停需要人工判断的 proposal/action
+  -> Browser Executor 只执行已批准的浏览器写入
+  -> Verification Service 证明执行结果
+  -> Trace Store 和 Benchmark Suite 留下可复现证据
 ```
 
-这不是一个普通聊天机器人，也不是一个不受控制的全自动浏览器 Agent。目标产品应该是：
+当前分支已经完成的是一组薄切片：schemas、tool runtime、tool-level governance、generic proposal review、governed graph skeleton、planner modes、read-only external tool adapters、Run Cockpit / Review Queue 前端入口。这证明方向可行，但不等于整体底层重构完成。
 
-```text
-受治理的工具调用型浏览器 Agent
-```
+整体重构完成的标准是：主要浏览器工作流都能通过 generic AgentRun / Tool Runtime / Governance / Review Queue / Verification 路径运行，旧 `/tasks` 和 workflow-specific 路径只作为兼容 facade，而不是实际业务中心。
 
-也就是：模型负责推理、规划和选择工具；应用系统负责边界、审查、执行、验证、持久化和评估。
+## 2. 产品定位
 
-## 2. 当前项目定位
-
-当前项目最强的定位不是“AI 自动填表”，而是：
+项目应该被描述为：
 
 ```text
 一个审查优先的浏览器工作流助手：
-它读取网页，提取字段或问题，从用户资料、历史记忆和依据文档中生成建议，要求用户审查，然后把已批准的值填写到真实浏览器中，并验证 DOM 结果、记录执行证据。
+它读取网页，提取页面结构和待处理字段，从用户资料、已审查记忆和本地依据文档中生成建议，要求用户审查关键建议和高风险动作，然后把已批准动作执行到真实浏览器中，并用 DOM、截图、trace 和 benchmark 证明结果。
 ```
 
-已有能力包括：
+短版本：
 
-- FastAPI 后端和 SQLite 持久化。
-- React/Vite 前端工作台。
+```text
+多数 browser agents 关注如何控制浏览器。
+这个项目关注如何可信地完成浏览器工作。
+```
+
+简历版本：
+
+```text
+Built a governed tool-using browser agent with LangGraph orchestration, typed tool calls, action-level governance, evidence-backed proposals, human review gates, Playwright execution, DOM verification, trace observability, and benchmark evaluation.
+```
+
+## 3. 不变边界
+
+这些边界不能被重构稀释：
+
+- 不自动提交最终表单，提交动作必须有明确用户批准。
+- 不绕过登录、CAPTCHA、OTP、支付、反机器人或破坏性动作。
+- 不把密码、支付信息、OTP、CAPTCHA、一次性同意值存入 profile 或 memory。
+- no-key deterministic mode 必须可用，不能因为 LLM provider 未配置而破坏本地 demo。
+- security questionnaire demo、vendor onboarding demo、generic form fill demo 必须持续可跑。
+- `/tasks` endpoints 在迁移期必须保留兼容。
+- advanced trace/debug 默认折叠，主界面只展示用户可读摘要。
+- 外部工具先只接 read-only；写入型外部工具必须等 review/governance/verification 全链路成熟后再接。
+
+## 4. 当前资产
+
+已有能力不是要推倒重来，而是要被包进更通用的 runtime：
+
+- FastAPI 后端、React/Vite 前端、SQLite 持久化。
 - Playwright 浏览器执行。
-- 表单字段提取和字段映射。
-- PolicyEngine 和 ApprovalGateService。
-- 已审查 workflow memory。
-- 本地 knowledge sources 和 source-backed answer suggestions。
-- 用于 security questionnaire 的 LangGraph runtime。
-- 覆盖提取、映射、安全、检索、浏览器 replay 的 benchmark。
-- trace、截图、action logs、verification evidence。
+- 表单字段提取、字段映射、用户审查、批准门禁。
+- `PolicyEngine`、`ApprovalGateService`、安全字段阻断。
+- workflow memory 和已审查 mapping 复用。
+- knowledge sources 和 source-backed questionnaire answers。
+- security questionnaire LangGraph runtime。
+- workflow plan、action logs、workflow trace、screenshots、verification results。
+- benchmark runner，覆盖 extraction、mapping、questionnaire、memory、full workflow replay。
 
-这些都是项目的资产。重构不应该推倒重来，而应该把这些能力抽象到更通用的 Agent runtime 里。
+## 5. 当前未提交薄切片状态
 
-## 3. 核心问题
+截至 `dev/governed-agent-graph-slice` 当前工作区，已经有这些方向性薄切片：
 
-当前项目的问题不是功能太少，而是底层抽象已经跟不上产品方向。
+- Phase 1：新增 agent runtime schemas。
+- Phase 2：新增 executable Tool Runtime，并开始包装现有服务。
+- Phase 3：工具执行前加入 action-level governance。
+- Phase 4：Review Mapping 开始桥接 generic proposal review。
+- Phase 5：新增 governed agent graph skeleton。
+- Phase 6：新增 deterministic / template-guided / llm_structured planner mode。
+- Phase 7：新增 MCP / OpenAPI read-only external tool adapter 的 allowlist 路径。
+- Phase 8A-E：Task Detail / Review Mapping 中加入 Run Cockpit、Review Queue summary、compact tool calls、compact verification evidence。
 
-现在代码结构仍然偏向固定 workflow 应用：
+这些薄切片的价值是“证明架构方向”，不是“完成替换”。后续工作要把它们从并行路径推进为主路径。
 
-```text
-workflow_type
-  -> 静态 plan
-  -> workflow-specific router 分支
-  -> workflow-specific 前端渲染
-  -> workflow-specific runtime 行为
-```
+## 6. 当前主要问题
 
-这会带来一个后果：每新增一个场景，例如 job application、vendor onboarding、policy-backed form、government application、insurance claim、CRM portal update，都需要增加新的 workflow type、后端分支、前端判断和测试路径。
+### 6.1 workflow_type 仍是业务分发中心
 
-更好的方向是：
+`security_questionnaire`、`vendor_onboarding`、`form_fill` 等 workflow 仍然承担 runtime 边界。新增场景会继续带来 router 分支、前端 conditionals、测试路径复制。
 
-```text
-workflow template 不再是运行时核心，而是 Agent planner 的提示和默认策略。
-```
-
-## 4. 当前结构中的主要问题
-
-### 4.1 workflow_type 过早成为核心分发逻辑
-
-现在 `security_questionnaire`、`vendor_onboarding`、`form_fill`、`web_data_extract`、`job_research_summary` 都是有价值的 demo。但问题在于，`workflow_type` 被用作后端 planning、execution 和前端 presentation 的核心判断条件。
-
-这会限制扩展性：
-
-- 新场景需要新分支。
-- 前端需要更多 workflow-specific conditionals。
-- runtime 很难根据页面内容动态调整计划。
-- 用户体验会越来越像“选择模板”，而不是“告诉 Agent 我的目标”。
-
-重构后应该保留 template，但改变它的角色：
+目标状态：
 
 ```text
-重构前：
-workflow type 决定整条流程。
-
-重构后：
-workflow template 提供 planning hints、默认工具集、默认风险策略和 demo 入口。
+workflow template = planning hint + default policy profile + demo preset
+AgentRun = runtime center
 ```
 
-### 4.2 Tool Registry 还不是执行层
+### 6.2 Tool Runtime 还没有覆盖主要执行路径
 
-当前 `ToolRegistry` 已经包含了很好的 metadata：
+现有 Tool Runtime 已有契约，但旧 router 和 service 仍然直接调用 extraction、mapping、fill、verification 等逻辑。
 
-- tool name
-- description
-- risk level
-- approval requirement
-- params schema
-- preconditions
-- produced artifacts
-- failure modes
-- recovery hints
-- evidence requirements
-
-但它现在更像“工具说明书”，还不是真正的 runtime。实际执行逻辑仍然散落在 routers 和 services 里。
-
-目标是把 tool 变成真正可执行的结构：
+目标状态：
 
 ```text
-ToolDefinition
-  + input_schema
-  + output_schema
-  + risk_metadata
-  + execute(context, input) -> ToolResult
+router
+  -> Agent Runtime API
+    -> Tool Runtime
+      -> wrapped existing service
 ```
 
-这样以后 Agent 不是调用散落的 service，而是调用统一的 typed tools。
+### 6.3 Proposal Review 尚未成为唯一审查合同
 
-### 4.3 LangGraph runtime 绑定了单一场景
+Review Mapping 已经开始泛化，但很多审查语义仍绑定 form field。
 
-当前 LangGraph runtime 对 security questionnaire 很有帮助，展示了中断、状态、暂停和恢复。但它还不是通用 Agent runtime。
-
-目标应该是一个通用图：
+目标状态：
 
 ```text
-initialize_run
-  -> plan_next_step
-  -> select_tool
-  -> check_governance
-  -> maybe_pause_for_review
-  -> execute_tool
-  -> verify_if_needed
-  -> observe_result
-  -> continue_or_finish
+field mapping review
+questionnaire answer review
+memory write review
+browser click review
+submit approval
+external write review
 ```
 
-security questionnaire 应该变成这个通用 runtime 的一个 planning preset，而不是唯一 graph。
+都落到统一 `Proposal` / `ReviewDecision` 合同。
 
-### 4.4 数据模型过于 form-centric
+### 6.4 Verification 仍偏 field-centric
 
-当前核心模型更像：
+字段验证已经有价值，但通用 Agent 还需要验证 page state、navigation、download、saved draft、memory write、external read/write result。
 
-```text
-Task
-  -> FormField
-  -> mapped_profile_key
-  -> mapped_value
-```
+目标状态：verification 是一等 runtime result，不是 debug 附件。
 
-这对表单填写很合适，但对更通用的 Agent 行为不够。一个真正的浏览器 Agent runtime 还需要表达：
+### 6.5 Frontend 已有入口，但还不是主界面
 
-- tool calls
-- tool results
-- proposed browser actions
-- answer proposals
-- evidence items
-- review decisions
-- verification results
-- observations
-- plan revisions
+Run Cockpit / Review Queue 已经出现，但 Task Detail 和 Review Mapping 仍混合大量 workflow-specific 逻辑。
 
-表单字段仍然重要，但它应该只是更通用 proposal/action 模型中的一种 target。
+目标状态：主路径围绕 Run Cockpit 和 Review Queue 展开；legacy workflow UI 逐步降级为兼容信息。
 
-### 4.5 前端页面承担了太多 workflow-specific 逻辑
-
-当前前端已经有不错的页面：Dashboard、Create Run、Task Detail、Review Mapping、Approval Center、Memory、Knowledge Sources、Benchmarks。
-
-但 Task Detail 和 Review Mapping 正在承担太多职责：
-
-- workflow 状态展示
-- mapping 操作
-- runtime 控制
-- screenshot 展示
-- verification 展示
-- trace 展示
-- approval requests
-- agent reviews
-- LLM usage
-- job status
-- workflow-specific UI
-
-未来前端应该围绕更通用的两个概念重构：
-
-```text
-Run Cockpit
-Review Queue
-```
-
-而不是为每个 workflow 单独堆 UI。
-
-## 5. 目标架构
-
-重构后的核心运行时概念应该是 `AgentRun`。
-
-```text
-AgentRun
-  goal
-  context
-  current_plan
-  tool_calls
-  proposals
-  evidence
-  review_decisions
-  browser_actions
-  verification_results
-  trace_spans
-  final_result
-```
-
-高层模块如下：
+## 7. 目标架构
 
 ```text
 React Frontend
-  -> FastAPI Backend
-    -> Agent Runtime API
+  -> Agent Runtime API
+    -> Agent Run Store
     -> Agent Planner
     -> Tool Registry
     -> Tool Runtime
+      -> Internal Tools
+      -> Browser Tools
+      -> Read-only MCP Tools
+      -> Read-only OpenAPI Tools
     -> Governance Engine
     -> Review Queue
     -> Browser Executor
@@ -235,204 +167,34 @@ React Frontend
     -> SQLite Persistence
 ```
 
-用户路径变成：
-
-```text
-1. 用户输入目标和目标网页。
-2. Agent 检查页面结构。
-3. Agent 生成计划。
-4. Tool Runtime 执行安全的只读工具。
-5. Agent 生成带证据的 proposals。
-6. Governance Engine 判断风险。
-7. 用户审查需要确认的 proposals。
-8. Browser Executor 执行批准后的动作。
-9. Verification Service 检查浏览器状态。
-10. Trace 和 Benchmark 记录发生了什么。
-```
-
-## 6. 核心设计原则
-
-最重要的原则是：
-
-```text
-模型驱动行为。
-系统治理执行。
-```
-
-模型应该真正承担 Agent 工作：
-
-- 理解用户目标。
-- 判断网页类型和任务意图。
-- 选择下一步工具。
-- 检索相关依据。
-- 生成候选答案。
-- 根据错误调整计划。
-- 判断是否已经完成任务。
-
-系统应该承担不可让渡的运行时契约：
-
-- tool schema validation。
-- permission boundaries。
-- sensitive action classification。
-- review interrupts。
-- approved-only browser writes。
-- final submit approval。
-- verification requirements。
-- trace and evidence recording。
-
-这仍然是 Agent 项目。区别只是：它不是无边界 Agent，而是可信执行的 Agent。
-
-## 7. LangGraph、LangChain、OpenAI、MCP 和浏览器工具的分工
-
-### 7.1 LangGraph
-
-LangGraph 应该成为主要 orchestration runtime。
-
-适合承担：
-
-- durable run state。
-- pause and resume。
-- human-in-the-loop interrupts。
-- agent loop control。
-- retry and recovery paths。
-- graph-level observability。
-- plan execution state。
-
-不要只把 LangGraph 用在一个 workflow 上。建议新增一个通用 graph：
-
-```text
-governed_agent_graph
-```
-
-原有 security questionnaire graph 可以先保留，作为兼容路径和 parity test 的对照。
-
-### 7.2 LangChain
-
-LangChain 可以用，但不要把整个项目重写成 LangChain demo。
-
-适合承担：
-
-- model adapters。
-- structured output。
-- retriever abstraction。
-- tool definitions。
-- prompt 和 output schema plumbing。
-
-应用系统仍然应该拥有真正的 tool execution、governance、approval flow 和 browser verification。
-
-### 7.3 OpenAI Responses API
-
-OpenAI Responses API 适合用于结构化 planning 和 proposal generation。
-
-可用于生成：
-
-- `AgentPlan`
-- `ToolCall`
-- answer proposal
-- classification output
-- structured tool arguments
-
-这很适合当前项目，因为后端仍然可以掌握 runtime loop，不需要把执行权交给模型 SDK。
-
-### 7.4 OpenAI Agents SDK
-
-OpenAI Agents SDK 可以用，但不建议第一阶段直接替换整个 runtime。
-
-适合使用的场景：
-
-- 需要 SDK 管理 model/tool loop。
-- 需要多个 specialist agents 之间 handoff。
-- 需要 SDK-level tracing。
-- 需要 SDK-managed approval pause。
-- 你发现自己正在重复实现通用 agent harness。
-
-不建议一开始全量迁移的原因：
-
-- 当前项目需要 no-key local demo。
-- 已经有 SQLite run state。
-- 已经有 review center。
-- 已经有 browser verification。
-- 已经有 benchmark suite。
-- 已经有项目特定的安全边界。
-- 已经有 source-backed answer UX。
-
-更好的第一步是：
-
-```text
-把 OpenAI Agents SDK 作为可选 planner 或 specialist sub-agent，
-而不是整个 runtime 的唯一 owner。
-```
-
-### 7.5 MCP 和 OpenAPI tools
-
-MCP 和 OpenAPI-generated tools 应该作为外部工具来源，而不是绕过系统的捷径。
-
-正确路径：
-
-```text
-发现 MCP / OpenAPI tool
-  -> 归一化成 ToolDefinition
-  -> allowlist 或人工配置
-  -> 暴露给 AgentPlanner
-  -> 通过 ToolRuntime 执行
-  -> 经过 GovernanceEngine 判断
-  -> trace 和 verification 记录结果
-```
-
-第一阶段应该优先接 read-only tools。写入型工具要等 review/governance 路径成熟后再接。
-
-### 7.6 浏览器工具层
-
-浏览器执行层应该保持可替换。
-
-未来可以支持：
-
-- 现有 Playwright executor。
-- browser-use。
-- OpenAI computer-use。
-- MCP browser tools。
-- 自定义 browser automation tools。
-
-项目的身份不应该绑定某一个浏览器自动化库。
-
-可以这样理解：
-
-```text
-browser-use 解决 browser control。
-AI Web Form Agent 应该解决 trusted browser work。
-```
+`Task` 可以在迁移期继续存在，但语义应逐步变成 `AgentRun` 的兼容壳。
 
 ## 8. 核心运行时对象
 
-下面这些对象应该成为下一阶段重构的骨架。
-
 ### 8.1 AgentRun
 
-表示一次用户目标和它的执行状态。
-
-字段建议：
+表示一次用户目标和运行状态。
 
 ```text
 id
+legacy_task_id
 goal
 target_url
 profile_id
+workflow_hint
 status
 mode
-created_at
-updated_at
 current_plan_id
+pending_review_count
 final_result
 error
+created_at
+updated_at
 ```
-
-早期可以继续复用现有 `Task` 表。后续再考虑把 `Task` 包装或重命名为 `AgentRun`。
 
 ### 8.2 AgentPlan
 
-表示一次 run 当前的计划。
-
-字段建议：
+表示当前可审查计划。每个 step 是 planned tool call，不是 hardcoded workflow stage。
 
 ```text
 id
@@ -444,43 +206,19 @@ created_by
 created_at
 ```
 
-每个 step 应该是 planned tool call，而不是 hardcoded workflow stage。
+### 8.3 PlannedToolCall
 
-示例：
-
-```json
-{
-  "goal": "Use my resume and profile to complete this internship application",
-  "steps": [
-    {
-      "step_id": "inspect_page",
-      "tool_name": "extract_page_structure",
-      "reason": "Understand what the page asks for"
-    },
-    {
-      "step_id": "retrieve_resume_context",
-      "tool_name": "retrieve_evidence",
-      "reason": "Find resume evidence for open-ended fields"
-    },
-    {
-      "step_id": "draft_answers",
-      "tool_name": "generate_proposals",
-      "reason": "Create reviewable answers with evidence"
-    },
-    {
-      "step_id": "fill_approved_values",
-      "tool_name": "fill_browser_fields",
-      "reason": "Apply approved values after review"
-    }
-  ]
-}
+```text
+step_id
+tool_name
+reason
+input_json
+risk_level
+expected_evidence
+depends_on
 ```
 
-### 8.3 ToolCall
-
-表示一次工具调用请求。
-
-字段建议：
+### 8.4 ToolCall
 
 ```text
 id
@@ -496,11 +234,7 @@ completed_at
 error
 ```
 
-### 8.4 ToolResult
-
-表示一次工具调用的输出。
-
-字段建议：
+### 8.5 ToolResult
 
 ```text
 tool_call_id
@@ -512,20 +246,11 @@ verification_candidates
 error
 ```
 
-### 8.5 Proposal
+Raw `output_json` 只能进入后端持久化、trace 或 advanced/debug，不应直接进入主 UI。
 
-表示 Agent 希望系统或用户接受的一项建议。
+### 8.6 Proposal
 
-常见 proposal：
-
-- 用某个值填写某个字段。
-- 用某段答案回答某个网页问题。
-- 保存某条可复用 memory。
-- 点击某个页面动作。
-- 提交表单。
-- 调用外部 API 写入数据。
-
-字段建议：
+Agent 建议系统或用户接受的一项动作或值。
 
 ```text
 id
@@ -538,13 +263,23 @@ rationale
 confidence
 risk_level
 status
+evidence
 ```
 
-### 8.6 EvidenceItem
+支持类型：
 
-表示 proposal 的依据来源。
+```text
+field_value
+open_ended_answer
+answer
+memory_write
+browser_navigation
+browser_click
+form_submit
+external_api_write
+```
 
-字段建议：
+### 8.7 EvidenceItem
 
 ```text
 id
@@ -559,13 +294,9 @@ score
 created_at
 ```
 
-UI 应该展示简洁证据，而不是把原始 retrieval output 全部倾倒给用户。
+UI 展示 `source_title / section_title: quote_or_summary` 这样的 compact 摘要，不倾倒 retrieval raw output。
 
-### 8.7 ReviewDecision
-
-表示用户的审查结果。
-
-字段建议：
+### 8.8 ReviewDecision
 
 ```text
 id
@@ -576,7 +307,7 @@ reviewer_note
 created_at
 ```
 
-支持的 decision：
+支持：
 
 ```text
 approved
@@ -585,83 +316,19 @@ rejected
 needs_more_evidence
 ```
 
-### 8.8 VerificationResult
-
-表示系统如何证明动作已经成功执行。
-
-字段建议：
+### 8.9 GovernanceDecision
 
 ```text
-id
-run_id
-target_ref
-expected
-actual
-status
-evidence
-screenshot_id
-created_at
+decision
+reason
+risk_level
+requires_review
+requires_approval
+requires_verification
+blocked_reason
 ```
 
-## 9. Tool Runtime 设计
-
-Tool Runtime 应该为内部工具、MCP 工具、OpenAPI 工具和浏览器工具提供统一执行路径。
-
-推荐接口：
-
-```python
-class AgentTool:
-    name: str
-    description: str
-    input_schema: dict
-    output_schema: dict
-    risk_level: str
-    mutates_browser: bool
-    mutates_external_system: bool
-
-    def execute(self, context: AgentContext, tool_input: dict) -> ToolResult:
-        ...
-```
-
-Tool Runtime 的职责：
-
-- 校验 tool 是否存在。
-- 校验 input 是否符合 schema。
-- 创建 trace span。
-- 执行前调用 GovernanceEngine。
-- 调用 tool handler。
-- 归一化 ToolResult。
-- 记录 output 和 evidence。
-- 把异常转换成结构化 failure。
-- 在需要时创建 verification candidate。
-
-第一批内部 tools：
-
-```text
-extract_page_structure
-extract_form_fields
-retrieve_profile_context
-retrieve_document_evidence
-retrieve_reviewed_memory
-generate_answer_proposals
-classify_action_risk
-create_review_request
-fill_browser_fields
-click_browser_element
-verify_browser_state
-capture_screenshot
-save_reviewed_memory
-```
-
-重点：现有服务应该先被 wrapper 包起来，不要重写。
-
-## 10. Governance Model
-
-Governance 应该是 action-level，而不是 workflow-level。
-
-系统不应该强迫每条任务都经过同一组固定步骤。更好的方式是：每个 tool call 或 proposed action 都拿到一个风险决策。
-
-决策类型：
+支持：
 
 ```text
 ALLOW
@@ -672,513 +339,529 @@ BLOCKED
 VERIFY_REQUIRED
 ```
 
-示例：
+### 8.10 VerificationResult
 
 ```text
-读取页面标题                         -> ALLOW
-提取字段                             -> ALLOW
-检索资料证据                         -> ALLOW
-基于简历生成答案草稿                  -> RECORD_ONLY
-填写可见文本字段                      -> REVIEW_REQUIRED
-保存可复用 profile memory             -> REVIEW_REQUIRED
-点击 save draft                       -> APPROVAL_REQUIRED
-点击 final submit                     -> APPROVAL_REQUIRED
-输入 password                         -> BLOCKED
-输入 OTP                              -> BLOCKED
-输入 payment information              -> BLOCKED
-解决 CAPTCHA                          -> BLOCKED
+id
+run_id
+tool_call_id
+target_type
+target_ref
+verification_type
+expected
+actual
+status
+reason
+evidence_items
+screenshot_id
+created_at
 ```
 
-Governance 不应该替 Agent 判断业务答案。它只判断拟执行动作是否允许、是否需要审查、是否必须阻止。
-
-这能同时保留灵活性和可信度。
-
-## 11. Agent Planner 设计
-
-Planner 应该分阶段演进。
-
-### 11.1 阶段一：Deterministic Planner
-
-保留当前 deterministic plans，但输出结构改成 `AgentPlan`。
-
-这样可以保留 no-key local demo，也能让现有测试稳定。
-
-### 11.2 阶段二：Template-Guided Planner
-
-template 降级为 planning hint。
-
-示例：
-
-```text
-job_application:
-  preferred_tools:
-    - extract_page_structure
-    - retrieve_profile_context
-    - retrieve_document_evidence
-    - generate_answer_proposals
-    - fill_browser_fields
-    - verify_browser_state
-  policy_defaults:
-    submit: approval_required
-    password: blocked
-```
-
-Planner 可以在检查页面后调整实际步骤。
-
-### 11.3 阶段三：LLM Planner With Structured Output
-
-使用 OpenAI Responses API 或 LangChain structured output 生成 schema-valid plan。
-
-模型输出：
-
-```text
-goal interpretation
-planned tool calls
-reason for each tool
-expected evidence
-risk assumptions
-completion criteria
-```
-
-Runtime 必须先校验模型输出，再允许执行。
-
-### 11.4 阶段四：Agent Loop
-
-Planner 演进成迭代循环：
-
-```text
-observe state
-choose next tool
-execute tool
-observe result
-revise plan
-continue or stop
-```
-
-这个循环由 LangGraph 管理。
-
-## 12. Review UX 设计
-
-现有 Review Mapping 应该演进成更通用的 Review Queue。
-
-Review Queue 展示的不是“字段映射”，而是 proposals。
-
-Proposal 类型包括：
+支持类型：
 
 ```text
 field_value
-open_ended_answer
+page_state
+navigation
+download
+saved_draft
+external_api_result
 memory_write
-browser_navigation
-browser_click
-form_submit
-external_api_write
 ```
 
-每个 review item 应该展示：
+## 9. Backend 目标目录
 
-- target。
-- proposed action 或 proposed value。
-- source evidence。
-- confidence。
-- risk label。
-- why review is needed。
-- approve / edit / reject / ask for more evidence。
-
-Review UX 的目标不是让用户机械地点击 approve all，而是让用户理解 Agent 为什么建议这样做，以及哪里需要人类判断。
-
-## 13. Verification Model
-
-Verification 不应该只服务于表单字段。
-
-未来 verification 类型可以包括：
-
-```text
-field_value_verification
-page_state_verification
-navigation_verification
-download_verification
-saved_draft_verification
-external_api_result_verification
-memory_write_verification
-```
-
-浏览器 workflow 的 verification 应该记录：
-
-- selector 或 target reference。
-- expected value/state。
-- actual value/state。
-- screenshot。
-- status。
-- failure reason。
-
-这是项目最重要的差异化之一。很多 Agent 可以执行动作，但更少的 Agent 能证明自己做了什么、做得对不对。
-
-## 14. 前端重构方向
-
-前端应该从 workflow-specific pages 转向 generic agent run surfaces。
-
-推荐页面：
-
-```text
-Runs
-Create Agent Run
-Run Cockpit
-Review Queue
-Knowledge Sources
-Memory
-Evaluation
-Settings / Tool Registry
-```
-
-### 14.1 Run Cockpit
-
-Run Cockpit 是单个 run 的主界面。
-
-展示：
-
-- user goal。
-- current status。
-- current plan。
-- active tool call。
-- pending review count。
-- evidence summary。
-- execution result。
-- verification result。
-- compact trace。
-
-### 14.2 Review Queue
-
-Review Queue 替代或泛化 Review Mapping。
-
-展示：
-
-- pending proposals。
-- evidence-backed suggested values。
-- risk explanations。
-- edit controls。
-- approve / reject actions。
-
-### 14.3 Tool Registry Page
-
-这个页面可以后做，不要过早建设。
-
-它用于展示：
-
-- internal tools。
-- MCP tools。
-- OpenAPI tools。
-- risk level。
-- read/write capability。
-- approval policy。
-- enabled/disabled state。
-
-前提是底层 ToolRuntime 已经稳定。
-
-## 15. 后端重构方向
-
-推荐服务目录：
+目标不是一次性重排，而是让新代码逐渐集中到：
 
 ```text
 backend/app/services/agent_runtime/
-  context.py
   schemas.py
+  context.py
   planner.py
   tool_registry.py
   tool_runtime.py
   governance.py
   review_queue.py
   graph.py
+  state_store.py
   adapters/
-    openai_planner.py
-    langchain_planner.py
+    internal_tools.py
+    browser_tools.py
     mcp_tools.py
     openapi_tools.py
-    browser_use.py
+    openai_planner.py
 ```
 
-routers 应该变薄：
+迁移规则：
+
+- 先 wrapper，后搬迁。
+- 先让旧 endpoint 调新 runtime，后新增干净 endpoint。
+- 先读工具，后写工具。
+- 每次只迁一条用户路径，迁完跑 demo 和 benchmark。
+
+## 10. Agent Runtime API
+
+最终推荐 API：
 
 ```text
 POST /agent-runs
-GET  /agent-runs/{id}
-POST /agent-runs/{id}/start
-POST /agent-runs/{id}/continue
-GET  /agent-runs/{id}/plan
-GET  /agent-runs/{id}/tool-calls
-GET  /agent-runs/{id}/review-items
-POST /agent-runs/{id}/review-items/{item_id}/decision
-GET  /agent-runs/{id}/verification-results
-GET  /agent-runs/{id}/trace
+GET  /agent-runs/{run_id}
+POST /agent-runs/{run_id}/start
+POST /agent-runs/{run_id}/continue
+GET  /agent-runs/{run_id}/plan
+GET  /agent-runs/{run_id}/tool-calls
+GET  /agent-runs/{run_id}/review-items
+POST /agent-runs/{run_id}/review-items/{item_id}/decision
+GET  /agent-runs/{run_id}/verification-results
+GET  /agent-runs/{run_id}/trace
 ```
 
-现有 `/tasks` endpoints 可以在迁移期保留。
-
-## 16. 分阶段迁移策略
-
-重构必须渐进。不要做 big-bang rewrite。
-
-### Phase 1：新增 Agent Runtime Schemas
-
-新增 Pydantic models：
+迁移期保留：
 
 ```text
-AgentRunState
-AgentPlan
-PlannedToolCall
-ToolCall
-ToolResult
-Proposal
-EvidenceItem
-ReviewDecision
-GovernanceDecision
-VerificationCandidate
+/tasks/*
+/workflows/*
 ```
 
-先写 schema tests，不改变用户可见行为。
+兼容策略：
 
-验收标准：
+- `/tasks/{id}` 返回 legacy task，同时可带 `agent_run_id`。
+- `/workflows/{task_id}/governed` 可继续作为过渡 endpoint。
+- 当前前端先复用 Task Detail / Review Mapping 页面，不新建大 dashboard。
 
-- 现有后端测试通过。
-- 现有前端测试通过。
-- 新 schema tests 覆盖核心校验。
+## 11. Tool Runtime 设计
 
-### Phase 2：把 Tool Registry 变成 Executable Tools
+标准接口：
 
-把现有服务包装成 tools：
+```python
+class AgentTool:
+    name: str
+    description: str
+    input_schema: dict
+    output_schema: dict
+    risk_level: str
+    mutates_browser: bool
+    mutates_external_system: bool
+    trace_phase: str
+
+    async def execute(context: ToolExecutionContext, tool_input: dict) -> ToolResult:
+        ...
+```
+
+职责：
+
+- 校验 tool 是否存在。
+- 校验 input schema。
+- 创建 `ToolCall`。
+- 执行前调用 `GovernanceEngine`。
+- 对 BLOCKED / REVIEW_REQUIRED / APPROVAL_REQUIRED 做暂停或拒绝。
+- 调用 tool handler。
+- 归一化 `ToolResult`。
+- 提取 evidence、proposal、verification candidate。
+- 写入 trace span。
+- 把异常转换为结构化 failure。
+
+第一批内部工具：
 
 ```text
-extract_form_fields -> FormExtractor
-generate_field_mappings -> FieldMapper / SuggestionProvider
-retrieve_document_evidence -> KnowledgeSource / PolicyRetriever
-fill_browser_fields -> BrowserExecutor
-verify_browser_state -> ExecutionVerificationService
+extract_page_structure
+extract_form_fields
+map_fields
+retrieve_profile_context
+retrieve_reviewed_memory
+retrieve_document_evidence
+generate_answer_proposals
+create_review_items
+fill_browser_fields
+click_browser_element
+verify_browser_state
+capture_screenshot
+save_reviewed_memory
 ```
 
-不要删除旧 router。旧路径可以逐步改为调用新 ToolRuntime。
+## 12. Governance Model
 
-验收标准：
+Governance 是 action-level，不是 workflow-level。
 
-- 现有 form fill demo 继续可用。
-- tool calls 能生成 trace spans。
-- tool results 符合 schema。
-
-### Phase 3：Tool Execution 前加入 GovernanceEngine
-
-新增 `GovernanceEngine`，在 tool call 执行前做风险判断。
-
-第一批覆盖：
+示例：
 
 ```text
-password blocked
-OTP blocked
-payment blocked
-CAPTCHA blocked
-submit requires approval
-browser write requires review or prior approval
-memory write requires filtering
+读取页面结构                         -> ALLOW
+提取字段                             -> ALLOW
+检索本地知识源                       -> ALLOW
+生成答案草稿                         -> RECORD_ONLY
+填写可见文本字段                     -> REVIEW_REQUIRED
+保存可复用 memory                    -> REVIEW_REQUIRED
+点击 save draft                      -> APPROVAL_REQUIRED
+点击 final submit                    -> APPROVAL_REQUIRED
+输入 password                        -> BLOCKED
+输入 OTP                             -> BLOCKED
+输入 payment information             -> BLOCKED
+解决 CAPTCHA                         -> BLOCKED
+外部系统 read                        -> ALLOW 或 RECORD_ONLY
+外部系统 write                       -> REVIEW_REQUIRED 或 APPROVAL_REQUIRED
 ```
 
-验收标准：
+治理层不判断业务答案是否正确；它判断动作是否允许、是否要审查、是否必须阻止。
 
-- 现有 policy tests 通过。
-- 新 tool-level governance tests 通过。
-- blocked tool call 无法通过 ToolRuntime 执行。
+## 13. Review Queue 设计
 
-### Phase 4：Review Mapping 泛化为 Proposal Review
+Review Queue 替代“只审字段映射”的概念。
 
-保留现有 Review Mapping UI，但让后端开始返回 generic proposal items。
+每个 review item 展示：
 
-字段映射变成：
+- target：字段、页面动作、memory item、submit action、external operation。
+- proposed value/action：用户要审的建议。
+- evidence：最多展示 compact source evidence。
+- confidence：没有分数就显示 Not scored。
+- risk label：low / medium / high / blocked。
+- reason：为什么需要 review。
+- controls：approve / edit / reject / needs more evidence。
+
+旧 Review Mapping 的迁移方式：
 
 ```text
-proposal_type = "field_value"
+FormField.mapped_value
+  -> Proposal(type=field_value, target_type=form_field)
 ```
 
-安全问卷答案变成：
+security questionnaire：
 
 ```text
-proposal_type = "answer"
+source-backed answer
+  -> Proposal(type=answer, target_type=form_field)
 ```
 
-memory 写入变成：
+memory write：
 
 ```text
-proposal_type = "memory_write"
+reviewed correction
+  -> Proposal(type=memory_write)
 ```
 
-验收标准：
-
-- 现有 mapping review path 继续工作。
-- UI 可以不依赖 workflow type 渲染 proposals。
-- source evidence 对任意 proposal type 可展示。
-
-### Phase 5：用 Governed Agent Graph 替换单场景 Graph
-
-新增通用图：
+submit：
 
 ```text
-governed_agent_graph
+submit button action
+  -> Proposal(type=form_submit, risk_level=high)
 ```
 
-graph nodes：
+## 14. Verification Model
+
+Verification 是 trust layer。
+
+每个会改变浏览器或外部状态的动作都应该产生 verification candidate：
+
+```text
+fill_browser_fields -> field_value verification candidates
+click save draft    -> saved_draft or page_state candidate
+navigation          -> navigation candidate
+memory write        -> memory_write candidate
+external write      -> external_api_result candidate
+```
+
+Verification UI 只展示：
+
+- status label。
+- mismatch count。
+- 最多 3 条 mismatch。
+- 最多 3 条 evidence。
+- screenshot link 或 compact reference。
+
+完整 raw result、trace JSON 和 output_json 只放 advanced/debug。
+
+## 15. Planner 设计
+
+Planner 分三层演进。
+
+### 15.1 deterministic
+
+默认 no-key 路径。根据 workflow hint 和页面状态生成稳定计划。
+
+用途：
+
+- 本地 demo。
+- benchmark baseline。
+- CI regression。
+- LLM 不可用时 fallback。
+
+### 15.2 template_guided
+
+workflow template 不再决定整条流程，只提供：
+
+- preferred tools。
+- default policy profile。
+- demo copy。
+- known fixture behavior。
+- recommended evidence requirements。
+
+Planner 可根据页面观察结果跳过或增加步骤。
+
+### 15.3 llm_structured
+
+LLM 只输出 schema-valid plan/proposals，不直接执行动作。
+
+要求：
+
+- output 必须通过 Pydantic schema validation。
+- unknown tool 直接拒绝。
+- invalid args 直接拒绝。
+- planner 不能绕过 governance。
+- no-key mode 不受影响。
+
+## 16. LangGraph 设计
+
+目标通用 graph：
 
 ```text
 initialize_run
-plan_next_step
-prepare_tool_call
-check_governance
-interrupt_for_review
-execute_tool
-verify_result
-observe_result
-decide_next_step
-finish
-fail
+  -> plan_next_step
+  -> prepare_tool_call
+  -> check_governance
+  -> interrupt_for_review
+  -> execute_tool
+  -> observe_result
+  -> verify_result
+  -> decide_next_step
+  -> finish | fail
 ```
 
-旧 security questionnaire graph 先保留，直到新 graph 通过 parity tests。
+行为：
 
-验收标准：
+- ALLOW / RECORD_ONLY：直接执行。
+- REVIEW_REQUIRED：暂停到 Review Queue。
+- APPROVAL_REQUIRED：暂停到 Approval Center 或 Review Queue 的 high-risk item。
+- BLOCKED：记录 blocked result，停止或让 planner 重新规划。
+- VERIFY_REQUIRED：执行后必须创建 VerificationResult。
 
-- security questionnaire 可以通过 generic graph 跑通。
-- vendor onboarding 可以通过 generic graph 跑通。
-- 现有 browser replay benchmark 继续通过。
+旧 security questionnaire graph 保留到以下条件满足：
 
-### Phase 6：加入 LLM Planner
+- generic graph 跑通 security questionnaire。
+- generic graph 跑通 vendor onboarding。
+- generic graph 跑通 generic form fill。
+- parity tests 覆盖主要状态和 failure path。
+- benchmark 结果没有退化。
 
-新增可选 model-driven planning。
+## 17. Frontend 目标
 
-Planner modes：
+不要新增大型 dashboard。先复用现有页面：
 
 ```text
-deterministic
-template_guided
-llm_structured
+Task Detail
+  -> Run Cockpit
+  -> compact plan
+  -> compact tool calls
+  -> compact governance decision
+  -> compact verification evidence
+  -> advanced trace collapsed
+
+Review Mapping
+  -> Review Queue summary
+  -> proposal-backed field rows
+  -> compact source evidence
 ```
 
-LLM 可以提出 tool calls，但 runtime 必须校验所有 tool calls。
-
-验收标准：
-
-- no-key deterministic mode 继续可用。
-- LLM planner output 必须通过 schema validation。
-- invalid tools 或 invalid arguments 会被拒绝。
-- LLM planner 不能绕过 governance。
-
-### Phase 7：接入外部工具
-
-在内部 ToolRuntime 稳定后，再加入 MCP 和 OpenAPI tools。
-
-先接 read-only tools：
+后续再逐步改名：
 
 ```text
-search documents
-read CRM record
-read file metadata
-read knowledge base article
+Task Detail       -> Run Detail / Run Cockpit
+Review Mapping    -> Review Queue
+Create Task       -> Create Run
+Benchmarks        -> Evaluation
 ```
 
-后续再接 write tools：
+只有当主路径稳定后，才新建 Tool Registry 页面。
+
+## 18. 持久化策略
+
+迁移期继续使用 SQLite。
+
+新增表建议：
 
 ```text
-update CRM field
-create ticket
-send email draft
-save portal update
+agent_runs
+agent_plans
+agent_tool_calls
+agent_tool_results
+agent_proposals
+agent_evidence_items
+agent_review_decisions
+agent_verification_results
 ```
 
-验收标准：
-
-- 外部工具必须 allowlisted。
-- tool metadata 包含 risk classification。
-- write tools 必须走 review 或 approval。
-- tool outputs 必须 trace。
-
-### Phase 8：前端改成 Run Cockpit
-
-前端从 workflow-specific conditionals 转成 generic run state。
-
-统一展示：
+兼容关系：
 
 ```text
-plan steps
-tool calls
-proposals
-review items
-evidence
-verification
-trace
+tasks.id -> agent_runs.legacy_task_id
+form_fields.id -> proposals.target_ref when target_type=form_field
+workflow_traces.task_id -> agent_runs.legacy_task_id during migration
+approval_requests.task_id -> agent_runs.legacy_task_id during migration
 ```
 
-验收标准：
+先双写关键 runtime records，再让 UI 读取新表，最后减少旧表职责。
 
-- 用户能理解 Agent 正在做什么。
-- 用户能审查有意义的 proposals。
-- advanced trace 默认折叠。
-- 主路径是 goal -> review -> execute -> verify。
+## 19. 分阶段实施计划
 
-## 17. Backward Compatibility
+### Phase 0：稳定当前分支
 
-迁移期间保留：
+目标：把当前 Phase 1-8 薄切片变成可合并基线。
 
-- 现有 `Task` table。
-- 现有 `/tasks` endpoints。
-- 现有 benchmark fixtures。
-- 现有 demo URLs。
-- 现有 profile 和 memory tables。
-- 现有 approval endpoints。
-- 现有 trace tables。
+工作：
 
-先并行新增 runtime abstractions，再逐步替换旧路径。
+- 保留当前 schemas、Tool Runtime、governed graph、planner、external read-only tools、Run Cockpit、Review Queue summary。
+- 跑前后端测试。
+- 推送 PR，合并到主分支。
 
-只有在以下条件满足后，才考虑删除或重命名旧概念：
+验收：
 
-- security questionnaire 通过新 runtime。
-- generic form fill 通过新 runtime。
-- benchmark 结果稳定。
-- 前端已经能用 generic proposal review。
+- frontend `npm test` 通过。
+- frontend `npm run build` 通过。
+- backend Docker pytest 通过。
+- README 或 RFC 清楚说明“薄切片完成，整体替换未完成”。
 
-## 18. 测试策略
+### Phase 1：AgentRun 持久化
 
-测试应该自底向上。
+目标：让 generic runtime state 不只存在内存 checkpointer。
 
-### 18.1 Unit Tests
+工作：
 
-覆盖：
+- 新增 `agent_runs`、`agent_plans`、`agent_tool_calls`、`agent_tool_results` 表。
+- `POST /workflows/{task_id}/governed/start` 同步写入 run/plan/tool calls。
+- `GET /workflows/{task_id}/governed` 从持久化恢复 compact state。
+- 保留 LangGraph checkpointer，但不再作为唯一恢复来源。
 
-- schema validation。
-- tool registry lookup。
-- tool input validation。
-- tool result normalization。
-- governance decisions。
-- proposal creation。
-- review decision application。
-- verification result formatting。
+验收：
 
-### 18.2 Integration Tests
+- 刷新后 Run Cockpit 状态可恢复。
+- 服务重启后已持久化状态仍可查询。
+- 不破坏 `/tasks`。
 
-覆盖：
+### Phase 2：内部工具覆盖主读路径
 
-- deterministic agent run。
-- review-required browser write。
-- blocked sensitive tool call。
-- approved fill execution。
-- verification failure。
-- LLM planner invalid output rejection。
+目标：页面读取、字段提取、证据检索、mapping 通过 Tool Runtime。
 
-### 18.3 Benchmark Tests
+工作：
 
-扩展现有 benchmark modes：
+- 包装 `FormExtractor` 为 `extract_form_fields`。
+- 包装 page extraction 为 `extract_page_structure`。
+- 包装 reviewed memory retrieval。
+- 包装 knowledge source retrieval。
+- 包装 field mapping / answer proposal generation。
+- 旧 router 改为调用 Tool Runtime wrapper。
 
-```text
-rules
-llm
-rag_llm
-runtime
-full_workflow
-agent_runtime
-```
+验收：
+
+- generic form fill analyze/map 路径可跑。
+- security questionnaire source-backed answer 仍可跑。
+- vendor onboarding 仍可跑。
+- tool calls 和 results 持久化。
+
+### Phase 3：Proposal Review 成为主审查合同
+
+目标：Review Mapping 不再直接依赖 `FormField.mapped_value` 作为唯一审查对象。
+
+工作：
+
+- mapping 输出写入 `agent_proposals`。
+- Review Mapping rows 从 proposal 派生。
+- approve/edit/reject 写 `agent_review_decisions`。
+- 兼容同步回 `FormField`，让旧 fill path 不断。
+
+验收：
+
+- 现有字段审查 UI 行为不退化。
+- source evidence 对任意 proposal type 可展示。
+- memory write proposal 需要 review。
+
+### Phase 4：浏览器写入工具化
+
+目标：fill/click/submit 都通过 Tool Runtime + Governance。
+
+工作：
+
+- 包装 `BrowserExecutor.fill_browser_fields`。
+- 浏览器写入工具默认 `REVIEW_REQUIRED` 或 `APPROVAL_REQUIRED`。
+- submit proposal 必须 high risk 且 approval required。
+- approved review decision 才能解锁 execution。
+
+验收：
+
+- 未审查 proposal 不能被写入浏览器。
+- final submit 不能自动执行。
+- 敏感字段继续 blocked。
+
+### Phase 5：Verification 泛化
+
+目标：verification 从字段结果扩展为通用 runtime result。
+
+工作：
+
+- 新增 `agent_verification_results`。
+- `fill_browser_fields` 产生 field verification candidates。
+- `verify_browser_state` 写 generic VerificationResult。
+- Run Cockpit 读取 generic verification compact summary。
+- legacy field verification results 继续兼容展示。
+
+验收：
+
+- DOM verification 可证明 approved values 已写入。
+- mismatch 有 compact user-facing summary。
+- raw details 默认折叠。
+
+### Phase 6：通用 governed graph 成为主路径
+
+目标：security questionnaire、vendor onboarding、generic form fill 都走 generic graph。
+
+工作：
+
+- 把旧 security graph 行为迁移成 planner preset。
+- 为三条 demo 建 parity tests。
+- graph 支持 review resume、approval resume、verification failure recovery。
+- 旧 graph 保留一段时间作为 fallback。
+
+验收：
+
+- 三条 demo 在 generic graph 下通过。
+- benchmark 不退化。
+- 旧 graph 可以标记 deprecated。
+
+### Phase 7：LLM planner 完整接入
+
+目标：LLM 可以生成计划和 proposals，但不能越权。
+
+工作：
+
+- `OpenAIStructuredPlannerAdapter` 输出完整 AgentPlan。
+- 结构校验失败进入 FAILED 或 deterministic fallback。
+- unknown tool / invalid args 有明确错误。
+- LLM proposal generation 必须带 rationale/evidence requirement。
+
+验收：
+
+- no-key deterministic mode 继续通过。
+- LLM planner 不能调用未注册工具。
+- LLM planner 不能跳过 review/governance。
+
+### Phase 8：只读外部工具成熟
+
+目标：MCP / OpenAPI read-only tools 可以进入 planner 和 Tool Runtime。
+
+工作：
+
+- 完善 allowlist 配置。
+- tool metadata 标明 read/write、risk、source。
+- tool output 归一化为 compact evidence。
+- trace 记录外部 tool call summary。
+
+验收：
+
+- 未 allowlist 的外部工具不可用。
+- write tools 默认拒绝注册或 blocked。
+- 外部 raw output 不进入主 UI。
+
+### Phase 9：Evaluation Harness 升级
+
+目标：benchmark 衡量 agent runtime，而不只衡量 extraction/mapping。
 
 新增指标：
 
@@ -1190,117 +873,112 @@ review_intervention_rate
 proposal_acceptance_rate
 verification_pass_rate
 agent_recovery_rate
+unsafe_action_prevention_rate
 ```
 
-## 19. 重构后的产品定位
+验收：
 
-重构后项目可以这样描述：
+- `agent_runtime` benchmark mode 可跑。
+- full workflow replay 继续可跑。
+- 报告能说明 memory、governance、verification 的价值。
+
+### Phase 10：旧路径收敛和命名清理
+
+目标：旧 workflow-specific 代码降级为 compatibility layer。
+
+工作：
+
+- router 变薄。
+- frontend conditionals 减少。
+- 文档统一为 AgentRun / Review Queue / Run Cockpit。
+- 删除不再使用的 helper 和 old phase docs。
+
+验收：
+
+- 没有破坏 demo。
+- 没有删除仍被 benchmark 覆盖的路径。
+- README、architecture、safety docs 和 RFC 互相一致。
+
+## 20. 测试策略
+
+每阶段至少有：
+
+- unit tests：schema、governance、tool validation、presentation helper。
+- integration tests：run start/resume、review decision、browser write、verification failure。
+- API tests：兼容 `/tasks` 和新增 `/agent-runs`。
+- frontend tests：Run Cockpit、Review Queue、advanced collapsed behavior。
+- benchmark tests：no-key deterministic full workflow。
+
+后端本机 Python 不可用时使用 Docker：
+
+```bash
+docker compose run --rm \
+  -v "<repo>/backend/app:/app/app:ro" \
+  -v "<repo>/backend/tests:/app/tests:ro" \
+  backend python -m pytest -q
+```
+
+前端：
+
+```bash
+cd frontend
+npm test
+npm run build
+```
+
+## 21. 完成定义
+
+整体 agent 底层重构只有在以下条件都满足后才算完成：
+
+- `AgentRun`、`AgentPlan`、`ToolCall`、`ToolResult`、`Proposal`、`EvidenceItem`、`ReviewDecision`、`GovernanceDecision`、`VerificationResult` 都有持久化路径。
+- 主要 demo 通过 generic governed graph，而不是 workflow-specific graph。
+- 内部浏览器读写都通过 Tool Runtime。
+- 所有浏览器写入和 submit 都经过 governance 和 review/approval。
+- Review Queue 是 proposal 审查主入口。
+- Run Cockpit 能展示 plan、tool calls、review state、evidence、verification、compact trace。
+- no-key deterministic demo、security questionnaire、vendor onboarding、benchmark replay 均通过。
+- read-only external tools 经过 allowlist、trace、governance。
+- write external tools 未接入，或已完整通过 review/approval/verification。
+- 文档、README、demo script、benchmark report 与实际行为一致。
+
+## 22. 不算完成的状态
+
+以下状态不能称为“整体重构完成”：
+
+- 只有 schemas，没有主路径使用。
+- 只有 Tool Runtime，但 router 仍直接调旧 service。
+- 只有 governed graph skeleton，但 demo 仍依赖旧 graph。
+- 只有 Review Queue summary，但实际审查仍是 form-only。
+- 只有 Run Cockpit UI，但 state 不可持久恢复。
+- LLM planner 能生成 plan，但 governance 可被绕过。
+- external tools 能注册，但没有 allowlist 或 risk classification。
+- benchmark 没覆盖 agent runtime path。
+
+## 23. 回滚策略
+
+每个阶段必须可以独立回滚：
+
+- 新表先只双写，不立刻删除旧字段。
+- 新 endpoint 先并行，不立刻替换 `/tasks`。
+- 前端先读取 compact state，失败时隐藏新区块。
+- generic graph 失败时保留旧 security graph fallback。
+- LLM planner 失败时回 deterministic planner。
+- external tools 配置为空时系统行为不变。
+
+## 24. 推荐下一步
+
+当前分支合并后，下一步应该是：
 
 ```text
-AI Web Form Agent 是一个面向证据驱动网页工作流的受治理浏览器 Agent runtime。
-它让 Agent 检查网页、调用工具、检索依据文档、生成可审查建议、在必要时请求人工确认、执行批准后的浏览器动作、验证结果，并记录可追溯证据。
+Phase 1：AgentRun 持久化
 ```
 
-短版本：
+这是最重要的收敛点。没有持久化，Run Cockpit 和 governed graph 仍然更像 demo state；有了持久化，后续 Tool Runtime、Review Queue、Verification、Benchmark 都能落到同一个 runtime contract 上。
 
-```text
-多数 browser agents 关注如何控制浏览器。
-这个项目关注如何可信地完成浏览器工作。
-```
+第一刀建议：
 
-简历版本：
-
-```text
-Built a governed tool-using browser agent with LangGraph orchestration, structured tool calls, evidence-backed proposals, human review gates, Playwright execution, DOM verification, trace observability, and benchmark evaluation.
-```
-
-## 20. 非目标
-
-这次重构不应该加入：
-
-- production auth。
-- multi-tenant account management。
-- cloud browser fleet management。
-- CAPTCHA solving。
-- payment automation。
-- broad scraping。
-- invisible auto-submit behavior。
-- 在主流程清晰前增加大量 dashboard。
-
-这些会稀释 portfolio story，也会把项目带向不必要的复杂度。
-
-## 21. 关键架构决策
-
-### Decision 1：AgentRun 成为运行时核心
-
-`workflow_type` 继续存在，但降级为 hint。真正运行时围绕 `AgentRun`。
-
-### Decision 2：Tools 必须 typed 且 executable
-
-每个 tool 都必须有输入 schema、输出 schema、risk metadata、trace 行为和执行 handler。
-
-### Decision 3：Governance 是 action-level
-
-治理层判断每个 tool call 和 proposal，而不是锁死整条 workflow。
-
-### Decision 4：Human Review 只拦截关键动作
-
-写网页、提交、保存 memory、低置信度 proposal、外部系统写入等需要 review。只读动作不应该频繁打断用户。
-
-### Decision 5：Verification 是一等能力
-
-系统必须能证明浏览器执行后的状态。Verification 不只是 debug，而是 trust layer。
-
-### Decision 6：LLM Planning 必须结构化
-
-模型可以规划和选择工具，但输出必须是 schema-valid，并且只能通过 runtime 执行。
-
-### Decision 7：现有 demo 不能被重构破坏
-
-security questionnaire、vendor onboarding、generic form fill 和 benchmark evidence 都应该在迁移期保持可运行。
-
-## 22. 推荐的第一个实施切片
-
-第一个切片应该尽量小：
-
-```text
-1. 新增 agent runtime schemas。
-2. 新增 ToolRuntime。
-3. 把 extract_form_fields 包成第一个 executable tool。
-4. 把 generate_field_mappings 包成第二个 executable tool。
-5. 把 ToolCall 和 ToolResult 写入现有 trace/checkpoint storage。
-6. 前端行为暂时不变。
-```
-
-第二个切片包装：
-
-```text
-fill_browser_fields
-verify_browser_state
-```
-
-第三个切片加入：
-
-```text
-GovernanceEngine before ToolRuntime execution
-```
-
-只有这些稳定后，再引入通用 LangGraph agent loop。
-
-## 23. 最终目标状态
-
-重构完成后，系统应该支持这样的交互：
-
-```text
-User:
-Use my resume and saved profile to complete this application page.
-
-Agent:
-I will inspect the page, identify required fields, retrieve relevant resume evidence, draft answers, ask you to review fields that change the page, fill approved values, verify the browser state, and stop before final submission.
-
-Runtime:
-Creates a plan, executes read-only tools, creates evidence-backed proposals, pauses for review, executes approved browser actions, verifies results, and records trace evidence.
-```
-
-最终项目不只是一个浏览器自动化 demo，而是一套可复用的可信 Agentic Web Workflow 架构。
-
+1. 新增最小 `agent_runs` 和 `agent_plans` 表。
+2. governed start 双写 `Task -> AgentRun` 和 `plan -> AgentPlan`。
+3. governed get 从持久化返回 compact state。
+4. 前端行为不变。
+5. Docker backend pytest + frontend test/build 全跑。

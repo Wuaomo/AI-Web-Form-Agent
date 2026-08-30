@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app import config
 from app.database import get_db
 from app.models import Task
 from app.schemas import (
@@ -11,10 +12,23 @@ from app.schemas import (
     WorkflowTemplateResponse,
 )
 from app.services.agent_runtime import (
+    AgentPlanner,
+    OpenAIStructuredPlannerAdapter,
     SUPPORTED_WORKFLOWS,
+    build_default_tool_runtime,
+    get_governed_runtime_state,
     get_runtime_state,
+    register_configured_mcp_readonly_tools,
+    register_configured_openapi_readonly_tools,
+    start_governed_runtime,
     resume_from_review,
     start_runtime,
+)
+from app.services.agent_runtime.schemas import RunMode
+from app.workflow_constants import (
+    WORKFLOW_TYPE_FORM_FILL,
+    WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
+    WORKFLOW_TYPE_VENDOR_ONBOARDING,
 )
 from app.workflow_templates import list_workflow_templates
 
@@ -51,6 +65,23 @@ def _ensure_supported_workflow(task: Task) -> None:
             detail=(
                 f"Workflow type '{workflow_type}' is not supported by "
                 f"the graph runtime. Supported: {sorted(SUPPORTED_WORKFLOWS)}"
+            ),
+        )
+
+
+def _ensure_governed_workflow(task: Task) -> None:
+    workflow_type = task.workflow_type or WORKFLOW_TYPE_FORM_FILL
+    supported = {
+        WORKFLOW_TYPE_FORM_FILL,
+        WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
+        WORKFLOW_TYPE_VENDOR_ONBOARDING,
+    }
+    if workflow_type not in supported:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Workflow type '{workflow_type}' is not supported by "
+                f"the governed runtime. Supported: {sorted(supported)}"
             ),
         )
 
@@ -150,6 +181,88 @@ def _to_compact_state(raw_state: dict) -> dict:
     }
 
 
+def _to_governed_compact_state(raw_state: dict) -> dict:
+    """Convert generic governed graph state into a safe compact response."""
+
+    run = raw_state.get("run", {})
+    return {
+        "task_id": raw_state.get("task_id"),
+        "workflow_type": raw_state.get("workflow_type", ""),
+        "status": run.get("status", "FAILED"),
+        "planner_mode": run.get("mode", raw_state.get("planner_mode")),
+        "interrupt_at": raw_state.get("interrupt_at"),
+        "plan": raw_state.get("plan", {}),
+        "current_tool_call": raw_state.get("current_tool_call"),
+        "governance_decision": raw_state.get("governance_decision"),
+        "tool_result_count": len(raw_state.get("tool_results", [])),
+        "tool_calls": _compact_governed_tool_calls(raw_state),
+        "verification_result": raw_state.get("verification_result", {}),
+        "error": raw_state.get("error"),
+    }
+
+
+def _compact_governed_tool_calls(raw_state: dict) -> list[dict[str, object]]:
+    """Return summary-only tool call history without raw tool outputs."""
+
+    steps_by_id = {
+        step.get("step_id"): step
+        for step in raw_state.get("plan", {}).get("steps", [])
+        if step.get("step_id")
+    }
+    calls: list[dict[str, object]] = []
+
+    for result in raw_state.get("tool_results", []):
+        tool_call_id = str(result.get("tool_call_id", ""))
+        plan_step_id = _plan_step_id_from_tool_call_id(tool_call_id, steps_by_id)
+        step = steps_by_id.get(plan_step_id, {})
+        governance = result.get("governance_decision") or {}
+        calls.append(
+            {
+                "tool_call_id": tool_call_id,
+                "plan_step_id": plan_step_id,
+                "tool_name": step.get("tool_name") or "",
+                "status": result.get("status"),
+                "governance_decision": governance.get("decision"),
+                "error": result.get("error"),
+                "evidence_count": len(result.get("evidence_items") or []),
+                "proposal_count": len(result.get("created_proposals") or []),
+                "verification_candidate_count": len(
+                    result.get("verification_candidates") or []
+                ),
+            }
+        )
+
+    current = raw_state.get("current_tool_call") or {}
+    current_id = current.get("id")
+    if current_id and all(call["tool_call_id"] != current_id for call in calls):
+        governance = raw_state.get("governance_decision") or {}
+        calls.append(
+            {
+                "tool_call_id": current_id,
+                "plan_step_id": current.get("plan_step_id"),
+                "tool_name": current.get("tool_name"),
+                "status": current.get("status"),
+                "governance_decision": governance.get("decision"),
+                "error": current.get("error"),
+                "evidence_count": 0,
+                "proposal_count": 0,
+                "verification_candidate_count": 0,
+            }
+        )
+
+    return calls
+
+
+def _plan_step_id_from_tool_call_id(
+    tool_call_id: str,
+    steps_by_id: dict[str, dict],
+) -> str | None:
+    for step_id in steps_by_id:
+        if tool_call_id.endswith(f":{step_id}"):
+            return step_id
+    return None
+
+
 @router.post(
     "/{task_id}/start",
     response_model=WorkflowRuntimeState,
@@ -169,6 +282,90 @@ def start_workflow(
 
     raw_state = start_runtime(db, task=task)
     return _to_compact_state(raw_state)
+
+
+@router.post(
+    "/{task_id}/governed/start",
+    status_code=status.HTTP_200_OK,
+)
+async def start_governed_workflow(
+    task_id: int,
+    planner_mode: RunMode = "deterministic",
+    db: Session = Depends(get_db),
+) -> dict:
+    """Start the generic governed runtime for one task."""
+
+    task = _get_task_or_404(db, task_id)
+    _ensure_governed_workflow(task)
+    if planner_mode == "llm_structured":
+        if not config.OPENAI_API_KEY:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="llm_structured planner is not configured",
+            )
+
+    runtime = build_default_tool_runtime()
+    try:
+        await register_configured_mcp_readonly_tools(runtime)
+        register_configured_openapi_readonly_tools(runtime)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    planner = None
+    if planner_mode == "llm_structured":
+        planner = AgentPlanner(
+            runtime=runtime,
+            structured_adapter=OpenAIStructuredPlannerAdapter(
+                api_key=config.OPENAI_API_KEY,
+                model=config.OPENAI_MODEL,
+            ),
+        )
+
+    raw_state = await start_governed_runtime(
+        {
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "goal": task.description or "Complete the requested browser workflow.",
+            "target_url": task.url,
+            "profile_id": task.profile_id,
+            "workflow_type": task.workflow_type or WORKFLOW_TYPE_FORM_FILL,
+            "planner_mode": planner_mode,
+            "available_tools": runtime.list_tool_metadata(),
+        },
+        runtime=runtime,
+        planner=planner,
+        metadata={"db": db, "task_id": task.id},
+    )
+    return _to_governed_compact_state(raw_state)
+
+
+@router.get(
+    "/{task_id}/governed",
+    status_code=status.HTTP_200_OK,
+)
+def get_governed_workflow_state(
+    task_id: int,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Get the latest compact state for the generic governed runtime."""
+
+    task = _get_task_or_404(db, task_id)
+    _ensure_governed_workflow(task)
+
+    raw_state = get_governed_runtime_state(f"task-{task.id}")
+    if raw_state is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"No governed runtime state found for task {task_id}. "
+                f"Call POST /workflows/{task_id}/governed/start first."
+            ),
+        )
+
+    return _to_governed_compact_state(raw_state)
 
 
 @router.get(

@@ -145,6 +145,52 @@ export function formatConfidence(confidence) {
   return `${Math.round(confidence * 100)}%`;
 }
 
+export function formatProposalTypeLabel(type) {
+  if (!type) {
+    return "Unknown";
+  }
+  const label = String(type).replace(/[_-]/g, " ").toLowerCase().trim();
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+export function buildReviewQueueSummary(items = []) {
+  const counts = {
+    total: items.length,
+    pending: 0,
+    approved: 0,
+    edited: 0,
+    rejected: 0,
+    needsMoreEvidence: 0,
+    evidenceBacked: 0,
+  };
+  const typeCounts = new Map();
+
+  items.forEach((item) => {
+    const status = item?.status || "PENDING";
+    if (status === "APPROVED") counts.approved += 1;
+    else if (status === "EDITED") counts.edited += 1;
+    else if (status === "REJECTED") counts.rejected += 1;
+    else if (status === "NEEDS_MORE_EVIDENCE") counts.needsMoreEvidence += 1;
+    else counts.pending += 1;
+
+    if (Array.isArray(item?.evidence) && item.evidence.length > 0) {
+      counts.evidenceBacked += 1;
+    }
+
+    const type = item?.proposal_type || "unknown";
+    typeCounts.set(type, (typeCounts.get(type) || 0) + 1);
+  });
+
+  return {
+    ...counts,
+    byType: Array.from(typeCounts.entries()).map(([type, count]) => ({
+      type,
+      label: formatProposalTypeLabel(type),
+      count,
+    })),
+  };
+}
+
 export function formatMappingSummary(field) {
   if (!field.mapped_profile_key && !field.mapped_value) {
     return "Not chosen yet";
