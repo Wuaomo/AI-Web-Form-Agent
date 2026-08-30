@@ -238,7 +238,10 @@ async def _execute_tool_node(
     context = ToolExecutionContext(
         run_id=state["run_id"],
         plan_step_id=tool_call.get("plan_step_id"),
-        metadata=metadata,
+        metadata={
+            **metadata,
+            "approved_tool_call_ids": state.get("approved_tool_call_ids", []),
+        },
     )
 
     result = await runtime.execute(
