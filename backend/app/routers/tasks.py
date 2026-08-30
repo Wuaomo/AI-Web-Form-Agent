@@ -3,7 +3,7 @@
 import logging
 import re
 import time
-from typing import Literal, Union
+from typing import Any, Literal, Union
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -110,6 +110,8 @@ from app.services.workflow_state_service import (
 from app.services.workflow_trace_service import safe_create_span, safe_finish_span
 from app.services.agent_step_timeline import build_agent_steps_for_task
 from app.services.agent_runtime.form_field_persistence import replace_task_form_fields
+from app.services.agent_runtime.review_queue import build_task_review_proposals
+from app.services.agent_runtime.schemas import Proposal, ReviewDecision
 from app.workflow_templates import require_enabled_template
 from app.workflow_constants import (
     APPROVAL_STATUS_REJECTED,
@@ -490,6 +492,11 @@ def get_task_field_or_404(task_id: int, field_id: int, db: Session) -> FormField
     return field
 
 
+def _field_id_from_review_proposal_id(task_id: int, proposal_id: str) -> int | None:
+    match = re.fullmatch(rf"task-{task_id}-field-(\d+)", proposal_id)
+    return int(match.group(1)) if match else None
+
+
 def get_next_log_step(task_id: int, db: Session) -> int:
     """Return the next chronological action-log step for a task."""
 
@@ -693,6 +700,14 @@ class AgentReviewRequest(BaseModel):
     """Request body for running agent reviews."""
 
     roles: list[str] = []
+
+
+class ProposalReviewDecisionRequest(BaseModel):
+    """Request body for applying one generic proposal review decision."""
+
+    decision: Literal["approved", "edited", "rejected", "needs_more_evidence"]
+    edited_value: Any = None
+    reviewer_note: str | None = None
 
 
 @router.post("/{task_id}/agent-reviews", response_model=list[AgentReviewResponse])
@@ -1442,6 +1457,78 @@ def list_task_fields(
         .order_by(FormField.id)
     )
     return list(db.scalars(statement))
+
+
+@router.get(
+    "/{task_id}/review-items",
+    response_model=list[Proposal],
+)
+def list_task_review_items(
+    task_id: int,
+    db: Session = Depends(get_db),
+) -> list[Proposal]:
+    """Return generic proposal review items for the existing mapping review path."""
+
+    task = get_task_or_404(task_id, db)
+    fields = list(
+        db.scalars(
+            select(FormField)
+            .where(FormField.task_id == task_id)
+            .order_by(FormField.id)
+        )
+    )
+    checkpoints = list_checkpoints(task_id=task_id, db=db)
+    return build_task_review_proposals(
+        task=task,
+        fields=fields,
+        checkpoints=checkpoints,
+    )
+
+
+@router.post(
+    "/{task_id}/review-items/{proposal_id}/decision",
+    response_model=ReviewDecision,
+)
+def apply_task_review_item_decision(
+    task_id: int,
+    proposal_id: str,
+    request: ProposalReviewDecisionRequest,
+    db: Session = Depends(get_db),
+) -> ReviewDecision:
+    """Apply a generic proposal decision to the compatible mapping review state."""
+
+    get_task_or_404(task_id, db)
+    field_id = _field_id_from_review_proposal_id(task_id, proposal_id)
+    if field_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Review item not found",
+        )
+    field = get_task_field_or_404(task_id, field_id, db)
+
+    if request.decision == "edited":
+        if request.edited_value is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="edited_value is required for edited decisions",
+            )
+        field.mapped_value = str(request.edited_value)
+        field.confidence = 1.0
+    elif request.decision == "approved":
+        field.confidence = 1.0 if field.mapped_value is not None else field.confidence
+    elif request.decision == "rejected":
+        field.mapped_profile_key = None
+        field.mapped_value = None
+        field.confidence = None
+
+    db.commit()
+    return ReviewDecision(
+        id=f"decision-{proposal_id}",
+        proposal_id=proposal_id,
+        decision=request.decision,
+        edited_value=request.edited_value,
+        reviewer_note=request.reviewer_note,
+    )
 
 
 @router.put(

@@ -184,6 +184,30 @@ export function getSourceSuggestionsByFieldId(checkpoints = []) {
   return suggestionsByFieldId;
 }
 
+export function getProposalReviewItemsByFieldId(items = []) {
+  const itemsByFieldId = new Map();
+  items.forEach((item) => {
+    if (item?.target_type !== "form_field") {
+      return;
+    }
+    const fieldId = Number(item.target_ref);
+    if (!Number.isInteger(fieldId)) {
+      return;
+    }
+    itemsByFieldId.set(fieldId, item);
+  });
+  return itemsByFieldId;
+}
+
+export function formatProposalEvidence(evidence) {
+  if (!evidence) {
+    return "";
+  }
+  const source = evidence.source_title || evidence.source_type || "Evidence";
+  const section = evidence.section_title ? ` / ${evidence.section_title}` : "";
+  return `${source}${section}: ${evidence.quote_or_summary}`;
+}
+
 export function formatSourceSuggestion(suggestion) {
   if (!suggestion) {
     return "";
