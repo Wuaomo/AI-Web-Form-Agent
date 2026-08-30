@@ -15,8 +15,10 @@ import {
   fieldDisplayName,
   formatConfidence,
   formatMappingSummary,
+  formatProposalEvidence,
   formatSourceSuggestion,
   getFieldChoiceOptions,
+  getProposalReviewItemsByFieldId,
   getSourceSuggestionsByFieldId,
   hasFieldChoiceOptions,
   isReviewableField,
@@ -28,6 +30,10 @@ import {
   shouldShowProfileMemoryControl,
   valueControlLabel,
 } from "../reviewMappingPresentation";
+import {
+  applyFieldReviewDecision,
+  applyFieldValueEdit,
+} from "../reviewMappingActions";
 import {
   decisionLabel,
   roleLabel,
@@ -64,6 +70,7 @@ function ReviewMapping() {
   const [customChoiceFields, setCustomChoiceFields] = useState({});
   const [fieldUpdateCount, setFieldUpdateCount] = useState(0);
   const [agentReviews, setAgentReviews] = useState([]);
+  const [reviewItems, setReviewItems] = useState([]);
   const [runningReview, setRunningReview] = useState(null);
   const [taskCheckpoints, setTaskCheckpoints] = useState([]);
   const [workflowRuntime, setWorkflowRuntime] = useState(null);
@@ -79,18 +86,27 @@ function ReviewMapping() {
     setLoading(true);
     setError("");
     try {
-      const [taskResult, fieldItems, providerItems, reviewItems, checkpointItems] = await Promise.all([
+      const [
+        taskResult,
+        fieldItems,
+        providerItems,
+        agentReviewItems,
+        checkpointItems,
+        proposalReviewItems,
+      ] = await Promise.all([
         api.getTask(taskId),
         api.listTaskFields(taskId),
         api.listLlmProviders(),
         api.getTaskAgentReviews(taskId).catch(() => []),
         api.listTaskCheckpoints(taskId).catch(() => []),
+        api.listTaskReviewItems(taskId).catch(() => []),
       ]);
       setTask(taskResult);
       setFields(fieldItems);
       setLlmProviders(providerItems);
-      setAgentReviews(reviewItems);
+      setAgentReviews(agentReviewItems);
       setTaskCheckpoints(checkpointItems);
+      setReviewItems(proposalReviewItems);
       setSelectedLlmProvider(getSavedLlmProvider(providerItems));
 
       if (taskResult.workflow_type === "security_questionnaire") {
@@ -132,27 +148,91 @@ function ReviewMapping() {
 
   const isSecurityQuestionnaire = task?.workflow_type === "security_questionnaire";
 
-  function setFieldApproval(fieldId, status) {
+  function applyReviewedField(updatedField) {
+    if (!updatedField) {
+      return;
+    }
+    setFields((current) =>
+      current.map((field) =>
+        field.id === updatedField.id ? { ...field, ...updatedField } : field,
+      ),
+    );
+  }
+
+  async function setFieldApproval(fieldId, status) {
+    const field = fields.find((item) => item.id === fieldId);
+    const reviewItem = field ? proposalReviewItemsByFieldId.get(field.id) : null;
+
+    if (field && reviewItem && (status === "approved" || status === "rejected")) {
+      setError("");
+      setFieldUpdateCount((count) => count + 1);
+      try {
+        const result = await applyFieldReviewDecision({
+          apiClient: api,
+          taskId,
+          field,
+          decision: status,
+          reviewItemsByFieldId: proposalReviewItemsByFieldId,
+        });
+        applyReviewedField(result.field);
+      } catch (requestError) {
+        setError(requestError.message);
+        return;
+      } finally {
+        setFieldUpdateCount((count) => Math.max(count - 1, 0));
+      }
+    }
+
     setFieldApprovals((current) => ({
       ...current,
       [fieldId]: status,
     }));
   }
 
-  function approveAllFields() {
+  async function applyAllFieldApprovals(status) {
     const approvals = {};
     fields.forEach((field) => {
-      approvals[field.id] = "approved";
+      approvals[field.id] = status;
     });
     setFieldApprovals(approvals);
+
+    const fieldsWithReviewItems = fields.filter((field) =>
+      proposalReviewItemsByFieldId.has(field.id),
+    );
+    if (fieldsWithReviewItems.length === 0) {
+      return;
+    }
+
+    setError("");
+    setFieldUpdateCount((count) => count + fieldsWithReviewItems.length);
+    try {
+      const results = await Promise.all(
+        fieldsWithReviewItems.map((field) =>
+          applyFieldReviewDecision({
+            apiClient: api,
+            taskId,
+            field,
+            decision: status,
+            reviewItemsByFieldId: proposalReviewItemsByFieldId,
+          }),
+        ),
+      );
+      results.forEach((result) => applyReviewedField(result.field));
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setFieldUpdateCount((count) =>
+        Math.max(count - fieldsWithReviewItems.length, 0),
+      );
+    }
+  }
+
+  function approveAllFields() {
+    applyAllFieldApprovals("approved");
   }
 
   function rejectAllFields() {
-    const approvals = {};
-    fields.forEach((field) => {
-      approvals[field.id] = "rejected";
-    });
-    setFieldApprovals(approvals);
+    applyAllFieldApprovals("rejected");
   }
 
   function getSuggestionForField(fieldId) {
@@ -233,6 +313,7 @@ function ReviewMapping() {
         }),
       );
       setTaskCheckpoints(await api.listTaskCheckpoints(taskId).catch(() => []));
+      setReviewItems(await api.listTaskReviewItems(taskId).catch(() => []));
       setNotice("Agent mappings generated.");
     } catch (requestError) {
       setError(requestError.message);
@@ -250,7 +331,20 @@ function ReviewMapping() {
     setError("");
     setFieldUpdateCount((count) => count + 1);
 
-    const request = api.updateTaskField(taskId, fieldId, changes);
+    const field = fields.find((item) => item.id === fieldId);
+    const usesValueReview =
+      field &&
+      Object.keys(changes).length === 1 &&
+      Object.hasOwn(changes, "mapped_value");
+    const request = usesValueReview
+      ? applyFieldValueEdit({
+          apiClient: api,
+          taskId,
+          field,
+          mappedValue: changes.mapped_value,
+          reviewItemsByFieldId: proposalReviewItemsByFieldId,
+        }).then((result) => result.field)
+      : api.updateTaskField(taskId, fieldId, changes);
     inFlightFieldUpdates.current.add(request);
 
     try {
@@ -532,6 +626,7 @@ function ReviewMapping() {
   const showAdvancedFieldDetails = shouldShowAdvancedFieldDetails();
   const showProfileMemoryControl = shouldShowProfileMemoryControl();
   const sourceSuggestionsByFieldId = getSourceSuggestionsByFieldId(taskCheckpoints);
+  const proposalReviewItemsByFieldId = getProposalReviewItemsByFieldId(reviewItems);
 
   return (
     <section>
@@ -741,7 +836,26 @@ function ReviewMapping() {
                           {formatConfidence(field.confidence)}
                         </p>
                       )}
-                      {sourceSuggestionsByFieldId.has(field.id) && (
+                      {proposalReviewItemsByFieldId.get(field.id)?.evidence?.length > 0 ? (
+                        <details className="source-evidence-details">
+                          <summary>
+                            Source evidence (
+                            {proposalReviewItemsByFieldId.get(field.id).evidence.length})
+                          </summary>
+                          <ul className="source-evidence-list">
+                            {proposalReviewItemsByFieldId
+                              .get(field.id)
+                              .evidence.map((item) => (
+                                <li key={item.id}>
+                                  <span className="evidence-source">
+                                    {item.source_type}
+                                  </span>
+                                  <p>{formatProposalEvidence(item)}</p>
+                                </li>
+                              ))}
+                          </ul>
+                        </details>
+                      ) : sourceSuggestionsByFieldId.has(field.id) && (
                         <p className="review-field-source">
                           {formatSourceSuggestion(sourceSuggestionsByFieldId.get(field.id))}
                         </p>

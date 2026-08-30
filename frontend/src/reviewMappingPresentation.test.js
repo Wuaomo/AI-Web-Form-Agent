@@ -7,6 +7,7 @@ import {
   formatConfidence,
   formatMappingSummary,
   formatSourceSuggestion,
+  getProposalReviewItemsByFieldId,
   getFieldChoiceOptions,
   getSourceSuggestionsByFieldId,
   hasFieldChoiceOptions,
@@ -161,6 +162,40 @@ test("source suggestion helpers expose stale reviewed memory by field id", () =>
     formatSourceSuggestion(suggestions.get(11)),
     "Reviewed memory #7 -> profile.email (stale; review recommended)",
   );
+});
+
+test("proposal review helpers expose generic evidence by field id", () => {
+  const items = [
+    {
+      id: "task-1-field-10",
+      proposal_type: "answer",
+      target_type: "form_field",
+      target_ref: "10",
+      proposed_value: "Yes. MFA is required.",
+      evidence: [
+        {
+          source_type: "policy_doc",
+          source_title: "mock-security-policy.md",
+          section_title: "Access Control",
+          quote_or_summary: "MFA is required for administrative access.",
+        },
+      ],
+    },
+    {
+      id: "task-1-field-11",
+      proposal_type: "memory_write",
+      target_type: "workflow_memory",
+      target_ref: "memory:email",
+      proposed_value: "email",
+      evidence: [],
+    },
+  ];
+
+  const byFieldId = getProposalReviewItemsByFieldId(items);
+
+  assert.equal(byFieldId.get(10).proposal_type, "answer");
+  assert.equal(byFieldId.get(10).evidence[0].source_type, "policy_doc");
+  assert.equal(byFieldId.has(11), false);
 });
 
 test("field choice helpers expose structured select and radio options", () => {

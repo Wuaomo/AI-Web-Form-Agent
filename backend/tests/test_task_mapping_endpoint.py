@@ -159,6 +159,201 @@ def test_create_task_rejects_unsupported_workflow_type(
     assert response.json()["detail"] == "Workflow template not found: unknown_type"
 
 
+def test_review_items_returns_field_value_proposals(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify the mapping review path exposes generic proposal review items."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_profile_key = "email"
+    field.mapped_value = "ada@example.com"
+    field.confidence = 0.99
+    checkpoint = TaskCheckpoint(
+        task_id=task.id,
+        stage="MAPPING",
+        status="SUCCESS",
+        input_hash="mapping",
+    )
+    checkpoint.output = {
+        "retrieval_suggestions": [
+            {
+                "field_id": field.id,
+                "source_type": "reviewed_memory",
+                "source_id": 7,
+                "mapped_profile_key": "email",
+                "score": 0.84,
+                "stale": False,
+            }
+        ]
+    }
+    session.add(checkpoint)
+    session.commit()
+
+    response = client.get(f"/tasks/{task.id}/review-items")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload[0]["proposal_type"] == "field_value"
+    assert payload[0]["target_type"] == "form_field"
+    assert payload[0]["target_ref"] == str(field.id)
+    assert payload[0]["proposed_value"] == "ada@example.com"
+    assert payload[0]["confidence"] == 0.99
+    assert payload[0]["evidence"][0]["source_type"] == "memory"
+    assert payload[0]["evidence"][0]["source_id"] == "7"
+
+
+def test_review_items_returns_answer_proposals_with_source_evidence(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify questionnaire answers use the generic proposal review contract."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    task.workflow_type = "security_questionnaire"
+    field.label = "Do you require MFA?"
+    field.mapped_value = "Yes. MFA is required for admin access."
+    field.confidence = 0.88
+    checkpoint = TaskCheckpoint(
+        task_id=task.id,
+        stage="MAPPING",
+        status="SUCCESS",
+        input_hash="mapping",
+    )
+    checkpoint.output = {
+        "source_suggestions": [
+            {
+                "field_id": field.id,
+                "source": "mock-security-policy.md",
+                "matched_section": "Access Control",
+                "status": "needs_review",
+                "source_evidence": [
+                    {
+                        "source_type": "policy_doc",
+                        "content": "MFA is required for administrative access.",
+                    }
+                ],
+            }
+        ]
+    }
+    session.add(checkpoint)
+    session.commit()
+
+    response = client.get(f"/tasks/{task.id}/review-items")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload[0]["proposal_type"] == "answer"
+    assert payload[0]["rationale"] == "Review the proposed answer before browser execution."
+    assert payload[0]["evidence"][0]["source_type"] == "policy_doc"
+    assert payload[0]["evidence"][0]["source_title"] == "mock-security-policy.md"
+    assert payload[0]["evidence"][0]["section_title"] == "Access Control"
+
+
+def test_review_items_include_memory_write_proposals_for_reusable_mappings(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify reviewed reusable mappings are visible as memory-write proposals."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_profile_key = "email"
+    field.mapped_value = "ada@example.com"
+    field.confidence = 0.99
+    session.commit()
+
+    response = client.get(f"/tasks/{task.id}/review-items")
+
+    assert response.status_code == 200
+    payload = response.json()
+    memory_write = next(
+        item for item in payload if item["proposal_type"] == "memory_write"
+    )
+    assert memory_write["target_type"] == "workflow_memory"
+    assert memory_write["target_ref"] == str(field.id)
+    assert memory_write["proposed_value"] == "email"
+    assert memory_write["rationale"] == "Save this reviewed mapping for future retrieval."
+    assert memory_write["risk_level"] == "medium"
+
+
+def test_review_items_include_memory_write_proposals_for_questionnaire_answers(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify reviewed questionnaire answers can use the same memory proposal type."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    task.workflow_type = "security_questionnaire"
+    field.label = "Do you require MFA?"
+    field.mapped_value = "Yes. MFA is required for admin access."
+    field.confidence = 0.88
+    session.commit()
+
+    response = client.get(f"/tasks/{task.id}/review-items")
+
+    assert response.status_code == 200
+    payload = response.json()
+    memory_write = next(
+        item for item in payload if item["proposal_type"] == "memory_write"
+    )
+    assert memory_write["target_type"] == "workflow_memory"
+    assert memory_write["target_ref"] == str(field.id)
+    assert memory_write["proposed_value"] == "reviewed_answer"
+    assert memory_write["rationale"] == "Save this reviewed answer for future retrieval."
+
+
+def test_review_item_decision_edits_existing_field_mapping(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify generic proposal decisions can update Review Mapping fields."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_value = "old@example.com"
+    field.confidence = 0.5
+    session.commit()
+
+    response = client.post(
+        f"/tasks/{task.id}/review-items/task-{task.id}-field-{field.id}/decision",
+        json={"decision": "edited", "edited_value": "ada@example.com"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["proposal_id"] == f"task-{task.id}-field-{field.id}"
+    assert payload["decision"] == "edited"
+    assert payload["edited_value"] == "ada@example.com"
+    session.refresh(field)
+    assert field.mapped_value == "ada@example.com"
+    assert field.confidence == 1.0
+
+
+def test_review_item_decision_rejects_existing_field_mapping(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify rejected proposal decisions clear the mapped field value."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_profile_key = "email"
+    field.mapped_value = "ada@example.com"
+    field.confidence = 0.99
+    session.commit()
+
+    response = client.post(
+        f"/tasks/{task.id}/review-items/task-{task.id}-field-{field.id}/decision",
+        json={"decision": "rejected"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["decision"] == "rejected"
+    session.refresh(field)
+    assert field.mapped_profile_key is None
+    assert field.mapped_value is None
+    assert field.confidence is None
+
+
 def test_map_fields_requires_llm_provider_when_no_default_is_configured(
     test_environment: tuple[TestClient, Session],
     monkeypatch: pytest.MonkeyPatch,

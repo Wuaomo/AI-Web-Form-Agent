@@ -170,6 +170,12 @@ export const api = {
     return request(`/tasks/${taskId}/map-fields${suffix}`, { method: "POST" });
   },
   listTaskFields: (taskId) => request(`/tasks/${taskId}/fields`),
+  listTaskReviewItems: (taskId) => request(`/tasks/${taskId}/review-items`),
+  reviewTaskItem: (taskId, itemId, decision) =>
+    request(`/tasks/${taskId}/review-items/${itemId}/decision`, {
+      method: "POST",
+      body: JSON.stringify(decision),
+    }),
   updateTaskField: (taskId, fieldId, mapping) =>
     request(`/tasks/${taskId}/fields/${fieldId}`, {
       method: "PUT",

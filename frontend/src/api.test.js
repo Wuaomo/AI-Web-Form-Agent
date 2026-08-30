@@ -130,6 +130,54 @@ test("workflow runtime API client uses correct paths", async () => {
   }
 });
 
+test("proposal review API client uses task review item path", async () => {
+  clearApiCache();
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, method: options.method || "GET" });
+    return jsonResponse([{ id: "task-7-field-1" }]);
+  };
+
+  try {
+    const items = await api.listTaskReviewItems(7);
+
+    assert.deepEqual(items, [{ id: "task-7-field-1" }]);
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0].url.endsWith("/tasks/7/review-items"));
+    assert.equal(calls[0].method, "GET");
+  } finally {
+    clearApiCache();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("proposal review API client posts review decisions", async () => {
+  clearApiCache();
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, method: options.method || "GET", body: options.body });
+    return jsonResponse({ id: "decision-task-7-field-1" });
+  };
+
+  try {
+    const result = await api.reviewTaskItem(7, "task-7-field-1", {
+      decision: "edited",
+      edited_value: "Ada",
+    });
+
+    assert.deepEqual(result, { id: "decision-task-7-field-1" });
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0].url.endsWith("/tasks/7/review-items/task-7-field-1/decision"));
+    assert.equal(calls[0].method, "POST");
+    assert.equal(JSON.parse(calls[0].body).edited_value, "Ada");
+  } finally {
+    clearApiCache();
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("structured API errors preserve detail payload", async () => {
   clearApiCache();
   const originalFetch = globalThis.fetch;
