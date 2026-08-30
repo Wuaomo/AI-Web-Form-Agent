@@ -394,3 +394,106 @@ async def test_tool_runtime_blocks_handler_when_governance_blocks() -> None:
     assert result.governance_decision is not None
     assert result.governance_decision.decision == "BLOCKED"
     handler.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_tool_runtime_pauses_review_required_tools_before_handler() -> None:
+    """Verify browser writes do not execute until review has approved them."""
+
+    handler = AsyncMock(return_value={"filled_count": 1})
+    runtime = ToolRuntime(
+        [
+            AgentTool(
+                name="fill_form",
+                description="Fill fields.",
+                input_schema={"type": "object", "properties": {}},
+                output_schema={},
+                risk_level="medium",
+                mutates_browser=True,
+                mutates_external_system=False,
+                trace_phase="fill",
+                handler=handler,
+            )
+        ]
+    )
+
+    result = await runtime.execute(
+        tool_call_id="call-1",
+        tool_name="fill_form",
+        tool_input={"task_id": 1},
+    )
+
+    assert result.status == "FAILED"
+    assert result.governance_decision is not None
+    assert result.governance_decision.decision == "REVIEW_REQUIRED"
+    assert result.error == "Tool call paused by governance: Tool changes browser state and needs human review first."
+    handler.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_tool_runtime_executes_approved_browser_write_tools() -> None:
+    """Verify previously approved browser writes can execute through the runtime."""
+
+    handler = AsyncMock(return_value={"filled_count": 1})
+    runtime = ToolRuntime(
+        [
+            AgentTool(
+                name="fill_form",
+                description="Fill fields.",
+                input_schema={"type": "object", "properties": {}},
+                output_schema={},
+                risk_level="medium",
+                mutates_browser=True,
+                mutates_external_system=False,
+                trace_phase="fill",
+                handler=handler,
+            )
+        ]
+    )
+
+    result = await runtime.execute(
+        tool_call_id="call-1",
+        tool_name="fill_form",
+        tool_input={"task_id": 1},
+        context=ToolExecutionContext(metadata={"approved_tool_call_ids": ["call-1"]}),
+    )
+
+    assert result.status == "SUCCEEDED"
+    assert result.output_json == {"filled_count": 1}
+    assert result.governance_decision is not None
+    assert result.governance_decision.decision == "VERIFY_REQUIRED"
+    handler.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_tool_runtime_pauses_submit_tools_before_handler() -> None:
+    """Verify final submit tools require explicit approval before execution."""
+
+    handler = AsyncMock(return_value={"submitted": True})
+    runtime = ToolRuntime(
+        [
+            AgentTool(
+                name="submit_form",
+                description="Submit.",
+                input_schema={"type": "object", "properties": {}},
+                output_schema={},
+                risk_level="high",
+                mutates_browser=True,
+                mutates_external_system=False,
+                trace_phase="submit",
+                handler=handler,
+            )
+        ]
+    )
+
+    result = await runtime.execute(
+        tool_call_id="call-1",
+        tool_name="submit_form",
+        tool_input={"task_id": 1},
+    )
+
+    assert result.status == "FAILED"
+    assert result.governance_decision is not None
+    assert result.governance_decision.decision == "APPROVAL_REQUIRED"
+    assert result.error == "Tool call paused by governance: Tool may commit an external or final browser action."
+    handler.assert_not_awaited()
