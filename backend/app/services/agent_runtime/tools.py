@@ -282,6 +282,42 @@ async def execute_fill_form_runtime_tool(
     )
 
 
+async def execute_submit_form_runtime_tool(
+    *,
+    db: Any,
+    task: Any,
+    fields: list[Any],
+    submit_form_handler=submit_form_and_capture_screenshot,
+) -> tuple[Any, Any]:
+    """Run the approved submit_form browser-write tool for a legacy task."""
+
+    tool_call_id = f"task-{task.id}:submit_form"
+    submit_result: dict[str, Any] = {}
+    tool_result = await build_default_tool_runtime(
+        submit_form_handler=submit_form_handler
+    ).execute(
+        tool_call_id=tool_call_id,
+        tool_name="submit_form",
+        tool_input={
+            "task_id": task.id,
+            "url": task.url,
+            "profile_id": task.profile_id,
+            "fields": fields,
+        },
+        context=ToolExecutionContext(
+            metadata={
+                "db": db,
+                "task_id": task.id,
+                "approved_tool_call_ids": [tool_call_id],
+                "submit_form_result": submit_result,
+            }
+        ),
+    )
+    if tool_result.status != "SUCCEEDED":
+        raise RuntimeError(tool_result.error or "Runtime submit_form failed")
+    return tool_result, submit_result.get("screenshot")
+
+
 def _field_to_dict(field: object) -> dict[str, Any]:
     if is_dataclass(field):
         return asdict(field)
@@ -328,4 +364,5 @@ __all__ = [
     "SUBMIT_FORM_OUTPUT_SCHEMA",
     "build_default_tool_runtime",
     "execute_fill_form_runtime_tool",
+    "execute_submit_form_runtime_tool",
 ]

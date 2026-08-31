@@ -110,8 +110,14 @@ from app.services.workflow_state_service import (
 from app.services.workflow_trace_service import safe_create_span, safe_finish_span
 from app.services.agent_step_timeline import build_agent_steps_for_task
 from app.services.agent_runtime.form_field_persistence import replace_task_form_fields
-from app.services.agent_runtime.state_store import save_fill_form_runtime_state
-from app.services.agent_runtime.tools import execute_fill_form_runtime_tool
+from app.services.agent_runtime.state_store import (
+    save_fill_form_runtime_state,
+    save_submit_form_runtime_state,
+)
+from app.services.agent_runtime.tools import (
+    execute_fill_form_runtime_tool,
+    execute_submit_form_runtime_tool,
+)
 from app.services.agent_runtime.review_queue import (
     apply_review_decision_to_field_target,
     build_task_review_proposals,
@@ -2360,13 +2366,11 @@ async def confirm_task_submission(
     db.commit()
 
     try:
-        screenshot = await submit_form_and_capture_screenshot(
-            task_id=task.id,
-            url=task.url,
-            profile_id=task.profile_id,
-            fields=mapped_fields,
-            stage="submitted_form",
+        tool_result, screenshot = await execute_submit_form_runtime_tool(
             db=db,
+            task=task,
+            fields=mapped_fields,
+            submit_form_handler=submit_form_and_capture_screenshot,
         )
         apply_workflow_status(task, WORKFLOW_STATUS_COMPLETED, reason="submit_completed")
         create_log(
@@ -2377,7 +2381,7 @@ async def confirm_task_submission(
             status="SUCCESS",
             db=db,
         )
-        db.commit()
+        save_submit_form_runtime_state(db, task=task, tool_result=tool_result)
         safe_finish_span(
             submit_span_id,
             status=SPAN_STATUS_SUCCESS,

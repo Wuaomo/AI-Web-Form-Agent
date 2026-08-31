@@ -140,6 +140,50 @@ def save_fill_form_runtime_state(
     )
 
 
+def save_submit_form_runtime_state(
+    db: Session,
+    *,
+    task: Task,
+    tool_result: Any,
+) -> AgentRun:
+    """Persist compact runtime state for a legacy submit_form browser write."""
+
+    return save_governed_runtime_state(
+        db,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": task.description or "Submit reviewed form.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": task.status,
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:browser-write-plan:1",
+                "version": 1,
+                "goal": task.description or "Submit reviewed form.",
+                "steps": [
+                    {
+                        "step_id": "submit_form",
+                        "tool_name": "submit_form",
+                        "reason": "Submit the reviewed browser form.",
+                        "input_json": {"task_id": task.id},
+                        "risk_level": "high",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "tool_results": [tool_result.model_dump(mode="json")],
+        },
+    )
+
+
 def restore_governed_runtime_state(
     db: Session,
     *,
@@ -504,4 +548,5 @@ __all__ = [
     "restore_governed_runtime_state",
     "save_fill_form_runtime_state",
     "save_governed_runtime_state",
+    "save_submit_form_runtime_state",
 ]

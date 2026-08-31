@@ -16,6 +16,8 @@ from app.models import (
     AgentProposal,
     AgentReviewDecision,
     AgentRun,
+    AgentToolCall,
+    AgentToolResult,
     ApprovalRequest,
     FormField,
     Profile,
@@ -238,6 +240,43 @@ def test_confirm_submit_second_request_submits_after_approval(
     assert logs[1].action == "submit_form"
     assert logs[1].message == "Submitted the reviewed form after user approval."
     assert logs[1].status == "SUCCESS"
+
+
+def test_confirm_submit_records_submit_runtime_tool_call(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task = create_task(session, "WAITING_APPROVAL")
+
+    first_response = client.post(f"/tasks/{task.id}/confirm-submit")
+    approval_id = first_response.json()["detail"]["approval_id"]
+    approve_response = client.post(f"/approvals/{approval_id}/approve")
+    assert approve_response.status_code == 200
+
+    with patch(
+        "app.routers.tasks.submit_form_and_capture_screenshot",
+        new_callable=AsyncMock,
+    ) as submit_form:
+        submit_form.return_value = type("Screenshot", (), {"id": 5})()
+        response = client.post(f"/tasks/{task.id}/confirm-submit")
+
+    assert response.status_code == 200
+
+    call = session.get(AgentToolCall, f"task-{task.id}:submit_form")
+    assert call is not None
+    assert call.tool_name == "submit_form"
+    assert call.status == "SUCCEEDED"
+    assert call.risk_level == "high"
+    assert call.governance_decision["decision"] == "VERIFY_REQUIRED"
+
+    result = session.get(AgentToolResult, f"task-{task.id}:submit_form")
+    assert result is not None
+    assert result.status == "SUCCEEDED"
+    assert result.output_json == {
+        "submitted": True,
+        "field_count": 1,
+        "screenshot_id": 5,
+    }
 
 
 def test_confirm_submit_rejects_task_not_waiting_for_approval(
