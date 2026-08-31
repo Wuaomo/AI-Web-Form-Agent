@@ -546,6 +546,62 @@ def test_save_governed_runtime_state_counts_pending_tool_created_proposals() -> 
     session.close()
 
 
+def test_save_governed_runtime_state_preserves_existing_pending_proposal_count() -> None:
+    """Persisted AgentRun count keeps tracking proposals absent from raw state."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review existing proposal.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+        pending_review_count=1,
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"existing-pending-{task.id}",
+        run=run,
+        proposal_type="field_value",
+        target_type="form_field",
+        target_ref="1",
+        proposed_value="pending@example.com",
+        rationale="Already persisted proposal.",
+        confidence=0.8,
+        risk_level="low",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+    raw_state = {
+        "run_id": run.id,
+        "task_id": task.id,
+        "workflow_type": task.workflow_type,
+        "planner_mode": "deterministic",
+        "run": {
+            "id": run.id,
+            "goal": "Review existing proposal.",
+            "target_url": task.url,
+            "profile_id": task.profile_id,
+            "status": "COMPLETED",
+            "mode": "deterministic",
+        },
+        "tool_results": [],
+    }
+
+    save_governed_runtime_state(session, task=task, raw_state=raw_state)
+
+    session.refresh(run)
+    assert run.pending_review_count == 1
+    client.close()
+    session.close()
+
+
 def test_governed_get_returns_last_compact_state_after_start() -> None:
     """GET /workflows/{task_id}/governed reloads the latest generic runtime state."""
 

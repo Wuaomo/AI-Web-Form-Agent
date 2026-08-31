@@ -8,7 +8,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import AgentPlan, AgentRun, AgentToolCall, AgentToolResult, Task
-from app.services.agent_runtime.review_queue import persist_task_review_proposals
+from app.services.agent_runtime.review_queue import (
+    persist_task_review_proposals,
+    refresh_pending_review_count,
+)
 from app.services.agent_runtime.schemas import Proposal
 from app.workflow_constants import WORKFLOW_TYPE_FORM_FILL
 
@@ -86,6 +89,7 @@ def save_governed_runtime_state(
         raw_state=raw_state,
     )
     _save_created_proposals(db, task=task, run_id=run_id, raw_state=raw_state)
+    refresh_pending_review_count(db, run_id=run_id)
 
     db.commit()
     db.refresh(run)
