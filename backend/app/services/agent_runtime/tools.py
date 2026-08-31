@@ -183,6 +183,46 @@ def build_default_tool_runtime(
     return runtime
 
 
+async def execute_fill_form_runtime_tool(
+    *,
+    db: Any,
+    task: Any,
+    fields: list[Any],
+    fill_form_handler=fill_form_and_capture_screenshot,
+) -> tuple[Any, Any, list[Any]]:
+    """Run the approved fill_form browser-write tool for a legacy task."""
+
+    tool_call_id = f"task-{task.id}:fill_form"
+    fill_result: dict[str, Any] = {}
+    tool_result = await build_default_tool_runtime(
+        fill_form_handler=fill_form_handler
+    ).execute(
+        tool_call_id=tool_call_id,
+        tool_name="fill_form",
+        tool_input={
+            "task_id": task.id,
+            "url": task.url,
+            "profile_id": task.profile_id,
+            "fields": fields,
+        },
+        context=ToolExecutionContext(
+            metadata={
+                "db": db,
+                "task_id": task.id,
+                "approved_tool_call_ids": [tool_call_id],
+                "fill_form_result": fill_result,
+            }
+        ),
+    )
+    if tool_result.status != "SUCCEEDED":
+        raise RuntimeError(tool_result.error or "Runtime fill_form failed")
+    return (
+        tool_result,
+        fill_result.get("screenshot"),
+        fill_result.get("verification_data", []),
+    )
+
+
 def _field_to_dict(field: object) -> dict[str, Any]:
     if is_dataclass(field):
         return asdict(field)
@@ -226,4 +266,5 @@ __all__ = [
     "MAP_FIELDS_INPUT_SCHEMA",
     "MAP_FIELDS_OUTPUT_SCHEMA",
     "build_default_tool_runtime",
+    "execute_fill_form_runtime_tool",
 ]

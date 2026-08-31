@@ -110,9 +110,8 @@ from app.services.workflow_state_service import (
 from app.services.workflow_trace_service import safe_create_span, safe_finish_span
 from app.services.agent_step_timeline import build_agent_steps_for_task
 from app.services.agent_runtime.form_field_persistence import replace_task_form_fields
-from app.services.agent_runtime.state_store import save_governed_runtime_state
-from app.services.agent_runtime.tool_runtime import ToolExecutionContext
-from app.services.agent_runtime.tools import build_default_tool_runtime
+from app.services.agent_runtime.state_store import save_fill_form_runtime_state
+from app.services.agent_runtime.tools import execute_fill_form_runtime_tool
 from app.services.agent_runtime.review_queue import (
     apply_review_decision_to_field_target,
     build_task_review_proposals,
@@ -2007,32 +2006,12 @@ async def fill_task_form(
     try:
         db.execute(delete(FieldVerificationResult).where(FieldVerificationResult.task_id == task.id))
 
-        tool_call_id = f"task-{task.id}:fill_form"
-        fill_result: dict[str, Any] = {}
-        tool_result = await build_default_tool_runtime(
+        tool_result, screenshot, verification_data = await execute_fill_form_runtime_tool(
+            db=db,
+            task=task,
+            fields=filtered_fields,
             fill_form_handler=fill_form_and_capture_screenshot
-        ).execute(
-            tool_call_id=tool_call_id,
-            tool_name="fill_form",
-            tool_input={
-                "task_id": task.id,
-                "url": task.url,
-                "profile_id": task.profile_id,
-                "fields": filtered_fields,
-            },
-            context=ToolExecutionContext(
-                metadata={
-                    "db": db,
-                    "task_id": task.id,
-                    "approved_tool_call_ids": [tool_call_id],
-                    "fill_form_result": fill_result,
-                }
-            ),
         )
-        if tool_result.status != "SUCCEEDED":
-            raise RuntimeError(tool_result.error or "Runtime fill_form failed")
-        screenshot = fill_result.get("screenshot")
-        verification_data = fill_result.get("verification_data", [])
 
         required_field_ids = {f.id for f in filtered_fields if f.required and is_fillable_field(f) and f.mapped_value}
         required_failures = [
@@ -2083,39 +2062,10 @@ async def fill_task_form(
             )
         else:
             apply_workflow_status(task, WORKFLOW_STATUS_WAITING_APPROVAL, reason="fill_completed")
-            save_governed_runtime_state(
+            save_fill_form_runtime_state(
                 db,
                 task=task,
-                raw_state={
-                    "run_id": f"task-{task.id}",
-                    "task_id": task.id,
-                    "workflow_type": task.workflow_type,
-                    "planner_mode": "deterministic",
-                    "run": {
-                        "id": f"task-{task.id}",
-                        "goal": task.description or "Fill reviewed fields.",
-                        "target_url": task.url,
-                        "profile_id": task.profile_id,
-                        "status": "WAITING_APPROVAL",
-                        "mode": "deterministic",
-                    },
-                    "plan": {
-                        "id": f"task-{task.id}:browser-write-plan:1",
-                        "version": 1,
-                        "goal": task.description or "Fill reviewed fields.",
-                        "steps": [
-                            {
-                                "step_id": "fill_form",
-                                "tool_name": "fill_form",
-                                "reason": "Fill reviewed browser fields.",
-                                "input_json": {"task_id": task.id},
-                                "risk_level": "medium",
-                            }
-                        ],
-                        "created_by": "deterministic",
-                    },
-                    "tool_results": [tool_result.model_dump(mode="json")],
-                },
+                tool_result=tool_result,
             )
             write_checkpoint(
                 task_id=task.id,
