@@ -921,6 +921,87 @@ def test_governed_get_restores_generic_verification_summary_from_db() -> None:
     session.close()
 
 
+def test_save_governed_runtime_state_persists_verify_browser_state_result() -> None:
+    """verify_browser_state tool results become generic verification rows."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+
+    save_governed_runtime_state(
+        session,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": "Verify state.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": "COMPLETED",
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:plan:1",
+                "version": 1,
+                "goal": "Verify state.",
+                "steps": [
+                    {
+                        "step_id": "verify",
+                        "tool_name": "verify_browser_state",
+                        "reason": "Verify browser state.",
+                        "input_json": {"task_id": task.id},
+                        "risk_level": "low",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "tool_results": [
+                {
+                    "tool_call_id": f"task-{task.id}:verify",
+                    "status": "SUCCEEDED",
+                    "output_json": {
+                        "verified": False,
+                        "mismatches": [
+                            {
+                                "target_ref": "email",
+                                "reason": "VALUE_MISMATCH",
+                            }
+                        ],
+                    },
+                }
+            ],
+        },
+    )
+
+    verification = session.get(
+        AgentVerificationResult,
+        f"task-{task.id}:verify:verification:0",
+    )
+    assert verification is not None
+    assert verification.tool_call_id == f"task-{task.id}:verify"
+    assert verification.target_type == "page_state"
+    assert verification.target_ref == "browser_state"
+    assert verification.verification_type == "page_state"
+    assert verification.status == "FAILED"
+    assert verification.reason == "VALUE_MISMATCH"
+    assert verification.expected == {"verified": True}
+    assert verification.actual == {
+        "verified": False,
+        "mismatches": [
+            {
+                "target_ref": "email",
+                "reason": "VALUE_MISMATCH",
+            }
+        ],
+    }
+    client.close()
+    session.close()
+
+
 def test_governed_get_returns_404_when_no_runtime_state() -> None:
     """GET /workflows/{task_id}/governed returns 404 before a governed run starts."""
 

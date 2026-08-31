@@ -99,7 +99,12 @@ def save_governed_runtime_state(
         plan_payload=plan_payload,
         raw_state=raw_state,
     )
-    _save_verification_results(db, run_id=run_id, raw_state=raw_state)
+    _save_verification_results(
+        db,
+        run_id=run_id,
+        plan_payload=plan_payload,
+        raw_state=raw_state,
+    )
     _save_created_proposals(db, task=task, run_id=run_id, raw_state=raw_state)
     refresh_pending_review_count(db, run_id=run_id)
 
@@ -455,6 +460,7 @@ def _save_verification_results(
     db: Session,
     *,
     run_id: str,
+    plan_payload: dict[str, Any],
     raw_state: dict[str, Any],
 ) -> None:
     by_tool_call: dict[str, list[dict[str, Any]]] = {}
@@ -463,6 +469,7 @@ def _save_verification_results(
         if tool_call_id:
             by_tool_call.setdefault(tool_call_id, []).append(item)
 
+    steps = _steps_by_id(plan_payload)
     for result in _dict_items(raw_state.get("tool_results")):
         tool_call_id = str(result.get("tool_call_id") or "")
         output = _dict_value(result.get("output_json"))
@@ -470,6 +477,13 @@ def _save_verification_results(
             by_tool_call[tool_call_id] = _dict_items(
                 output.get("verification_results")
             )
+        elif (
+            tool_call_id
+            and _tool_name_for_result(tool_call_id, steps) == "verify_browser_state"
+        ):
+            by_tool_call[tool_call_id] = [
+                _browser_state_verification_result(tool_call_id, output)
+            ]
 
     for tool_call_id, items in by_tool_call.items():
         db.execute(
@@ -521,6 +535,32 @@ def _field_verification_runtime_result(
         "status": str(getattr(item, "status", "FAILED")),
         "reason": getattr(item, "reason", None),
         "screenshot_id": screenshot_id,
+    }
+
+
+def _browser_state_verification_result(
+    tool_call_id: str,
+    output: dict[str, Any],
+) -> dict[str, Any]:
+    mismatches = _dict_items(output.get("mismatches"))
+    return {
+        "tool_call_id": tool_call_id,
+        "target_type": "page_state",
+        "target_ref": "browser_state",
+        "verification_type": "page_state",
+        "expected": {"verified": True},
+        "actual": output,
+        "status": (
+            VERIFICATION_STATUS_VERIFIED
+            if output.get("verified") is True and not mismatches
+            else VERIFICATION_STATUS_FAILED
+        ),
+        "reason": (
+            str(mismatches[0].get("reason"))
+            if mismatches and mismatches[0].get("reason")
+            else None
+        ),
+        "screenshot_id": output.get("screenshot_id"),
     }
 
 
@@ -699,6 +739,14 @@ def _plan_step_id_from_tool_call_id(
         if tool_call_id.endswith(f":{step_id}"):
             return step_id
     return None
+
+
+def _tool_name_for_result(
+    tool_call_id: str,
+    steps: dict[str, dict[str, Any]],
+) -> str:
+    step_id = _plan_step_id_from_tool_call_id(tool_call_id, steps)
+    return str(steps.get(step_id or "", {}).get("tool_name") or "")
 
 
 def _dict_value(value: object) -> dict[str, Any]:
