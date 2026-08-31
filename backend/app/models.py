@@ -2,7 +2,7 @@
 
 import json
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -228,6 +228,7 @@ class AgentRun(Base):
     task: Mapped["Task"] = relationship(back_populates="agent_runs")
     plans: Mapped[list["AgentPlan"]] = relationship(back_populates="run")
     tool_calls: Mapped[list["AgentToolCall"]] = relationship(back_populates="run")
+    proposals: Mapped[list["AgentProposal"]] = relationship(back_populates="run")
 
     @property
     def final_result(self) -> dict[str, object]:
@@ -437,6 +438,110 @@ class AgentToolResult(Base):
         self.verification_candidates_json = _dump_json_list(value)
 
 
+class AgentProposal(Base):
+    """Persisted review proposal for a governed runtime run."""
+
+    __tablename__ = "agent_proposals"
+
+    id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("agent_runs.id"), nullable=False)
+    proposal_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    target_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    target_ref: Mapped[str] = mapped_column(String(200), nullable=False)
+    proposed_value_json: Mapped[str] = mapped_column(
+        "proposed_value",
+        Text,
+        nullable=False,
+    )
+    rationale: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[Optional[float]] = mapped_column(Float)
+    risk_level: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    run: Mapped["AgentRun"] = relationship(back_populates="proposals")
+    evidence_items: Mapped[list["AgentEvidenceItem"]] = relationship(
+        back_populates="proposal",
+        cascade="all, delete-orphan",
+    )
+    review_decisions: Mapped[list["AgentReviewDecision"]] = relationship(
+        back_populates="proposal",
+        cascade="all, delete-orphan",
+    )
+
+    @property
+    def proposed_value(self) -> Any:
+        """Return the structured value proposed for review."""
+
+        return _json_value(self.proposed_value_json)
+
+    @proposed_value.setter
+    def proposed_value(self, value: Any) -> None:
+        """Persist the proposed value as stable JSON."""
+
+        self.proposed_value_json = _dump_json_value(value)
+
+
+class AgentEvidenceItem(Base):
+    """Persisted compact evidence backing a runtime proposal."""
+
+    __tablename__ = "agent_evidence_items"
+
+    id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("agent_runs.id"), nullable=False)
+    proposal_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("agent_proposals.id")
+    )
+    source_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    source_id: Mapped[Optional[str]] = mapped_column(String(200))
+    source_title: Mapped[Optional[str]] = mapped_column(String(300))
+    section_title: Mapped[Optional[str]] = mapped_column(String(500))
+    quote_or_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    score: Mapped[Optional[float]] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    proposal: Mapped[Optional["AgentProposal"]] = relationship(
+        back_populates="evidence_items"
+    )
+
+
+class AgentReviewDecision(Base):
+    """Persisted human decision for one runtime proposal."""
+
+    __tablename__ = "agent_review_decisions"
+
+    id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    proposal_id: Mapped[str] = mapped_column(
+        ForeignKey("agent_proposals.id"),
+        nullable=False,
+    )
+    decision: Mapped[str] = mapped_column(String(50), nullable=False)
+    edited_value_json: Mapped[Optional[str]] = mapped_column("edited_value", Text)
+    reviewer_note: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    proposal: Mapped["AgentProposal"] = relationship(back_populates="review_decisions")
+
+    @property
+    def edited_value(self) -> Any:
+        """Return a structured edited value when present."""
+
+        if self.edited_value_json is None:
+            return None
+        return _json_value(self.edited_value_json)
+
+    @edited_value.setter
+    def edited_value(self, value: Any) -> None:
+        """Persist an edited value as stable JSON."""
+
+        self.edited_value_json = None if value is None else _dump_json_value(value)
+
+
 def _json_list(value: str | None) -> list[dict[str, object]]:
     if not value:
         return []
@@ -451,6 +556,19 @@ def _json_list(value: str | None) -> list[dict[str, object]]:
 
 def _dump_json_list(value: list[dict[str, object]] | None) -> str:
     return json.dumps(value or [], ensure_ascii=False, sort_keys=True)
+
+
+def _json_value(value: str | None) -> Any:
+    if value is None:
+        return None
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return None
+
+
+def _dump_json_value(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
 
 class ActionLog(Base):

@@ -4,8 +4,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.models import FormField, Task, TaskCheckpoint
-from app.services.agent_runtime.schemas import EvidenceItem, Proposal
+from sqlalchemy.orm import Session
+
+from app.models import (
+    AgentEvidenceItem,
+    AgentProposal,
+    AgentReviewDecision,
+    AgentRun,
+    FormField,
+    Task,
+    TaskCheckpoint,
+)
+from app.services.agent_runtime.schemas import EvidenceItem, Proposal, ReviewDecision
 from app.services.workflow_memory import (
     should_save_answer_memory,
     should_save_mapping_memory,
@@ -37,6 +47,74 @@ def build_task_review_proposals(
     return field_proposals + memory_proposals
 
 
+def persist_task_review_proposals(
+    db: Session,
+    *,
+    task: Task,
+    proposals: list[Proposal],
+) -> None:
+    """Double-write Review Mapping proposals into runtime persistence tables."""
+
+    _ensure_agent_run(db, task)
+    for proposal in proposals:
+        row = db.get(AgentProposal, proposal.id)
+        if row is None:
+            row = AgentProposal(
+                id=proposal.id,
+                run_id=proposal.run_id,
+                proposal_type=proposal.proposal_type,
+                target_type=proposal.target_type,
+                target_ref=proposal.target_ref,
+                proposed_value_json="null",
+                rationale=proposal.rationale,
+                risk_level=proposal.risk_level,
+                status=proposal.status,
+            )
+            db.add(row)
+
+        row.run_id = proposal.run_id
+        row.proposal_type = proposal.proposal_type
+        row.target_type = proposal.target_type
+        row.target_ref = proposal.target_ref
+        row.proposed_value = proposal.proposed_value
+        row.rationale = proposal.rationale
+        row.confidence = proposal.confidence
+        row.risk_level = proposal.risk_level
+        if row.status == "PENDING" or proposal.status != "PENDING":
+            row.status = proposal.status
+
+        for evidence in proposal.evidence:
+            _upsert_evidence_item(db, evidence)
+
+
+def persist_review_decision(
+    db: Session,
+    *,
+    decision: ReviewDecision,
+) -> None:
+    """Double-write a proposal review decision and update proposal status."""
+
+    row = db.get(AgentReviewDecision, decision.id)
+    if row is None:
+        row = AgentReviewDecision(
+            id=decision.id,
+            proposal_id=decision.proposal_id,
+            decision=decision.decision,
+        )
+        db.add(row)
+
+    row.proposal_id = decision.proposal_id
+    row.decision = decision.decision
+    row.edited_value = decision.edited_value
+    row.reviewer_note = decision.reviewer_note
+
+    proposal = db.get(AgentProposal, decision.proposal_id)
+    if proposal is not None:
+        proposal.status = _proposal_status_for_decision(decision.decision)
+        if decision.decision == "edited":
+            proposal.proposed_value = decision.edited_value
+
+
 def _field_proposal(
     task: Task,
     field: FormField,
@@ -64,6 +142,56 @@ def _field_proposal(
         risk_level=_risk_level(field),
         evidence=evidence,
     )
+
+
+def _ensure_agent_run(db: Session, task: Task) -> AgentRun:
+    run_id = _run_id(task.id)
+    run = db.get(AgentRun, run_id)
+    if run is None:
+        run = AgentRun(
+            id=run_id,
+            legacy_task_id=task.id,
+            goal=task.description or "Review proposed browser workflow items.",
+            target_url=task.url,
+            profile_id=task.profile_id,
+            workflow_hint=task.workflow_type,
+            status=task.workflow_status or task.status,
+            mode="deterministic",
+        )
+        run.final_result = {}
+        db.add(run)
+    return run
+
+
+def _upsert_evidence_item(db: Session, evidence: EvidenceItem) -> AgentEvidenceItem:
+    row = db.get(AgentEvidenceItem, evidence.id)
+    if row is None:
+        row = AgentEvidenceItem(
+            id=evidence.id,
+            run_id=evidence.run_id,
+            source_type=evidence.source_type,
+            quote_or_summary=evidence.quote_or_summary,
+        )
+        db.add(row)
+
+    row.run_id = evidence.run_id
+    row.proposal_id = evidence.proposal_id
+    row.source_type = evidence.source_type
+    row.source_id = evidence.source_id
+    row.source_title = evidence.source_title
+    row.section_title = evidence.section_title
+    row.quote_or_summary = evidence.quote_or_summary
+    row.score = evidence.score
+    return row
+
+
+def _proposal_status_for_decision(decision: str) -> str:
+    return {
+        "approved": "APPROVED",
+        "edited": "EDITED",
+        "rejected": "REJECTED",
+        "needs_more_evidence": "NEEDS_MORE_EVIDENCE",
+    }[decision]
 
 
 def _memory_write_proposals(task: Task, field: FormField) -> list[Proposal]:
@@ -267,4 +395,8 @@ def _evidence_id(task_id: int, field_id: int, kind: str, index: int) -> str:
     return f"task-{task_id}-field-{field_id}-{kind}-{index}"
 
 
-__all__ = ["build_task_review_proposals"]
+__all__ = [
+    "build_task_review_proposals",
+    "persist_review_decision",
+    "persist_task_review_proposals",
+]

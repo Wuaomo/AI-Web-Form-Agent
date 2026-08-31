@@ -110,7 +110,11 @@ from app.services.workflow_state_service import (
 from app.services.workflow_trace_service import safe_create_span, safe_finish_span
 from app.services.agent_step_timeline import build_agent_steps_for_task
 from app.services.agent_runtime.form_field_persistence import replace_task_form_fields
-from app.services.agent_runtime.review_queue import build_task_review_proposals
+from app.services.agent_runtime.review_queue import (
+    build_task_review_proposals,
+    persist_review_decision,
+    persist_task_review_proposals,
+)
 from app.services.agent_runtime.schemas import Proposal, ReviewDecision
 from app.workflow_templates import require_enabled_template
 from app.workflow_constants import (
@@ -1478,11 +1482,14 @@ def list_task_review_items(
         )
     )
     checkpoints = list_checkpoints(task_id=task_id, db=db)
-    return build_task_review_proposals(
+    proposals = build_task_review_proposals(
         task=task,
         fields=fields,
         checkpoints=checkpoints,
     )
+    persist_task_review_proposals(db, task=task, proposals=proposals)
+    db.commit()
+    return proposals
 
 
 @router.post(
@@ -1497,7 +1504,7 @@ def apply_task_review_item_decision(
 ) -> ReviewDecision:
     """Apply a generic proposal decision to the compatible mapping review state."""
 
-    get_task_or_404(task_id, db)
+    task = get_task_or_404(task_id, db)
     field_id = _field_id_from_review_proposal_id(task_id, proposal_id)
     if field_id is None:
         raise HTTPException(
@@ -1521,14 +1528,33 @@ def apply_task_review_item_decision(
         field.mapped_value = None
         field.confidence = None
 
-    db.commit()
-    return ReviewDecision(
+    checkpoints = list_checkpoints(task_id=task_id, db=db)
+    fields = list(
+        db.scalars(
+            select(FormField)
+            .where(FormField.task_id == task_id)
+            .order_by(FormField.id)
+        )
+    )
+    persist_task_review_proposals(
+        db,
+        task=task,
+        proposals=build_task_review_proposals(
+            task=task,
+            fields=fields,
+            checkpoints=checkpoints,
+        ),
+    )
+    decision = ReviewDecision(
         id=f"decision-{proposal_id}",
         proposal_id=proposal_id,
         decision=request.decision,
         edited_value=request.edited_value,
         reviewer_note=request.reviewer_note,
     )
+    persist_review_decision(db, decision=decision)
+    db.commit()
+    return decision
 
 
 @router.put(

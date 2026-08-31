@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -250,6 +250,79 @@ def test_review_items_returns_answer_proposals_with_source_evidence(
     assert payload[0]["evidence"][0]["section_title"] == "Access Control"
 
 
+def test_review_items_persist_proposals_and_evidence(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify Review Mapping proposals are double-written to runtime tables."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_profile_key = "email"
+    field.mapped_value = "ada@example.com"
+    field.confidence = 0.99
+    checkpoint = TaskCheckpoint(
+        task_id=task.id,
+        stage="MAPPING",
+        status="SUCCESS",
+        input_hash="mapping",
+    )
+    checkpoint.output = {
+        "retrieval_suggestions": [
+            {
+                "field_id": field.id,
+                "source_id": 7,
+                "mapped_profile_key": "email",
+                "score": 0.84,
+                "stale": False,
+            }
+        ]
+    }
+    session.add(checkpoint)
+    session.commit()
+
+    response = client.get(f"/tasks/{task.id}/review-items")
+
+    assert response.status_code == 200
+    proposal = session.execute(
+        text(
+            """
+            SELECT id, run_id, proposal_type, target_type, target_ref,
+                   proposed_value, confidence, risk_level, status
+            FROM agent_proposals
+            WHERE id = :proposal_id
+            """
+        ),
+        {"proposal_id": f"task-{task.id}-field-{field.id}"},
+    ).mappings().one()
+    assert proposal["run_id"] == f"task-{task.id}"
+    assert proposal["proposal_type"] == "field_value"
+    assert proposal["target_type"] == "form_field"
+    assert proposal["target_ref"] == str(field.id)
+    assert json.loads(proposal["proposed_value"]) == "ada@example.com"
+    assert proposal["confidence"] == 0.99
+    assert proposal["risk_level"] == "low"
+    assert proposal["status"] == "PENDING"
+
+    evidence = session.execute(
+        text(
+            """
+            SELECT id, run_id, proposal_id, source_type, source_id,
+                   source_title, section_title, quote_or_summary, score
+            FROM agent_evidence_items
+            WHERE proposal_id = :proposal_id
+            """
+        ),
+        {"proposal_id": f"task-{task.id}-field-{field.id}"},
+    ).mappings().one()
+    assert evidence["run_id"] == f"task-{task.id}"
+    assert evidence["source_type"] == "memory"
+    assert evidence["source_id"] == "7"
+    assert evidence["source_title"] == "Reviewed memory"
+    assert evidence["section_title"] == "email"
+    assert evidence["quote_or_summary"] == "Reviewed memory suggests profile.email (reviewed)."
+    assert evidence["score"] == 0.84
+
+
 def test_review_items_include_memory_write_proposals_for_reusable_mappings(
     test_environment: tuple[TestClient, Session],
 ) -> None:
@@ -323,6 +396,60 @@ def test_review_item_decision_edits_existing_field_mapping(
     assert payload["proposal_id"] == f"task-{task.id}-field-{field.id}"
     assert payload["decision"] == "edited"
     assert payload["edited_value"] == "ada@example.com"
+    session.refresh(field)
+    assert field.mapped_value == "ada@example.com"
+    assert field.confidence == 1.0
+
+
+def test_review_item_decision_persists_review_decision(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify proposal decisions are double-written without replacing FormField sync."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_value = "old@example.com"
+    field.confidence = 0.5
+    session.commit()
+
+    response = client.post(
+        f"/tasks/{task.id}/review-items/task-{task.id}-field-{field.id}/decision",
+        json={
+            "decision": "edited",
+            "edited_value": "ada@example.com",
+            "reviewer_note": "Use current contact address.",
+        },
+    )
+
+    assert response.status_code == 200
+    decision = session.execute(
+        text(
+            """
+            SELECT id, proposal_id, decision, edited_value, reviewer_note
+            FROM agent_review_decisions
+            WHERE proposal_id = :proposal_id
+            """
+        ),
+        {"proposal_id": f"task-{task.id}-field-{field.id}"},
+    ).mappings().one()
+    assert decision["id"] == f"decision-task-{task.id}-field-{field.id}"
+    assert decision["decision"] == "edited"
+    assert json.loads(decision["edited_value"]) == "ada@example.com"
+    assert decision["reviewer_note"] == "Use current contact address."
+
+    proposal = session.execute(
+        text(
+            """
+            SELECT status, proposed_value
+            FROM agent_proposals
+            WHERE id = :proposal_id
+            """
+        ),
+        {"proposal_id": f"task-{task.id}-field-{field.id}"},
+    ).mappings().one()
+    assert proposal["status"] == "EDITED"
+    assert json.loads(proposal["proposed_value"]) == "ada@example.com"
+
     session.refresh(field)
     assert field.mapped_value == "ada@example.com"
     assert field.confidence == 1.0
