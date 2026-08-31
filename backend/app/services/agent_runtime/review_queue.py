@@ -84,6 +84,38 @@ def load_persisted_task_review_proposals(
     return [_proposal_from_row(row) for row in rows]
 
 
+def load_or_create_task_review_proposals(
+    db: Session,
+    *,
+    task: Task,
+    fields: list[FormField],
+    checkpoints: list[TaskCheckpoint],
+) -> list[Proposal]:
+    """Return persisted review proposals, backfilling only missing legacy rows."""
+
+    persisted = load_persisted_task_review_proposals(db, task=task)
+    persisted_ids = {proposal.id for proposal in persisted}
+    persisted_field_refs = {
+        proposal.target_ref
+        for proposal in persisted
+        if proposal.target_type == "form_field"
+    }
+    derived = build_task_review_proposals(
+        task=task,
+        fields=fields,
+        checkpoints=checkpoints,
+    )
+    missing = [
+        proposal
+        for proposal in derived
+        if proposal.id not in persisted_ids
+        and proposal.target_ref not in persisted_field_refs
+    ]
+    if missing:
+        persist_task_review_proposals(db, task=task, proposals=missing)
+    return persisted + missing
+
+
 def load_persisted_task_review_proposal(
     db: Session,
     *,
@@ -568,6 +600,7 @@ def _evidence_id(task_id: int, field_id: int, kind: str, index: int) -> str:
 
 __all__ = [
     "build_task_review_proposals",
+    "load_or_create_task_review_proposals",
     "load_persisted_task_review_proposal",
     "load_persisted_task_review_proposals",
     "persist_review_decision",

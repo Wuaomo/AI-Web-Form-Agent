@@ -112,7 +112,7 @@ from app.services.agent_step_timeline import build_agent_steps_for_task
 from app.services.agent_runtime.form_field_persistence import replace_task_form_fields
 from app.services.agent_runtime.review_queue import (
     build_task_review_proposals,
-    load_persisted_task_review_proposals,
+    load_or_create_task_review_proposals,
     persist_review_decision,
     persist_task_review_proposals,
     resolve_task_review_item_target,
@@ -1471,10 +1471,6 @@ def list_task_review_items(
     """Return generic proposal review items for the existing mapping review path."""
 
     task = get_task_or_404(task_id, db)
-    persisted_proposals = load_persisted_task_review_proposals(db, task=task)
-    if persisted_proposals:
-        return persisted_proposals
-
     fields = list(
         db.scalars(
             select(FormField)
@@ -1483,12 +1479,12 @@ def list_task_review_items(
         )
     )
     checkpoints = list_checkpoints(task_id=task_id, db=db)
-    proposals = build_task_review_proposals(
+    proposals = load_or_create_task_review_proposals(
+        db,
         task=task,
         fields=fields,
         checkpoints=checkpoints,
     )
-    persist_task_review_proposals(db, task=task, proposals=proposals)
     db.commit()
     return proposals
 

@@ -454,6 +454,68 @@ def test_review_items_restore_persisted_proposals_before_deriving_from_fields(
     assert evidence_payload["score"] == 0.77
 
 
+def test_review_items_backfill_missing_persisted_field_proposals(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify persisted proposals stay authoritative without hiding new fields."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_profile_key = "email"
+    field.mapped_value = "form-field@example.com"
+    field.confidence = 0.99
+    second_field = FormField(
+        task_id=task.id,
+        label="Phone",
+        selector="#phone",
+        field_type="tel",
+        mapped_profile_key="phone",
+        mapped_value="123-456",
+        confidence=0.91,
+    )
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review persisted items.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"task-{task.id}-field-{field.id}",
+        run=run,
+        proposal_type="answer",
+        target_type="form_field",
+        target_ref=str(field.id),
+        proposed_value="persisted answer",
+        rationale="Persisted proposal should win.",
+        confidence=0.42,
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([run, proposal, second_field])
+    session.commit()
+
+    response = client.get(f"/tasks/{task.id}/review-items")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["id"] for item in payload] == [
+        proposal.id,
+        f"task-{task.id}-field-{second_field.id}",
+        f"task-{task.id}-field-{second_field.id}-memory-mapping",
+    ]
+    assert payload[0]["proposed_value"] == "persisted answer"
+    assert payload[1]["proposed_value"] == "123-456"
+    assert session.get(
+        AgentProposal,
+        f"task-{task.id}-field-{second_field.id}",
+    ) is not None
+
+
 def test_review_items_restore_tool_created_governed_proposals(
     test_environment: tuple[TestClient, Session],
 ) -> None:
