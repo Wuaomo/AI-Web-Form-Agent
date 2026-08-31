@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Generator
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -29,7 +30,11 @@ from app.services.agent_runtime.governed_agent_graph import (
     _reset_governed_runtime_for_tests,
 )
 from app.services.agent_runtime.tool_runtime import AgentTool, ToolExecutionContext, ToolRuntime
-from app.services.agent_runtime.state_store import save_governed_runtime_state
+from app.services.agent_runtime.schemas import GovernanceDecision, ToolResult
+from app.services.agent_runtime.state_store import (
+    save_fill_form_runtime_state,
+    save_governed_runtime_state,
+)
 
 
 def _clear_runtime_state() -> None:
@@ -1312,6 +1317,56 @@ def test_save_governed_runtime_state_persists_raw_verification_fallbacks() -> No
     ]
     assert rows[1].target_ref == "bad-screenshot"
     assert rows[1].screenshot_id is None
+
+    client.close()
+    session.close()
+
+
+def test_save_fill_form_runtime_state_uses_selector_when_field_id_missing() -> None:
+    """Legacy fill verification falls back to selector as generic target ref."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+
+    save_fill_form_runtime_state(
+        session,
+        task=task,
+        tool_result=ToolResult(
+            tool_call_id=f"task-{task.id}:fill_form",
+            status="SUCCEEDED",
+            governance_decision=GovernanceDecision(
+                decision="VERIFY_REQUIRED",
+                reason="Approved browser write requires verification after execution.",
+                risk_level="medium",
+            ),
+            output_json={
+                "filled_count": 1,
+                "screenshot_id": 23,
+                "verification_count": 1,
+            },
+        ),
+        verification_data=[
+            SimpleNamespace(
+                field_id=None,
+                selector="#email",
+                expected_value="ada@example.com",
+                actual_value="ada@example.com",
+                status="VERIFIED",
+                reason=None,
+            )
+        ],
+    )
+
+    verification = session.get(
+        AgentVerificationResult,
+        f"task-{task.id}:fill_form:verification:0",
+    )
+    assert verification is not None
+    assert verification.target_ref == "#email"
+    assert verification.expected == "ada@example.com"
+    assert verification.actual == "ada@example.com"
+    assert verification.screenshot_id == 23
 
     client.close()
     session.close()
