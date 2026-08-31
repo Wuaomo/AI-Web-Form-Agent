@@ -125,6 +125,7 @@ def create_governed_proposal(
     proposal_id: str,
     proposal_type: str = "field_value",
     target_type: str = "form_field",
+    target_ref: str = "1",
     proposed_value: str = "old@example.com",
 ) -> AgentProposal:
     run = AgentRun(
@@ -143,7 +144,7 @@ def create_governed_proposal(
         run=run,
         proposal_type=proposal_type,
         target_type=target_type,
-        target_ref="1",
+        target_ref=target_ref,
         proposed_value=proposed_value,
         rationale="Review governed proposal.",
         confidence=0.8,
@@ -1120,6 +1121,42 @@ def test_governed_review_decision_edit_updates_proposed_value() -> None:
     session.refresh(proposal)
     assert proposal.status == "EDITED"
     assert proposal.proposed_value == "new@example.com"
+    session.close()
+
+
+def test_governed_review_decision_approve_syncs_form_field_value() -> None:
+    """POST /governed decision keeps the legacy fill path in sync."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    field = FormField(
+        task_id=task.id,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        mapped_value="stale@example.com",
+        confidence=0.5,
+    )
+    session.add(field)
+    session.commit()
+    proposal = create_governed_proposal(
+        session,
+        task,
+        proposal_id=f"governed-field-sync-{task.id}",
+        target_ref=str(field.id),
+        proposed_value="persisted@example.com",
+    )
+
+    response = client.post(
+        f"/workflows/{task.id}/governed/review-items/{proposal.id}/decision",
+        json={"decision": "approved"},
+    )
+
+    assert response.status_code == 200
+    session.refresh(field)
+    assert field.mapped_value == "persisted@example.com"
+    assert field.confidence == 1.0
     session.close()
 
 

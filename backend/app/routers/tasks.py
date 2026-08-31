@@ -111,6 +111,7 @@ from app.services.workflow_trace_service import safe_create_span, safe_finish_sp
 from app.services.agent_step_timeline import build_agent_steps_for_task
 from app.services.agent_runtime.form_field_persistence import replace_task_form_fields
 from app.services.agent_runtime.review_queue import (
+    apply_review_decision_to_field_target,
     build_task_review_proposals,
     load_or_create_task_review_proposals,
     persist_review_decision,
@@ -1514,20 +1515,13 @@ def apply_task_review_item_decision(
         if request.edited_value is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="edited_value is required for edited decisions",
-            )
-    if field is not None and request.decision == "edited":
-        field.mapped_value = str(request.edited_value)
-        field.confidence = 1.0
-    elif field is not None and request.decision == "approved":
-        if target.proposal is not None:
-            value = target.proposal.proposed_value
-            field.mapped_value = str(value) if value is not None else None
-        field.confidence = 1.0 if field.mapped_value is not None else field.confidence
-    elif field is not None and request.decision == "rejected":
-        field.mapped_profile_key = None
-        field.mapped_value = None
-        field.confidence = None
+            detail="edited_value is required for edited decisions",
+        )
+    apply_review_decision_to_field_target(
+        target,
+        decision=request.decision,
+        edited_value=request.edited_value,
+    )
 
     if field is not None and target.proposal is None:
         checkpoints = list_checkpoints(task_id=task_id, db=db)

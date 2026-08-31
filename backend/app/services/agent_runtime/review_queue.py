@@ -155,15 +155,40 @@ def resolve_task_review_item_target(
         if proposal.target_type != "form_field":
             return ReviewItemTarget(proposal, None, False)
         if not proposal.target_ref.isdigit():
-            return None
+            return ReviewItemTarget(proposal, None, False)
         field = _task_field(db, task.id, int(proposal.target_ref))
-        return ReviewItemTarget(proposal, field, True) if field else None
+        return ReviewItemTarget(proposal, field, field is not None)
 
     field_id = _field_id_from_review_proposal_id(task.id, proposal_id)
     if field_id is None:
         return None
     field = _task_field(db, task.id, field_id)
     return ReviewItemTarget(None, field, True) if field else None
+
+
+def apply_review_decision_to_field_target(
+    target: ReviewItemTarget,
+    *,
+    decision: str,
+    edited_value: Any = None,
+) -> None:
+    """Sync a proposal review decision back to the legacy FormField row."""
+
+    field = target.field
+    if field is None:
+        return
+    if decision == "edited":
+        field.mapped_value = str(edited_value)
+        field.confidence = 1.0
+    elif decision == "approved":
+        if target.proposal is not None:
+            value = target.proposal.proposed_value
+            field.mapped_value = str(value) if value is not None else None
+        field.confidence = 1.0 if field.mapped_value is not None else field.confidence
+    elif decision == "rejected":
+        field.mapped_profile_key = None
+        field.mapped_value = None
+        field.confidence = None
 
 
 def persist_task_review_proposals(
@@ -604,6 +629,7 @@ def _evidence_id(task_id: int, field_id: int, kind: str, index: int) -> str:
 
 
 __all__ = [
+    "apply_review_decision_to_field_target",
     "build_task_review_proposals",
     "load_or_create_task_review_proposals",
     "load_persisted_task_review_proposal",

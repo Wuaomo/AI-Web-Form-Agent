@@ -28,8 +28,9 @@ from app.services.agent_runtime import (
     start_runtime,
 )
 from app.services.agent_runtime.review_queue import (
-    load_persisted_task_review_proposal,
+    apply_review_decision_to_field_target,
     persist_review_decision,
+    resolve_task_review_item_target,
 )
 from app.services.agent_runtime.schemas import ReviewDecision, RunMode
 from app.services.agent_runtime.state_store import (
@@ -402,12 +403,8 @@ def apply_governed_review_item_decision(
 
     task = _get_task_or_404(db, task_id)
     _ensure_governed_workflow(task)
-    proposal = load_persisted_task_review_proposal(
-        db,
-        task=task,
-        proposal_id=proposal_id,
-    )
-    if proposal is None:
+    target = resolve_task_review_item_target(db, task=task, proposal_id=proposal_id)
+    if target is None or target.proposal is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Review item not found",
@@ -424,6 +421,11 @@ def apply_governed_review_item_decision(
         decision=request.decision,
         edited_value=request.edited_value,
         reviewer_note=request.reviewer_note,
+    )
+    apply_review_decision_to_field_target(
+        target,
+        decision=request.decision,
+        edited_value=request.edited_value,
     )
     persist_review_decision(db, decision=decision)
     db.commit()
