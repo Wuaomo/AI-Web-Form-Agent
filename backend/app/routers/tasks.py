@@ -1520,6 +1520,9 @@ def apply_task_review_item_decision(
         field.mapped_value = str(request.edited_value)
         field.confidence = 1.0
     elif field is not None and request.decision == "approved":
+        if target.proposal is not None:
+            value = target.proposal.proposed_value
+            field.mapped_value = str(value) if value is not None else None
         field.confidence = 1.0 if field.mapped_value is not None else field.confidence
     elif field is not None and request.decision == "rejected":
         field.mapped_profile_key = None

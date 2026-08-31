@@ -1015,6 +1015,52 @@ def test_review_item_decision_uses_persisted_form_field_target_ref(
     assert field.confidence == 1.0
 
 
+def test_review_item_decision_approve_syncs_persisted_proposal_value(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify approve uses the persisted proposal value as the field value."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_value = "stale-field@example.com"
+    field.confidence = 0.5
+    run = AgentRun(
+        id=f"persisted-approve-run-{task.id}",
+        legacy_task_id=task.id,
+        goal="Approve persisted proposal value.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"persisted-approve-{task.id}",
+        run=run,
+        proposal_type="field_value",
+        target_type="form_field",
+        target_ref=str(field.id),
+        proposed_value="persisted@example.com",
+        rationale="Review persisted value.",
+        confidence=0.8,
+        risk_level="low",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+
+    response = client.post(
+        f"/tasks/{task.id}/review-items/{proposal.id}/decision",
+        json={"decision": "approved"},
+    )
+
+    assert response.status_code == 200
+    session.refresh(field)
+    assert field.mapped_value == "persisted@example.com"
+    assert field.confidence == 1.0
+
+
 def test_review_queue_resolves_persisted_form_field_target(
     test_environment: tuple[TestClient, Session],
 ) -> None:
