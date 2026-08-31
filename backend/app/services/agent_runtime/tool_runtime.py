@@ -8,7 +8,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.services.agent_runtime.governance import GovernanceEngine
-from app.services.agent_runtime.schemas import GovernanceDecision, RiskLevel, ToolResult
+from app.services.agent_runtime.schemas import (
+    GovernanceDecision,
+    RiskLevel,
+    ToolResult,
+    VerificationCandidate,
+)
 from app.services.workflow_trace_service import create_span, finish_span
 from app.workflow_constants import SPAN_STATUS_FAILED, SPAN_STATUS_SUCCESS
 
@@ -169,6 +174,7 @@ class ToolRuntime:
                 governance_decision=governance_decision,
             )
 
+        verification_candidates = _pop_verification_candidates(output)
         _finish_trace_span(
             execution_context,
             span,
@@ -181,6 +187,7 @@ class ToolRuntime:
             status="SUCCEEDED",
             governance_decision=governance_decision,
             output_json=output,
+            verification_candidates=verification_candidates,
         )
 
 
@@ -300,6 +307,17 @@ def _summarize_output(output: dict[str, Any]) -> dict[str, Any]:
         for key, value in output.items()
         if isinstance(value, str | int | float | bool) or value is None
     }
+
+
+def _pop_verification_candidates(output: dict[str, Any]) -> list[VerificationCandidate]:
+    raw = output.pop("_verification_candidates", [])
+    if not isinstance(raw, list):
+        return []
+    return [
+        VerificationCandidate.model_validate(item)
+        for item in raw
+        if isinstance(item, dict)
+    ]
 
 
 __all__ = [

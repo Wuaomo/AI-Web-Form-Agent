@@ -162,6 +162,14 @@ def build_default_tool_runtime(
             "filled_count": len(tool_input["fields"]),
             "screenshot_id": screenshot_id,
             "verification_count": len(verification),
+            "_verification_candidates": [
+                _field_verification_candidate(
+                    item,
+                    run_id=str(context.run_id or f"task-{tool_input['task_id']}"),
+                    screenshot_id=screenshot_id,
+                )
+                for item in verification
+            ],
         }
         return output
 
@@ -352,6 +360,24 @@ def _mapped_field_to_dict(field: object) -> dict[str, Any]:
         "mapped_profile_key": getattr(field, "mapped_profile_key"),
         "mapped_value": getattr(field, "mapped_value"),
         "confidence": getattr(field, "confidence"),
+    }
+
+
+def _field_verification_candidate(
+    item: object,
+    *,
+    run_id: str,
+    screenshot_id: int | None,
+) -> dict[str, Any]:
+    field_id = getattr(item, "field_id", None)
+    selector = str(getattr(item, "selector", ""))
+    return {
+        "run_id": run_id,
+        "target_ref": str(field_id) if field_id is not None else selector,
+        "verification_type": "field_value",
+        "expected": getattr(item, "expected_value", None),
+        "evidence_required": ["dom_value"],
+        "screenshot_id": screenshot_id,
     }
 
 
