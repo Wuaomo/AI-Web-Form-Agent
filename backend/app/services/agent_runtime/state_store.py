@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import AgentPlan, AgentRun, Task
+from app.models import AgentPlan, AgentRun, AgentToolCall, AgentToolResult, Task
 from app.workflow_constants import WORKFLOW_TYPE_FORM_FILL
 
 
@@ -77,6 +77,13 @@ def save_governed_runtime_state(
         plan.steps = list(plan_payload.get("steps") or [])
         plan.created_by = str(plan_payload.get("created_by") or run.mode)
 
+    _save_tool_calls_and_results(
+        db,
+        run_id=run_id,
+        plan_payload=plan_payload,
+        raw_state=raw_state,
+    )
+
     db.commit()
     db.refresh(run)
     return run
@@ -98,6 +105,8 @@ def restore_governed_runtime_state(
         return None
 
     plan = _load_current_plan(db, run)
+    tool_calls = _load_tool_calls(db, run, plan)
+    current_tool_call = _current_tool_call_payload(tool_calls, run.status)
     return {
         "run_id": run.id,
         "task_id": task.id,
@@ -124,9 +133,17 @@ def restore_governed_runtime_state(
             "updated_at": run.updated_at,
         },
         "plan": _plan_payload(plan),
-        "current_tool_call": None,
-        "governance_decision": None,
-        "tool_results": [],
+        "current_tool_call": current_tool_call,
+        "governance_decision": (
+            current_tool_call.get("governance_decision")
+            if current_tool_call
+            else None
+        ),
+        "tool_results": [
+            _tool_result_payload(call.result)
+            for call in tool_calls
+            if call.result is not None
+        ],
         "verification_result": {},
         "error": run.error,
     }
@@ -156,6 +173,217 @@ def _plan_payload(plan: AgentPlan | None) -> dict[str, Any]:
         "created_by": plan.created_by,
         "created_at": plan.created_at,
     }
+
+
+def _save_tool_calls_and_results(
+    db: Session,
+    *,
+    run_id: str,
+    plan_payload: dict[str, Any],
+    raw_state: dict[str, Any],
+) -> None:
+    steps = _steps_by_id(plan_payload)
+    saved_call_ids: set[str] = set()
+    for result_payload in _dict_items(raw_state.get("tool_results")):
+        call_id = str(result_payload.get("tool_call_id") or "")
+        if not call_id:
+            continue
+        call_payload = _tool_call_from_result(
+            run_id=run_id,
+            result_payload=result_payload,
+            steps=steps,
+        )
+        _upsert_tool_call(db, call_payload)
+        _upsert_tool_result(db, call_id, result_payload)
+        saved_call_ids.add(call_id)
+
+    current = raw_state.get("current_tool_call")
+    if not isinstance(current, dict):
+        return
+    current_id = str(current.get("id") or "")
+    if not current_id or current_id in saved_call_ids:
+        return
+    _upsert_tool_call(
+        db,
+        {
+            **current,
+            "run_id": run_id,
+            "governance_decision": raw_state.get("governance_decision") or {},
+        },
+    )
+
+
+def _tool_call_from_result(
+    *,
+    run_id: str,
+    result_payload: dict[str, Any],
+    steps: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    call_id = str(result_payload["tool_call_id"])
+    plan_step_id = _plan_step_id_from_tool_call_id(call_id, steps)
+    step = steps.get(plan_step_id or "", {})
+    governance = _dict_value(result_payload.get("governance_decision"))
+    return {
+        "id": call_id,
+        "run_id": run_id,
+        "plan_step_id": plan_step_id,
+        "tool_name": step.get("tool_name") or "",
+        "input_json": step.get("input_json") or {},
+        "status": result_payload.get("status") or "FAILED",
+        "risk_level": step.get("risk_level") or governance.get("risk_level") or "low",
+        "governance_decision": governance,
+        "error": result_payload.get("error"),
+    }
+
+
+def _upsert_tool_call(db: Session, payload: dict[str, Any]) -> AgentToolCall:
+    call_id = str(payload["id"])
+    call = db.get(AgentToolCall, call_id)
+    if call is None:
+        call = AgentToolCall(
+            id=call_id,
+            run_id=str(payload["run_id"]),
+            tool_name=str(payload.get("tool_name") or ""),
+            input_payload_json="{}",
+            status=str(payload.get("status") or "PENDING"),
+            risk_level=str(payload.get("risk_level") or "low"),
+        )
+        db.add(call)
+
+    call.run_id = str(payload["run_id"])
+    call.plan_step_id = (
+        str(payload["plan_step_id"]) if payload.get("plan_step_id") else None
+    )
+    call.tool_name = str(payload.get("tool_name") or "")
+    call.input_json = _dict_value(payload.get("input_json"))
+    call.status = str(payload.get("status") or "PENDING")
+    call.risk_level = str(payload.get("risk_level") or "low")
+    call.governance_decision = _dict_value(payload.get("governance_decision"))
+    call.error = payload.get("error")
+    return call
+
+
+def _upsert_tool_result(
+    db: Session,
+    tool_call_id: str,
+    payload: dict[str, Any],
+) -> AgentToolResult:
+    result = db.get(AgentToolResult, tool_call_id)
+    if result is None:
+        result = AgentToolResult(
+            tool_call_id=tool_call_id,
+            status=str(payload.get("status") or "FAILED"),
+            output_payload_json="{}",
+            evidence_items_json="[]",
+            created_proposals_json="[]",
+            verification_candidates_json="[]",
+        )
+        db.add(result)
+
+    result.status = str(payload.get("status") or "FAILED")
+    result.output_json = _dict_value(payload.get("output_json"))
+    result.evidence_items = _dict_items(payload.get("evidence_items"))
+    result.created_proposals = _dict_items(payload.get("created_proposals"))
+    result.verification_candidates = _dict_items(
+        payload.get("verification_candidates")
+    )
+    result.error = payload.get("error")
+    return result
+
+
+def _load_tool_calls(
+    db: Session,
+    run: AgentRun,
+    plan: AgentPlan | None,
+) -> list[AgentToolCall]:
+    calls = list(
+        db.execute(
+            select(AgentToolCall).where(AgentToolCall.run_id == run.id)
+        ).scalars()
+    )
+    step_order = {
+        step.get("step_id"): index
+        for index, step in enumerate((plan.steps if plan else []))
+        if step.get("step_id")
+    }
+    return sorted(
+        calls,
+        key=lambda call: (
+            step_order.get(call.plan_step_id, len(step_order)),
+            call.created_at,
+            call.id,
+        ),
+    )
+
+
+def _current_tool_call_payload(
+    tool_calls: list[AgentToolCall],
+    run_status: str,
+) -> dict[str, Any] | None:
+    if run_status not in {"WAITING_REVIEW", "WAITING_APPROVAL", "BLOCKED"}:
+        return None
+    for call in reversed(tool_calls):
+        if call.result is None:
+            return _tool_call_payload(call)
+    return _tool_call_payload(tool_calls[-1]) if tool_calls else None
+
+
+def _tool_call_payload(call: AgentToolCall) -> dict[str, Any]:
+    return {
+        "id": call.id,
+        "run_id": call.run_id,
+        "plan_step_id": call.plan_step_id,
+        "tool_name": call.tool_name,
+        "input_json": call.input_json,
+        "status": call.status,
+        "risk_level": call.risk_level,
+        "governance_decision": call.governance_decision,
+        "started_at": call.started_at,
+        "completed_at": call.completed_at,
+        "error": call.error,
+    }
+
+
+def _tool_result_payload(result: AgentToolResult) -> dict[str, Any]:
+    return {
+        "tool_call_id": result.tool_call_id,
+        "status": result.status,
+        "governance_decision": result.tool_call.governance_decision,
+        "output_json": result.output_json,
+        "evidence_items": result.evidence_items,
+        "created_proposals": result.created_proposals,
+        "verification_candidates": result.verification_candidates,
+        "error": result.error,
+        "created_at": result.created_at,
+    }
+
+
+def _steps_by_id(plan_payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        str(step["step_id"]): step
+        for step in _dict_items(plan_payload.get("steps"))
+        if step.get("step_id")
+    }
+
+
+def _plan_step_id_from_tool_call_id(
+    tool_call_id: str,
+    steps: dict[str, dict[str, Any]],
+) -> str | None:
+    for step_id in steps:
+        if tool_call_id.endswith(f":{step_id}"):
+            return step_id
+    return None
+
+
+def _dict_value(value: object) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _dict_items(value: object) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
 
 
 def _interrupt_for_status(status: str) -> str | None:

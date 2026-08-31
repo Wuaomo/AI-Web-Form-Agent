@@ -329,6 +329,99 @@ def test_governed_start_persists_agent_run_and_plan() -> None:
     session.close()
 
 
+def test_governed_start_persists_tool_calls_and_results() -> None:
+    """POST /governed/start double-writes compact ToolCall and raw ToolResult rows."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    runtime = ToolRuntime(
+        [
+            make_runtime_tool(
+                "extract_form",
+                {
+                    "fields": [],
+                    "field_count": 0,
+                    "login_required": False,
+                    "raw_output_json": "persist but do not expose",
+                },
+            ),
+            make_runtime_tool(
+                "map_fields",
+                {"fields": [], "field_count": 0, "mapped_count": 0},
+            ),
+        ]
+    )
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+
+    assert response.status_code == 200
+
+    call_rows = session.execute(
+        text(
+            """
+            SELECT id, run_id, plan_step_id, tool_name, status,
+                   risk_level, governance_decision_json, error
+            FROM agent_tool_calls
+            WHERE run_id = :run_id
+            ORDER BY plan_step_id
+            """
+        ),
+        {"run_id": f"task-{task.id}"},
+    ).mappings().all()
+    assert [
+        {
+            "id": row["id"],
+            "plan_step_id": row["plan_step_id"],
+            "tool_name": row["tool_name"],
+            "status": row["status"],
+            "risk_level": row["risk_level"],
+            "governance_decision": json.loads(row["governance_decision_json"])["decision"],
+            "error": row["error"],
+        }
+        for row in call_rows
+    ] == [
+        {
+            "id": f"task-{task.id}:extract_form",
+            "plan_step_id": "extract_form",
+            "tool_name": "extract_form",
+            "status": "SUCCEEDED",
+            "risk_level": "low",
+            "governance_decision": "ALLOW",
+            "error": None,
+        },
+        {
+            "id": f"task-{task.id}:map_fields",
+            "plan_step_id": "map_fields",
+            "tool_name": "map_fields",
+            "status": "SUCCEEDED",
+            "risk_level": "medium",
+            "governance_decision": "RECORD_ONLY",
+            "error": None,
+        },
+    ]
+
+    result_row = session.execute(
+        text(
+            """
+            SELECT tool_call_id, status, output_json, error
+            FROM agent_tool_results
+            WHERE tool_call_id = :tool_call_id
+            """
+        ),
+        {"tool_call_id": f"task-{task.id}:extract_form"},
+    ).mappings().one()
+    assert result_row["status"] == "SUCCEEDED"
+    assert json.loads(result_row["output_json"])["raw_output_json"] == "persist but do not expose"
+    assert result_row["error"] is None
+    session.close()
+
+
 def test_governed_get_returns_last_compact_state_after_start() -> None:
     """GET /workflows/{task_id}/governed reloads the latest generic runtime state."""
 
@@ -394,7 +487,7 @@ def test_governed_get_returns_last_compact_state_after_start() -> None:
 
 
 def test_governed_get_restores_compact_state_from_db_when_memory_state_is_missing() -> None:
-    """GET /governed falls back to persisted AgentRun/AgentPlan compact state."""
+    """GET /governed falls back to persisted compact runtime state."""
 
     client, session = build_environment()
     profile = create_profile(session)
@@ -435,10 +528,117 @@ def test_governed_get_restores_compact_state_from_db_when_memory_state_is_missin
     assert payload["planner_mode"] == "deterministic"
     assert payload["status"] == "COMPLETED"
     assert payload["plan"]["created_by"] == "deterministic"
-    assert payload["tool_calls"] == []
-    assert payload["tool_result_count"] == 0
+    assert payload["tool_result_count"] == 2
+    assert payload["tool_calls"] == [
+        {
+            "tool_call_id": f"task-{task.id}:extract_form",
+            "plan_step_id": "extract_form",
+            "tool_name": "extract_form",
+            "status": "SUCCEEDED",
+            "governance_decision": "ALLOW",
+            "error": None,
+            "evidence_count": 0,
+            "proposal_count": 0,
+            "verification_candidate_count": 0,
+        },
+        {
+            "tool_call_id": f"task-{task.id}:map_fields",
+            "plan_step_id": "map_fields",
+            "tool_name": "map_fields",
+            "status": "SUCCEEDED",
+            "governance_decision": "RECORD_ONLY",
+            "error": None,
+            "evidence_count": 0,
+            "proposal_count": 0,
+            "verification_candidate_count": 0,
+        },
+    ]
     assert "raw_output_json" not in json.dumps(payload)
     assert "do not expose me" not in json.dumps(payload)
+    session.close()
+
+
+def test_governed_get_restores_paused_tool_call_governance_from_db() -> None:
+    """GET /governed restores paused tool-call governance after memory loss."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+
+    async def handler(
+        _context: ToolExecutionContext,
+        _tool_input: dict[str, object],
+    ) -> dict[str, object]:
+        return {"filled_count": 1}
+
+    runtime = ToolRuntime(
+        [
+            AgentTool(
+                name="fill_form",
+                description="Fill fields.",
+                input_schema={"type": "object", "properties": {}},
+                output_schema={},
+                risk_level="medium",
+                mutates_browser=True,
+                mutates_external_system=False,
+                trace_phase="fill",
+                handler=handler,
+            )
+        ]
+    )
+
+    class FakeAdapter:
+        def __init__(self, **_kwargs):
+            pass
+
+        def plan(self, _context):
+            return {
+                "steps": [
+                    {
+                        "step_id": "fill_form",
+                        "tool_name": "fill_form",
+                        "reason": "Fill only after review.",
+                        "input_json": {},
+                        "risk_level": "medium",
+                    }
+                ]
+            }
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.config.OPENAI_API_KEY", "test-key"), patch(
+        "app.routers.workflows.build_default_tool_runtime",
+        return_value=runtime,
+    ), patch(
+        "app.routers.workflows.OpenAIStructuredPlannerAdapter",
+        FakeAdapter,
+    ):
+        start_response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=llm_structured"
+        )
+    assert start_response.status_code == 200
+    assert start_response.json()["interrupt_at"] == "review"
+
+    _reset_governed_runtime_for_tests()
+    response = client.get(f"/workflows/{task.id}/governed")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["interrupt_at"] == "review"
+    assert payload["tool_result_count"] == 0
+    assert payload["tool_calls"] == [
+        {
+            "tool_call_id": f"task-{task.id}:fill_form",
+            "plan_step_id": "fill_form",
+            "tool_name": "fill_form",
+            "status": "WAITING_REVIEW",
+            "governance_decision": "REVIEW_REQUIRED",
+            "error": None,
+            "evidence_count": 0,
+            "proposal_count": 0,
+            "verification_candidate_count": 0,
+        }
+    ]
     session.close()
 
 
