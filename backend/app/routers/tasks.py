@@ -1530,7 +1530,7 @@ def apply_task_review_item_decision(
         field.mapped_value = None
         field.confidence = None
 
-    if field is not None:
+    if field is not None and target.proposal is None:
         checkpoints = list_checkpoints(task_id=task_id, db=db)
         fields = list(
             db.scalars(

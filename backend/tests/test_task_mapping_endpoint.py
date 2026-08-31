@@ -483,6 +483,81 @@ def test_review_items_restore_tool_created_governed_proposals(
     assert payload[0]["evidence"][0]["quote_or_summary"] == "Mapped from tool output."
 
 
+def test_review_items_restore_tool_created_governed_proposal_after_decision(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify task review decisions preserve tool-created proposal evidence."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_value = "derived@example.com"
+    proposal_id = f"tool-created-{task.id}"
+    evidence_id = f"{proposal_id}-evidence"
+    raw_state = {
+        "run_id": f"task-{task.id}",
+        "task_id": task.id,
+        "workflow_type": task.workflow_type,
+        "planner_mode": "deterministic",
+        "run": {
+            "id": f"task-{task.id}",
+            "goal": "Review tool-created proposal.",
+            "target_url": task.url,
+            "profile_id": task.profile_id,
+            "status": "WAITING_REVIEW",
+            "mode": "deterministic",
+        },
+        "tool_results": [
+            {
+                "tool_call_id": f"task-{task.id}:map_fields",
+                "status": "SUCCEEDED",
+                "created_proposals": [
+                    {
+                        "id": proposal_id,
+                        "run_id": f"task-{task.id}",
+                        "proposal_type": "field_value",
+                        "target_type": "form_field",
+                        "target_ref": str(field.id),
+                        "proposed_value": "tool@example.com",
+                        "rationale": "Tool-created proposal should persist.",
+                        "confidence": 0.91,
+                        "risk_level": "low",
+                        "status": "PENDING",
+                        "evidence": [
+                            {
+                                "id": evidence_id,
+                                "run_id": f"task-{task.id}",
+                                "proposal_id": proposal_id,
+                                "source_type": "tool_result",
+                                "source_title": "map_fields",
+                                "section_title": "Contact",
+                                "quote_or_summary": "Mapped from tool output.",
+                                "score": 0.82,
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    save_governed_runtime_state(session, task=task, raw_state=raw_state)
+
+    response = client.post(
+        f"/tasks/{task.id}/review-items/{proposal_id}/decision",
+        json={"decision": "edited", "edited_value": "edited@example.com"},
+    )
+    assert response.status_code == 200
+
+    response = client.get(f"/tasks/{task.id}/review-items")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["id"] for item in payload] == [proposal_id]
+    assert payload[0]["status"] == "EDITED"
+    assert payload[0]["proposed_value"] == "edited@example.com"
+    assert payload[0]["evidence"][0]["id"] == evidence_id
+    assert payload[0]["evidence"][0]["quote_or_summary"] == "Mapped from tool output."
+
+
 @pytest.mark.parametrize(
     ("decision", "expected_status"),
     [
