@@ -2321,13 +2321,13 @@ async def confirm_task_submission(
                 policy_decision=submit_policy,
                 proposed_action=submit_proposed_action,
             )
-            persist_submit_review_proposal(
-                db,
-                task=task,
-                approval_request=pending_submit_request,
-            )
             apply_workflow_status(task, WORKFLOW_STATUS_WAITING_APPROVAL, reason="submit_approval_created")
-            db.commit()
+        persist_submit_review_proposal(
+            db,
+            task=task,
+            approval_request=pending_submit_request,
+        )
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={

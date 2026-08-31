@@ -125,6 +125,38 @@ def test_confirm_submit_first_request_persists_submit_proposal(
     assert session.get(AgentRun, f"task-{task.id}") is not None
 
 
+def test_confirm_submit_existing_pending_approval_persists_submit_proposal(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task = create_task(session, "WAITING_APPROVAL")
+    field = session.scalar(select(FormField).where(FormField.task_id == task.id))
+    approval = ApprovalRequest(
+        task_id=task.id,
+        step_name="submit_form",
+        risk_type="final_submit",
+        risk_level="high",
+        decision="REVIEW_REQUIRED",
+        reason="Final submission requires explicit approval.",
+        status="PENDING",
+    )
+    approval.proposed_action = {
+        "action": "submit_form",
+        "fields": [{"field_id": field.id, "mapped_value": field.mapped_value}],
+    }
+    session.add(approval)
+    session.commit()
+
+    response = client.post(f"/tasks/{task.id}/confirm-submit")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["approval_id"] == approval.id
+    assert (
+        session.get(AgentProposal, f"task-{task.id}-submit-{approval.id}")
+        is not None
+    )
+
+
 def test_confirm_submit_second_request_submits_after_approval(
     test_environment: tuple[TestClient, Session],
 ) -> None:
