@@ -121,18 +121,20 @@ def save_fill_form_runtime_state(
                 "mode": "deterministic",
             },
             "plan": {
-                "id": f"task-{task.id}:browser-write-plan:1",
+                "id": _browser_write_plan_id(task),
                 "version": 1,
                 "goal": task.description or "Fill reviewed fields.",
-                "steps": [
-                    {
+                "steps": _browser_write_plan_steps(
+                    db,
+                    task=task,
+                    next_step={
                         "step_id": "fill_form",
                         "tool_name": "fill_form",
                         "reason": "Fill reviewed browser fields.",
                         "input_json": {"task_id": task.id},
                         "risk_level": "medium",
-                    }
-                ],
+                    },
+                ),
                 "created_by": "deterministic",
             },
             "tool_results": [tool_result.model_dump(mode="json")],
@@ -165,18 +167,20 @@ def save_submit_form_runtime_state(
                 "mode": "deterministic",
             },
             "plan": {
-                "id": f"task-{task.id}:browser-write-plan:1",
+                "id": _browser_write_plan_id(task),
                 "version": 1,
                 "goal": task.description or "Submit reviewed form.",
-                "steps": [
-                    {
+                "steps": _browser_write_plan_steps(
+                    db,
+                    task=task,
+                    next_step={
                         "step_id": "submit_form",
                         "tool_name": "submit_form",
                         "reason": "Submit the reviewed browser form.",
                         "input_json": {"task_id": task.id},
                         "risk_level": "high",
-                    }
-                ],
+                    },
+                ),
                 "created_by": "deterministic",
             },
             "tool_results": [tool_result.model_dump(mode="json")],
@@ -268,6 +272,25 @@ def _plan_payload(plan: AgentPlan | None) -> dict[str, Any]:
         "created_by": plan.created_by,
         "created_at": plan.created_at,
     }
+
+
+def _browser_write_plan_id(task: Task) -> str:
+    return f"task-{task.id}:browser-write-plan:1"
+
+
+def _browser_write_plan_steps(
+    db: Session,
+    *,
+    task: Task,
+    next_step: dict[str, Any],
+) -> list[dict[str, Any]]:
+    plan = db.get(AgentPlan, _browser_write_plan_id(task))
+    existing_steps = plan.steps if plan is not None else []
+    next_step_id = next_step["step_id"]
+    return [
+        *[step for step in existing_steps if step.get("step_id") != next_step_id],
+        next_step,
+    ]
 
 
 def _save_tool_calls_and_results(

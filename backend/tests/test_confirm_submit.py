@@ -13,6 +13,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base, get_db
 from app.models import (
     ActionLog,
+    AgentPlan,
     AgentProposal,
     AgentReviewDecision,
     AgentRun,
@@ -25,6 +26,8 @@ from app.models import (
 )
 from app.routers.approvals import router as approvals_router
 from app.routers.tasks import router as tasks_router
+from app.services.agent_runtime.schemas import GovernanceDecision, ToolResult
+from app.services.agent_runtime.state_store import save_fill_form_runtime_state
 
 
 @pytest.fixture
@@ -277,6 +280,48 @@ def test_confirm_submit_records_submit_runtime_tool_call(
         "field_count": 1,
         "screenshot_id": 5,
     }
+
+
+def test_confirm_submit_keeps_fill_and_submit_runtime_plan_steps(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task = create_task(session, "WAITING_APPROVAL")
+    save_fill_form_runtime_state(
+        session,
+        task=task,
+        tool_result=ToolResult(
+            tool_call_id=f"task-{task.id}:fill_form",
+            status="SUCCEEDED",
+            governance_decision=GovernanceDecision(
+                decision="VERIFY_REQUIRED",
+                reason="Approved browser write requires verification after execution.",
+                risk_level="medium",
+            ),
+            output_json={
+                "filled_count": 1,
+                "screenshot_id": 4,
+                "verification_count": 0,
+            },
+        ),
+    )
+
+    first_response = client.post(f"/tasks/{task.id}/confirm-submit")
+    approval_id = first_response.json()["detail"]["approval_id"]
+    approve_response = client.post(f"/approvals/{approval_id}/approve")
+    assert approve_response.status_code == 200
+
+    with patch(
+        "app.routers.tasks.submit_form_and_capture_screenshot",
+        new_callable=AsyncMock,
+    ) as submit_form:
+        submit_form.return_value = type("Screenshot", (), {"id": 5})()
+        response = client.post(f"/tasks/{task.id}/confirm-submit")
+
+    assert response.status_code == 200
+    plan = session.get(AgentPlan, f"task-{task.id}:browser-write-plan:1")
+    assert plan is not None
+    assert [step["step_id"] for step in plan.steps] == ["fill_form", "submit_form"]
 
 
 def test_confirm_submit_rejects_task_not_waiting_for_approval(
