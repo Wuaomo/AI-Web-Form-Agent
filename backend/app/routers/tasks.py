@@ -1516,20 +1516,22 @@ def apply_task_review_item_decision(
         task=task,
         proposal_id=proposal_id,
     )
-    field_id = (
-        _field_id_from_review_proposal_id(task_id, proposal_id)
-        if persisted_proposal is None
-        else int(persisted_proposal.target_ref)
-        if persisted_proposal.target_type == "form_field"
-        and persisted_proposal.target_ref.isdigit()
-        else None
-    )
-    if field_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Review item not found",
-        )
-    field = get_task_field_or_404(task_id, field_id, db)
+    field = None
+    if persisted_proposal is not None and persisted_proposal.target_type == "form_field":
+        if not persisted_proposal.target_ref.isdigit():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Review item not found",
+            )
+        field = get_task_field_or_404(task_id, int(persisted_proposal.target_ref), db)
+    elif persisted_proposal is None:
+        field_id = _field_id_from_review_proposal_id(task_id, proposal_id)
+        if field_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Review item not found",
+            )
+        field = get_task_field_or_404(task_id, field_id, db)
 
     if request.decision == "edited":
         if request.edited_value is None:
@@ -1537,32 +1539,34 @@ def apply_task_review_item_decision(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="edited_value is required for edited decisions",
             )
+    if field is not None and request.decision == "edited":
         field.mapped_value = str(request.edited_value)
         field.confidence = 1.0
-    elif request.decision == "approved":
+    elif field is not None and request.decision == "approved":
         field.confidence = 1.0 if field.mapped_value is not None else field.confidence
-    elif request.decision == "rejected":
+    elif field is not None and request.decision == "rejected":
         field.mapped_profile_key = None
         field.mapped_value = None
         field.confidence = None
 
-    checkpoints = list_checkpoints(task_id=task_id, db=db)
-    fields = list(
-        db.scalars(
-            select(FormField)
-            .where(FormField.task_id == task_id)
-            .order_by(FormField.id)
+    if field is not None:
+        checkpoints = list_checkpoints(task_id=task_id, db=db)
+        fields = list(
+            db.scalars(
+                select(FormField)
+                .where(FormField.task_id == task_id)
+                .order_by(FormField.id)
+            )
         )
-    )
-    persist_task_review_proposals(
-        db,
-        task=task,
-        proposals=build_task_review_proposals(
+        persist_task_review_proposals(
+            db,
             task=task,
-            fields=fields,
-            checkpoints=checkpoints,
-        ),
-    )
+            proposals=build_task_review_proposals(
+                task=task,
+                fields=fields,
+                checkpoints=checkpoints,
+            ),
+        )
     decision = ReviewDecision(
         id=f"decision-{proposal_id}",
         proposal_id=proposal_id,

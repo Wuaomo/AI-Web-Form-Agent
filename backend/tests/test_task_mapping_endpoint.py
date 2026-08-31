@@ -27,6 +27,7 @@ from app.models import (
     Screenshot,
     Task,
     TaskCheckpoint,
+    WorkflowMemoryItem,
 )
 from app.routers.approvals import router as approvals_router
 from app.routers.tasks import router as tasks_router
@@ -671,6 +672,108 @@ def test_review_item_decision_persists_review_decision(
     session.refresh(field)
     assert field.mapped_value == "ada@example.com"
     assert field.confidence == 1.0
+
+
+def test_review_item_decision_persists_non_field_decision_without_side_effects(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify non-field proposal decisions persist without changing form or memory."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_value = "old@example.com"
+    field.confidence = 0.5
+    run = AgentRun(
+        id=f"memory-run-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review memory proposal.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"memory-write-{task.id}",
+        run=run,
+        proposal_type="memory_write",
+        target_type="workflow_memory",
+        target_ref=str(field.id),
+        proposed_value="email",
+        rationale="Review memory write.",
+        confidence=0.8,
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+
+    response = client.post(
+        f"/tasks/{task.id}/review-items/{proposal.id}/decision",
+        json={"decision": "approved"},
+    )
+
+    assert response.status_code == 200
+    decision = session.get(AgentReviewDecision, f"decision-{proposal.id}")
+    assert decision is not None
+    assert decision.decision == "approved"
+    session.refresh(proposal)
+    assert proposal.status == "APPROVED"
+    session.refresh(field)
+    assert field.mapped_value == "old@example.com"
+    assert field.confidence == 0.5
+    assert session.query(WorkflowMemoryItem).count() == 0
+
+
+def test_review_item_decision_edits_non_field_proposed_value_only(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify edited non-field decisions only update the proposal value."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_value = "old@example.com"
+    field.confidence = 0.5
+    run = AgentRun(
+        id=f"edited-memory-run-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review edited memory proposal.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"edited-memory-write-{task.id}",
+        run=run,
+        proposal_type="memory_write",
+        target_type="workflow_memory",
+        target_ref=str(field.id),
+        proposed_value="email",
+        rationale="Review edited memory write.",
+        confidence=0.8,
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+
+    response = client.post(
+        f"/tasks/{task.id}/review-items/{proposal.id}/decision",
+        json={"decision": "edited", "edited_value": "support_email"},
+    )
+
+    assert response.status_code == 200
+    session.refresh(proposal)
+    assert proposal.status == "EDITED"
+    assert proposal.proposed_value == "support_email"
+    session.refresh(field)
+    assert field.mapped_value == "old@example.com"
+    assert field.confidence == 0.5
+    assert session.query(WorkflowMemoryItem).count() == 0
 
 
 def test_review_item_decision_rejects_existing_field_mapping(
