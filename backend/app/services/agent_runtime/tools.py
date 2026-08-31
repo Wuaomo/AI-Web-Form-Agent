@@ -157,11 +157,21 @@ def build_default_tool_runtime(
         if isinstance(sink, dict):
             sink["screenshot"] = screenshot
             sink["verification_data"] = verification
-        return {
+        screenshot_id = _int_id(screenshot)
+        output = {
             "filled_count": len(tool_input["fields"]),
-            "screenshot_id": getattr(screenshot, "id", None),
+            "screenshot_id": screenshot_id,
             "verification_count": len(verification),
         }
+        if verification:
+            output["verification_results"] = [
+                _field_verification_to_runtime_result(
+                    item,
+                    screenshot_id=screenshot_id,
+                )
+                for item in verification
+            ]
+        return output
 
     async def run_submit_form(
         context: ToolExecutionContext,
@@ -181,7 +191,7 @@ def build_default_tool_runtime(
         return {
             "submitted": True,
             "field_count": len(tool_input["fields"]),
-            "screenshot_id": getattr(screenshot, "id", None),
+            "screenshot_id": _int_id(screenshot),
         }
 
     runtime = ToolRuntime()
@@ -351,6 +361,30 @@ def _mapped_field_to_dict(field: object) -> dict[str, Any]:
         "mapped_value": getattr(field, "mapped_value"),
         "confidence": getattr(field, "confidence"),
     }
+
+
+def _field_verification_to_runtime_result(
+    item: object,
+    *,
+    screenshot_id: int | None,
+) -> dict[str, Any]:
+    field_id = getattr(item, "field_id", None)
+    selector = str(getattr(item, "selector", ""))
+    return {
+        "target_type": "field_value",
+        "target_ref": str(field_id) if field_id is not None else selector,
+        "verification_type": "field_value",
+        "expected": getattr(item, "expected_value", None),
+        "actual": getattr(item, "actual_value", None),
+        "status": str(getattr(item, "status", "FAILED")),
+        "reason": getattr(item, "reason", None),
+        "screenshot_id": screenshot_id,
+    }
+
+
+def _int_id(item: object) -> int | None:
+    value = getattr(item, "id", None)
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 __all__ = [

@@ -4,10 +4,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.models import AgentPlan, AgentRun, AgentToolCall, AgentToolResult, Task
+from app.models import (
+    AgentPlan,
+    AgentRun,
+    AgentToolCall,
+    AgentToolResult,
+    AgentVerificationResult,
+    Task,
+)
 from app.services.agent_runtime.review_queue import (
     persist_task_review_proposals,
     refresh_pending_review_count,
@@ -88,6 +95,7 @@ def save_governed_runtime_state(
         plan_payload=plan_payload,
         raw_state=raw_state,
     )
+    _save_verification_results(db, run_id=run_id, raw_state=raw_state)
     _save_created_proposals(db, task=task, run_id=run_id, raw_state=raw_state)
     refresh_pending_review_count(db, run_id=run_id)
 
@@ -407,6 +415,49 @@ def _upsert_tool_result(
     )
     result.error = payload.get("error")
     return result
+
+
+def _save_verification_results(
+    db: Session,
+    *,
+    run_id: str,
+    raw_state: dict[str, Any],
+) -> None:
+    for result in _dict_items(raw_state.get("tool_results")):
+        tool_call_id = str(result.get("tool_call_id") or "")
+        output = _dict_value(result.get("output_json"))
+        if not tool_call_id or "verification_results" not in output:
+            continue
+
+        db.execute(
+            delete(AgentVerificationResult).where(
+                AgentVerificationResult.tool_call_id == tool_call_id
+            )
+        )
+        screenshot_id = output.get("screenshot_id")
+        for index, item in enumerate(_dict_items(output.get("verification_results"))):
+            persisted = AgentVerificationResult(
+                id=str(item.get("id") or f"{tool_call_id}:verification:{index}"),
+                run_id=run_id,
+                tool_call_id=tool_call_id,
+                target_type=str(item.get("target_type") or "field_value"),
+                target_ref=str(item.get("target_ref") or ""),
+                verification_type=str(item.get("verification_type") or "field_value"),
+                expected_json="null",
+                actual_json="null",
+                status=str(item.get("status") or "FAILED"),
+                reason=item.get("reason"),
+                evidence_items_json="[]",
+                screenshot_id=(
+                    item.get("screenshot_id")
+                    if item.get("screenshot_id") is not None
+                    else screenshot_id
+                ),
+            )
+            persisted.expected = item.get("expected")
+            persisted.actual = item.get("actual")
+            persisted.evidence_items = _dict_items(item.get("evidence_items"))
+            db.add(persisted)
 
 
 def _save_created_proposals(
