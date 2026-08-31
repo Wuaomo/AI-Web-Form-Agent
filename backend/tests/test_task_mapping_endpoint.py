@@ -802,6 +802,67 @@ def test_review_items_restore_tool_created_governed_proposal_after_decision(
     assert payload[0]["evidence"][0]["quote_or_summary"] == "Mapped from tool output."
 
 
+def test_review_items_keep_edited_value_after_tool_proposal_replay(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify replayed pending proposals do not overwrite reviewed values."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    proposal_id = f"tool-created-{task.id}"
+    raw_state = {
+        "run_id": f"task-{task.id}",
+        "task_id": task.id,
+        "workflow_type": task.workflow_type,
+        "planner_mode": "deterministic",
+        "run": {
+            "id": f"task-{task.id}",
+            "goal": "Review replayed proposal.",
+            "target_url": task.url,
+            "profile_id": task.profile_id,
+            "status": "WAITING_REVIEW",
+            "mode": "deterministic",
+        },
+        "tool_results": [
+            {
+                "tool_call_id": f"task-{task.id}:map_fields",
+                "status": "SUCCEEDED",
+                "created_proposals": [
+                    {
+                        "id": proposal_id,
+                        "proposal_type": "field_value",
+                        "target_type": "form_field",
+                        "target_ref": str(field.id),
+                        "proposed_value": "tool@example.com",
+                        "rationale": "Tool-created proposal should persist.",
+                        "confidence": 0.91,
+                        "risk_level": "low",
+                        "status": "PENDING",
+                    }
+                ],
+            }
+        ],
+    }
+    save_governed_runtime_state(session, task=task, raw_state=raw_state)
+
+    response = client.post(
+        f"/tasks/{task.id}/review-items/{proposal_id}/decision",
+        json={"decision": "edited", "edited_value": "edited@example.com"},
+    )
+    assert response.status_code == 200
+
+    save_governed_runtime_state(session, task=task, raw_state=raw_state)
+    proposal = session.get(AgentProposal, proposal_id)
+    assert proposal is not None
+    assert proposal.proposed_value == "edited@example.com"
+    response = client.get(f"/tasks/{task.id}/review-items")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload[0]["status"] == "EDITED"
+    assert payload[0]["proposed_value"] == "edited@example.com"
+
+
 @pytest.mark.parametrize("decision", ["approved", "edited", "rejected"])
 def test_review_item_decision_decrements_pending_review_count_for_final_decisions(
     test_environment: tuple[TestClient, Session],

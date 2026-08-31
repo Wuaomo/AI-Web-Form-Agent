@@ -195,7 +195,8 @@ def persist_task_review_proposals(
         row.proposal_type = proposal.proposal_type
         row.target_type = proposal.target_type
         row.target_ref = proposal.target_ref
-        row.proposed_value = proposal.proposed_value
+        if row.status == "PENDING" or proposal.status != "PENDING":
+            row.proposed_value = proposal.proposed_value
         row.rationale = proposal.rationale
         row.confidence = proposal.confidence
         row.risk_level = proposal.risk_level
