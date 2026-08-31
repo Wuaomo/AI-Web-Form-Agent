@@ -473,6 +473,55 @@ def test_review_items_restore_latest_persisted_decision_status(
         assert payload[0]["proposed_value"] == "edited@example.com"
 
 
+def test_review_items_restore_memory_write_decision_value(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify persisted memory-write decisions restore through GET review-items."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review memory decisions.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"task-{task.id}-field-{field.id}-memory-mapping",
+        run=run,
+        proposal_type="memory_write",
+        target_type="workflow_memory",
+        target_ref=str(field.id),
+        proposed_value="email",
+        rationale="Review persisted memory decision.",
+        confidence=0.9,
+        risk_level="medium",
+        status="PENDING",
+    )
+    decision = AgentReviewDecision(
+        id=f"memory-decision-{task.id}",
+        proposal=proposal,
+        decision="edited",
+        created_at=datetime.now(timezone.utc),
+    )
+    decision.edited_value = "support_email"
+    session.add_all([run, proposal, decision])
+    session.commit()
+
+    response = client.get(f"/tasks/{task.id}/review-items")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload[0]["proposal_type"] == "memory_write"
+    assert payload[0]["status"] == "EDITED"
+    assert payload[0]["proposed_value"] == "support_email"
+
+
 def test_review_items_include_memory_write_proposals_for_reusable_mappings(
     test_environment: tuple[TestClient, Session],
 ) -> None:
