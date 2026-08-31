@@ -279,6 +279,47 @@ async def test_fill_form_wraps_browser_executor_after_approval() -> None:
 
 
 @pytest.mark.anyio
+async def test_submit_form_wraps_browser_executor_after_approval() -> None:
+    """Verify submit_form is available as an approved high-risk browser tool."""
+
+    screenshot = SimpleNamespace(id=13)
+    submit_handler = AsyncMock(return_value=screenshot)
+    fields = [SimpleNamespace(id=1), SimpleNamespace(id=2)]
+    runtime = build_default_tool_runtime(submit_form_handler=submit_handler)
+
+    result = await runtime.execute(
+        tool_call_id="task-7:submit_form",
+        tool_name="submit_form",
+        tool_input={
+            "task_id": 7,
+            "url": "https://example.com/form",
+            "profile_id": 3,
+            "fields": fields,
+        },
+        context=ToolExecutionContext(
+            metadata={"approved_tool_call_ids": ["task-7:submit_form"]}
+        ),
+    )
+
+    assert result.status == "SUCCEEDED"
+    assert result.governance_decision is not None
+    assert result.governance_decision.decision == "VERIFY_REQUIRED"
+    assert result.output_json == {
+        "submitted": True,
+        "field_count": 2,
+        "screenshot_id": 13,
+    }
+    submit_handler.assert_awaited_once_with(
+        task_id=7,
+        url="https://example.com/form",
+        profile_id=3,
+        fields=fields,
+        stage="submitted_form",
+        db=None,
+    )
+
+
+@pytest.mark.anyio
 async def test_tool_runtime_records_success_trace_when_task_context_exists() -> None:
     """Verify successful tool calls create and finish workflow trace spans."""
 

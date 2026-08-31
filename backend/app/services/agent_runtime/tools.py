@@ -12,7 +12,10 @@ from app.services.agent_runtime.tool_runtime import (
 )
 from app.services.field_mapper import map_fields_by_rules
 from app.services.form_extractor import extract_form_analysis
-from app.services.browser_executor import fill_form_and_capture_screenshot
+from app.services.browser_executor import (
+    fill_form_and_capture_screenshot,
+    submit_form_and_capture_screenshot,
+)
 
 
 EXTRACT_FORM_INPUT_SCHEMA: dict[str, Any] = {
@@ -74,12 +77,34 @@ FILL_FORM_OUTPUT_SCHEMA: dict[str, Any] = {
     },
 }
 
+SUBMIT_FORM_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["task_id", "url", "profile_id", "fields"],
+    "properties": {
+        "task_id": {"type": "integer"},
+        "url": {"type": "string"},
+        "profile_id": {"type": "integer"},
+        "fields": {"type": "array"},
+    },
+}
+
+SUBMIT_FORM_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["submitted", "field_count", "screenshot_id"],
+    "properties": {
+        "submitted": {"type": "boolean"},
+        "field_count": {"type": "integer"},
+        "screenshot_id": {"type": "integer"},
+    },
+}
+
 
 def build_default_tool_runtime(
     *,
     extract_form_analysis_handler=extract_form_analysis,
     map_fields_by_rules_handler=map_fields_by_rules,
     fill_form_handler=fill_form_and_capture_screenshot,
+    submit_form_handler=submit_form_and_capture_screenshot,
 ) -> ToolRuntime:
     """Return the default runtime with internal tools registered."""
 
@@ -138,6 +163,27 @@ def build_default_tool_runtime(
             "verification_count": len(verification),
         }
 
+    async def run_submit_form(
+        context: ToolExecutionContext,
+        tool_input: dict[str, Any],
+    ) -> dict[str, Any]:
+        screenshot = await submit_form_handler(
+            task_id=tool_input["task_id"],
+            url=tool_input["url"],
+            profile_id=tool_input["profile_id"],
+            fields=tool_input["fields"],
+            stage="submitted_form",
+            db=context.metadata.get("db"),
+        )
+        sink = context.metadata.get("submit_form_result")
+        if isinstance(sink, dict):
+            sink["screenshot"] = screenshot
+        return {
+            "submitted": True,
+            "field_count": len(tool_input["fields"]),
+            "screenshot_id": getattr(screenshot, "id", None),
+        }
+
     runtime = ToolRuntime()
     for name in ("extract_form", "extract_form_fields"):
         runtime.register(
@@ -178,6 +224,19 @@ def build_default_tool_runtime(
             mutates_external_system=False,
             trace_phase="browser",
             handler=run_fill_form,
+        )
+    )
+    runtime.register(
+        AgentTool(
+            name="submit_form",
+            description="Submit the reviewed browser form.",
+            input_schema=SUBMIT_FORM_INPUT_SCHEMA,
+            output_schema=SUBMIT_FORM_OUTPUT_SCHEMA,
+            risk_level="high",
+            mutates_browser=True,
+            mutates_external_system=False,
+            trace_phase="submit",
+            handler=run_submit_form,
         )
     )
     return runtime
@@ -265,6 +324,8 @@ __all__ = [
     "FILL_FORM_OUTPUT_SCHEMA",
     "MAP_FIELDS_INPUT_SCHEMA",
     "MAP_FIELDS_OUTPUT_SCHEMA",
+    "SUBMIT_FORM_INPUT_SCHEMA",
+    "SUBMIT_FORM_OUTPUT_SCHEMA",
     "build_default_tool_runtime",
     "execute_fill_form_runtime_tool",
 ]
