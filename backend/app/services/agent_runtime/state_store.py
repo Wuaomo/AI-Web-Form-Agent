@@ -699,18 +699,21 @@ def _verification_summary(db: Session, *, run_id: str) -> dict[str, Any]:
 
     failed = [item for item in results if item.status == VERIFICATION_STATUS_FAILED]
     partial = [item for item in results if item.status == VERIFICATION_STATUS_PARTIAL]
+    skipped = [item for item in results if item.status == VERIFICATION_STATUS_SKIPPED]
     return {
         "status": (
             VERIFICATION_STATUS_FAILED
             if failed
             else VERIFICATION_STATUS_PARTIAL
             if partial
+            else VERIFICATION_STATUS_SKIPPED
+            if len(skipped) == len(results)
             else VERIFICATION_STATUS_VERIFIED
         ),
         "total": len(results),
         "verified": sum(1 for item in results if item.status == VERIFICATION_STATUS_VERIFIED),
         "failed": len(failed),
-        "skipped": sum(1 for item in results if item.status == VERIFICATION_STATUS_SKIPPED),
+        "skipped": len(skipped),
         "mismatches": [
             {
                 "target_type": item.target_type,

@@ -921,6 +921,72 @@ def test_governed_get_restores_generic_verification_summary_from_db() -> None:
     session.close()
 
 
+def test_governed_get_restores_skipped_generic_verification_summary_from_db() -> None:
+    """Skipped generic verification does not restore as verified."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+
+    save_governed_runtime_state(
+        session,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": "Verify state.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": "COMPLETED",
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:plan:1",
+                "version": 1,
+                "goal": "Verify state.",
+                "steps": [
+                    {
+                        "step_id": "verify",
+                        "tool_name": "verify_browser_state",
+                        "reason": "Verify browser state.",
+                        "input_json": {"task_id": task.id},
+                        "risk_level": "low",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "verification_results": [
+                {
+                    "tool_call_id": f"task-{task.id}:verify",
+                    "target_type": "page_state",
+                    "target_ref": "browser_state",
+                    "verification_type": "page_state",
+                    "status": "SKIPPED",
+                    "reason": "NOT_AVAILABLE",
+                }
+            ],
+        },
+    )
+
+    _reset_governed_runtime_for_tests()
+    response = client.get(f"/workflows/{task.id}/governed")
+
+    assert response.status_code == 200
+    assert response.json()["verification_result"] == {
+        "status": "SKIPPED",
+        "total": 1,
+        "verified": 0,
+        "failed": 0,
+        "skipped": 1,
+        "mismatches": [],
+    }
+    session.close()
+
+
 def test_save_governed_runtime_state_persists_verify_browser_state_result() -> None:
     """verify_browser_state tool results become generic verification rows."""
 
@@ -998,6 +1064,77 @@ def test_save_governed_runtime_state_persists_verify_browser_state_result() -> N
             }
         ],
     }
+    client.close()
+    session.close()
+
+
+def test_save_governed_runtime_state_replaces_verification_results_for_same_tool_call() -> None:
+    """Saving the same tool call twice replaces stale generic verification rows."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    tool_call_id = f"task-{task.id}:fill_form"
+
+    def save_verification(target_refs: list[str]) -> None:
+        save_governed_runtime_state(
+            session,
+            task=task,
+            raw_state={
+                "run_id": f"task-{task.id}",
+                "task_id": task.id,
+                "workflow_type": task.workflow_type,
+                "planner_mode": "deterministic",
+                "run": {
+                    "id": f"task-{task.id}",
+                    "goal": "Fill fields.",
+                    "target_url": task.url,
+                    "profile_id": task.profile_id,
+                    "status": "WAITING_APPROVAL",
+                    "mode": "deterministic",
+                },
+                "plan": {
+                    "id": f"task-{task.id}:plan:1",
+                    "version": 1,
+                    "goal": "Fill fields.",
+                    "steps": [
+                        {
+                            "step_id": "fill_form",
+                            "tool_name": "fill_form",
+                            "reason": "Fill fields.",
+                            "input_json": {"task_id": task.id},
+                            "risk_level": "medium",
+                        }
+                    ],
+                    "created_by": "deterministic",
+                },
+                "tool_results": [
+                    {
+                        "tool_call_id": tool_call_id,
+                        "status": "SUCCEEDED",
+                        "output_json": {
+                            "verification_results": [
+                                {
+                                    "target_type": "field_value",
+                                    "target_ref": target_ref,
+                                    "verification_type": "field_value",
+                                    "status": "VERIFIED",
+                                }
+                                for target_ref in target_refs
+                            ]
+                        },
+                    }
+                ],
+            },
+        )
+
+    save_verification(["stale_email", "stale_name"])
+    save_verification(["fresh_email"])
+
+    verification_results = list(session.query(AgentVerificationResult).all())
+    assert len(verification_results) == 1
+    assert verification_results[0].tool_call_id == tool_call_id
+    assert verification_results[0].target_ref == "fresh_email"
     client.close()
     session.close()
 
