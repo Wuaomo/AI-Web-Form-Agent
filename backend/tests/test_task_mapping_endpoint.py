@@ -34,6 +34,7 @@ from app.routers.tasks import router as tasks_router
 from app.services.field_mapper import map_fields_with_llm
 from app.services.form_extractor import ExtractedFormField
 from app.services.agent_runtime import review_queue
+from app.services.agent_runtime.state_store import save_governed_runtime_state
 from app.services.llm_client import LLMResult
 
 
@@ -405,6 +406,81 @@ def test_review_items_restore_persisted_proposals_before_deriving_from_fields(
     assert evidence_payload["section_title"] == "Access"
     assert evidence_payload["quote_or_summary"] == "Persisted evidence should win."
     assert evidence_payload["score"] == 0.77
+
+
+def test_review_items_restore_tool_created_governed_proposals(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify governed ToolResult proposals become persisted review items."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_value = "derived@example.com"
+    proposal_id = f"tool-created-{task.id}"
+    evidence_id = f"{proposal_id}-evidence"
+    raw_state = {
+        "run_id": f"task-{task.id}",
+        "task_id": task.id,
+        "workflow_type": task.workflow_type,
+        "planner_mode": "deterministic",
+        "run": {
+            "id": f"task-{task.id}",
+            "goal": "Review tool-created proposal.",
+            "target_url": task.url,
+            "profile_id": task.profile_id,
+            "status": "WAITING_REVIEW",
+            "mode": "deterministic",
+        },
+        "tool_results": [
+            {
+                "tool_call_id": f"task-{task.id}:map_fields",
+                "status": "SUCCEEDED",
+                "created_proposals": [
+                    {
+                        "id": proposal_id,
+                        "run_id": f"task-{task.id}",
+                        "proposal_type": "field_value",
+                        "target_type": "form_field",
+                        "target_ref": str(field.id),
+                        "proposed_value": "tool@example.com",
+                        "rationale": "Tool-created proposal should persist.",
+                        "confidence": 0.91,
+                        "risk_level": "low",
+                        "status": "PENDING",
+                        "evidence": [
+                            {
+                                "id": evidence_id,
+                                "run_id": f"task-{task.id}",
+                                "proposal_id": proposal_id,
+                                "source_type": "tool_result",
+                                "source_title": "map_fields",
+                                "section_title": "Contact",
+                                "quote_or_summary": "Mapped from tool output.",
+                                "score": 0.82,
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+    save_governed_runtime_state(session, task=task, raw_state=raw_state)
+    save_governed_runtime_state(session, task=task, raw_state=raw_state)
+
+    assert session.query(AgentProposal).count() == 1
+    assert session.query(AgentEvidenceItem).count() == 1
+    assert session.query(WorkflowMemoryItem).count() == 0
+
+    response = client.get(f"/tasks/{task.id}/review-items")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["id"] == proposal_id
+    assert payload[0]["proposed_value"] == "tool@example.com"
+    assert payload[0]["evidence"][0]["id"] == evidence_id
+    assert payload[0]["evidence"][0]["quote_or_summary"] == "Mapped from tool output."
 
 
 @pytest.mark.parametrize(

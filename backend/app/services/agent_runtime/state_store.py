@@ -8,6 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import AgentPlan, AgentRun, AgentToolCall, AgentToolResult, Task
+from app.services.agent_runtime.review_queue import persist_task_review_proposals
+from app.services.agent_runtime.schemas import Proposal
 from app.workflow_constants import WORKFLOW_TYPE_FORM_FILL
 
 
@@ -83,6 +85,7 @@ def save_governed_runtime_state(
         plan_payload=plan_payload,
         raw_state=raw_state,
     )
+    _save_created_proposals(db, task=task, run_id=run_id, raw_state=raw_state)
 
     db.commit()
     db.refresh(run)
@@ -289,6 +292,38 @@ def _upsert_tool_result(
     )
     result.error = payload.get("error")
     return result
+
+
+def _save_created_proposals(
+    db: Session,
+    *,
+    task: Task,
+    run_id: str,
+    raw_state: dict[str, Any],
+) -> None:
+    proposals = [
+        Proposal.model_validate(
+            {
+                **proposal,
+                "run_id": str(proposal.get("run_id") or run_id),
+                "evidence": [
+                    {
+                        **evidence,
+                        "run_id": str(evidence.get("run_id") or run_id),
+                        "proposal_id": str(
+                            evidence.get("proposal_id") or proposal["id"]
+                        ),
+                    }
+                    for evidence in _dict_items(proposal.get("evidence"))
+                ],
+            }
+        )
+        for result in _dict_items(raw_state.get("tool_results"))
+        for proposal in _dict_items(result.get("created_proposals"))
+        if proposal.get("id")
+    ]
+    if proposals:
+        persist_task_review_proposals(db, task=task, proposals=proposals)
 
 
 def _load_tool_calls(
