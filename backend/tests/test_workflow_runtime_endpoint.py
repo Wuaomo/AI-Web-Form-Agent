@@ -15,6 +15,7 @@ from app.models import (
     AgentProposal,
     AgentReviewDecision,
     AgentRun,
+    AgentVerificationResult,
     FormField,
     Profile,
     Task,
@@ -820,6 +821,103 @@ def test_governed_get_restores_paused_tool_call_governance_from_db() -> None:
             "verification_candidate_count": 0,
         }
     ]
+    session.close()
+
+
+def test_governed_get_restores_generic_verification_summary_from_db() -> None:
+    """GET /governed returns compact generic verification summary after restore."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+
+    save_governed_runtime_state(
+        session,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": "Fill fields.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": "WAITING_APPROVAL",
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:plan:1",
+                "version": 1,
+                "goal": "Fill fields.",
+                "steps": [
+                    {
+                        "step_id": "fill_form",
+                        "tool_name": "fill_form",
+                        "reason": "Fill fields.",
+                        "input_json": {"task_id": task.id},
+                        "risk_level": "medium",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "tool_results": [
+                {
+                    "tool_call_id": f"task-{task.id}:fill_form",
+                    "status": "SUCCEEDED",
+                    "governance_decision": {
+                        "decision": "VERIFY_REQUIRED",
+                        "reason": "Approved write requires verification.",
+                        "risk_level": "medium",
+                        "requires_verification": True,
+                    },
+                    "output_json": {
+                        "verification_results": [
+                            {
+                                "target_type": "field_value",
+                                "target_ref": "email",
+                                "verification_type": "field_value",
+                                "expected": "ada@example.com",
+                                "actual": "ada@example.com",
+                                "status": "VERIFIED",
+                            },
+                            {
+                                "target_type": "field_value",
+                                "target_ref": "name",
+                                "verification_type": "field_value",
+                                "expected": "Ada",
+                                "actual": "Grace",
+                                "status": "FAILED",
+                                "reason": "VALUE_MISMATCH",
+                            },
+                        ]
+                    },
+                }
+            ],
+        },
+    )
+    assert session.query(AgentVerificationResult).count() == 2
+
+    _reset_governed_runtime_for_tests()
+    response = client.get(f"/workflows/{task.id}/governed")
+
+    assert response.status_code == 200
+    assert response.json()["verification_result"] == {
+        "status": "FAILED",
+        "total": 2,
+        "verified": 1,
+        "failed": 1,
+        "skipped": 0,
+        "mismatches": [
+            {
+                "target_type": "field_value",
+                "target_ref": "name",
+                "verification_type": "field_value",
+                "reason": "VALUE_MISMATCH",
+            }
+        ],
+    }
     session.close()
 
 

@@ -14,6 +14,10 @@ from app.models import (
     AgentToolResult,
     AgentVerificationResult,
     Task,
+    VERIFICATION_STATUS_FAILED,
+    VERIFICATION_STATUS_PARTIAL,
+    VERIFICATION_STATUS_SKIPPED,
+    VERIFICATION_STATUS_VERIFIED,
 )
 from app.services.agent_runtime.review_queue import (
     persist_task_review_proposals,
@@ -251,7 +255,7 @@ def restore_governed_runtime_state(
             for call in tool_calls
             if call.result is not None
         ],
-        "verification_result": {},
+        "verification_result": _verification_summary(db, run_id=run.id),
         "error": run.error,
     }
 
@@ -579,6 +583,43 @@ def _tool_result_payload(result: AgentToolResult) -> dict[str, Any]:
         "verification_candidates": result.verification_candidates,
         "error": result.error,
         "created_at": result.created_at,
+    }
+
+
+def _verification_summary(db: Session, *, run_id: str) -> dict[str, Any]:
+    results = list(
+        db.execute(
+            select(AgentVerificationResult)
+            .where(AgentVerificationResult.run_id == run_id)
+            .order_by(AgentVerificationResult.created_at, AgentVerificationResult.id)
+        ).scalars()
+    )
+    if not results:
+        return {}
+
+    failed = [item for item in results if item.status == VERIFICATION_STATUS_FAILED]
+    partial = [item for item in results if item.status == VERIFICATION_STATUS_PARTIAL]
+    return {
+        "status": (
+            VERIFICATION_STATUS_FAILED
+            if failed
+            else VERIFICATION_STATUS_PARTIAL
+            if partial
+            else VERIFICATION_STATUS_VERIFIED
+        ),
+        "total": len(results),
+        "verified": sum(1 for item in results if item.status == VERIFICATION_STATUS_VERIFIED),
+        "failed": len(failed),
+        "skipped": sum(1 for item in results if item.status == VERIFICATION_STATUS_SKIPPED),
+        "mismatches": [
+            {
+                "target_type": item.target_type,
+                "target_ref": item.target_ref,
+                "verification_type": item.verification_type,
+                "reason": item.reason,
+            }
+            for item in [*failed, *partial][:3]
+        ],
     }
 
 
