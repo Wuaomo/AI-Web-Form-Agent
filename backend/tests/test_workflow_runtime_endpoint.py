@@ -1141,6 +1141,68 @@ def test_save_governed_runtime_state_persists_verify_browser_state_result() -> N
     session.close()
 
 
+def test_save_governed_runtime_state_discards_invalid_browser_state_screenshot_id() -> None:
+    """Derived browser state verification only persists integer screenshot ids."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+
+    save_governed_runtime_state(
+        session,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": "Verify state.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": "COMPLETED",
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:plan:1",
+                "version": 1,
+                "goal": "Verify state.",
+                "steps": [
+                    {
+                        "step_id": "verify",
+                        "tool_name": "verify_browser_state",
+                        "reason": "Verify browser state.",
+                        "input_json": {"task_id": task.id},
+                        "risk_level": "low",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "tool_results": [
+                {
+                    "tool_call_id": f"task-{task.id}:verify",
+                    "status": "SUCCEEDED",
+                    "output_json": {
+                        "verified": True,
+                        "screenshot_id": True,
+                    },
+                }
+            ],
+        },
+    )
+
+    verification = session.get(
+        AgentVerificationResult,
+        f"task-{task.id}:verify:verification:0",
+    )
+    assert verification is not None
+    assert verification.screenshot_id is None
+
+    client.close()
+    session.close()
+
+
 def test_save_governed_runtime_state_persists_generic_verification_json_values() -> None:
     """Generic verification rows preserve JSON values and compact evidence."""
 
