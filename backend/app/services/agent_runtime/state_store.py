@@ -162,6 +162,9 @@ def save_submit_form_runtime_state(
 ) -> AgentRun:
     """Persist compact runtime state for a legacy submit_form browser write."""
 
+    tool_payload = tool_result.model_dump(mode="json")
+    tool_output = _dict_value(tool_payload.get("output_json"))
+    screenshot_id = tool_output.get("screenshot_id")
     return save_governed_runtime_state(
         db,
         task=task,
@@ -195,7 +198,22 @@ def save_submit_form_runtime_state(
                 ),
                 "created_by": "deterministic",
             },
-            "tool_results": [tool_result.model_dump(mode="json")],
+            "tool_results": [tool_payload],
+            "verification_results": [
+                {
+                    "tool_call_id": f"task-{task.id}:submit_form",
+                    "target_type": "form_submit",
+                    "target_ref": "submit_form",
+                    "verification_type": "page_state",
+                    "expected": {"approved": True},
+                    "actual": {
+                        "submitted": bool(tool_output.get("submitted")),
+                        "screenshot_id": screenshot_id,
+                    },
+                    "status": VERIFICATION_STATUS_VERIFIED,
+                    "screenshot_id": screenshot_id,
+                }
+            ],
         },
     )
 
@@ -427,19 +445,27 @@ def _save_verification_results(
     run_id: str,
     raw_state: dict[str, Any],
 ) -> None:
+    by_tool_call: dict[str, list[dict[str, Any]]] = {}
+    for item in _dict_items(raw_state.get("verification_results")):
+        tool_call_id = str(item.get("tool_call_id") or "")
+        if tool_call_id:
+            by_tool_call.setdefault(tool_call_id, []).append(item)
+
     for result in _dict_items(raw_state.get("tool_results")):
         tool_call_id = str(result.get("tool_call_id") or "")
         output = _dict_value(result.get("output_json"))
-        if not tool_call_id or "verification_results" not in output:
-            continue
+        if tool_call_id and "verification_results" in output:
+            by_tool_call[tool_call_id] = _dict_items(
+                output.get("verification_results")
+            )
 
+    for tool_call_id, items in by_tool_call.items():
         db.execute(
             delete(AgentVerificationResult).where(
                 AgentVerificationResult.tool_call_id == tool_call_id
             )
         )
-        screenshot_id = output.get("screenshot_id")
-        for index, item in enumerate(_dict_items(output.get("verification_results"))):
+        for index, item in enumerate(items):
             persisted = AgentVerificationResult(
                 id=str(item.get("id") or f"{tool_call_id}:verification:{index}"),
                 run_id=run_id,
@@ -454,8 +480,9 @@ def _save_verification_results(
                 evidence_items_json="[]",
                 screenshot_id=(
                     item.get("screenshot_id")
-                    if item.get("screenshot_id") is not None
-                    else screenshot_id
+                    if isinstance(item.get("screenshot_id"), int)
+                    and not isinstance(item.get("screenshot_id"), bool)
+                    else None
                 ),
             )
             persisted.expected = item.get("expected")

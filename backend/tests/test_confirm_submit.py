@@ -19,6 +19,7 @@ from app.models import (
     AgentRun,
     AgentToolCall,
     AgentToolResult,
+    AgentVerificationResult,
     ApprovalRequest,
     FormField,
     Profile,
@@ -280,6 +281,18 @@ def test_confirm_submit_records_submit_runtime_tool_call(
         "field_count": 1,
         "screenshot_id": 5,
     }
+
+    verification = session.get(
+        AgentVerificationResult,
+        f"task-{task.id}:submit_form:verification:0",
+    )
+    assert verification is not None
+    assert verification.tool_call_id == f"task-{task.id}:submit_form"
+    assert verification.target_type == "form_submit"
+    assert verification.target_ref == "submit_form"
+    assert verification.verification_type == "page_state"
+    assert verification.status == "VERIFIED"
+    assert verification.actual == {"screenshot_id": 5, "submitted": True}
 
 
 def test_confirm_submit_keeps_fill_and_submit_runtime_plan_steps(
