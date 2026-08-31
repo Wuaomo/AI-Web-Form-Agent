@@ -142,7 +142,7 @@ def persist_task_review_proposals(
 ) -> None:
     """Double-write Review Mapping proposals into runtime persistence tables."""
 
-    _ensure_agent_run(db, task)
+    run = _ensure_agent_run(db, task)
     for proposal in proposals:
         row = db.get(AgentProposal, proposal.id)
         if row is None:
@@ -172,6 +172,7 @@ def persist_task_review_proposals(
 
         for evidence in proposal.evidence:
             _upsert_evidence_item(db, evidence)
+    refresh_pending_review_count(db, run_id=run.id)
 
 
 def persist_review_decision(
@@ -200,6 +201,25 @@ def persist_review_decision(
         proposal.status = _proposal_status_for_decision(decision.decision)
         if decision.decision == "edited":
             proposal.proposed_value = decision.edited_value
+        refresh_pending_review_count(db, run_id=proposal.run_id)
+
+
+def refresh_pending_review_count(db: Session, *, run_id: str) -> None:
+    """Sync AgentRun.pending_review_count from persisted proposal statuses."""
+
+    run = db.get(AgentRun, run_id)
+    if run is None:
+        return
+    run.pending_review_count = len(
+        list(
+            db.scalars(
+                select(AgentProposal.id).where(
+                    AgentProposal.run_id == run_id,
+                    AgentProposal.status == "PENDING",
+                )
+            )
+        )
+    )
 
 
 def _proposal_from_row(row: AgentProposal) -> Proposal:
@@ -552,5 +572,6 @@ __all__ = [
     "load_persisted_task_review_proposals",
     "persist_review_decision",
     "persist_task_review_proposals",
+    "refresh_pending_review_count",
     "resolve_task_review_item_target",
 ]

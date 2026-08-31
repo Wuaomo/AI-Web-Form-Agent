@@ -92,6 +92,52 @@ def create_task_with_field(session: Session) -> tuple[Task, FormField]:
     return task, field
 
 
+def save_two_pending_tool_created_proposals(
+    session: Session,
+    task: Task,
+    field: FormField,
+) -> list[str]:
+    """Persist two governed proposals for count-focused review tests."""
+
+    proposal_ids = [f"tool-created-{task.id}-1", f"tool-created-{task.id}-2"]
+    raw_state = {
+        "run_id": f"task-{task.id}",
+        "task_id": task.id,
+        "workflow_type": task.workflow_type,
+        "planner_mode": "deterministic",
+        "run": {
+            "id": f"task-{task.id}",
+            "goal": "Review tool-created proposals.",
+            "target_url": task.url,
+            "profile_id": task.profile_id,
+            "status": "WAITING_REVIEW",
+            "mode": "deterministic",
+        },
+        "tool_results": [
+            {
+                "tool_call_id": f"task-{task.id}:map_fields",
+                "status": "SUCCEEDED",
+                "created_proposals": [
+                    {
+                        "id": proposal_id,
+                        "proposal_type": "field_value",
+                        "target_type": "form_field",
+                        "target_ref": str(field.id),
+                        "proposed_value": f"{index}@example.com",
+                        "rationale": "Review tool-created proposal.",
+                        "confidence": 0.8,
+                        "risk_level": "low",
+                        "status": "PENDING",
+                    }
+                    for index, proposal_id in enumerate(proposal_ids, start=1)
+                ],
+            }
+        ],
+    }
+    save_governed_runtime_state(session, task=task, raw_state=raw_state)
+    return proposal_ids
+
+
 def create_task_without_fields(session: Session) -> Task:
     """Create a task that has not been analyzed yet."""
 
@@ -556,6 +602,51 @@ def test_review_items_restore_tool_created_governed_proposal_after_decision(
     assert payload[0]["proposed_value"] == "edited@example.com"
     assert payload[0]["evidence"][0]["id"] == evidence_id
     assert payload[0]["evidence"][0]["quote_or_summary"] == "Mapped from tool output."
+
+
+@pytest.mark.parametrize("decision", ["approved", "edited", "rejected"])
+def test_review_item_decision_decrements_pending_review_count_for_final_decisions(
+    test_environment: tuple[TestClient, Session],
+    decision: str,
+) -> None:
+    """Verify task review decisions remove approved/edited/rejected items from pending count."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    proposal_ids = save_two_pending_tool_created_proposals(session, task, field)
+
+    response = client.post(
+        f"/tasks/{task.id}/review-items/{proposal_ids[0]}/decision",
+        json={
+            "decision": decision,
+            "edited_value": "edited@example.com" if decision == "edited" else None,
+        },
+    )
+
+    assert response.status_code == 200
+    run = session.get(AgentRun, f"task-{task.id}")
+    assert run is not None
+    assert run.pending_review_count == 1
+
+
+def test_review_item_decision_needs_more_evidence_decrements_pending_review_count(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify needs_more_evidence is not counted as pending after task review."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    proposal_ids = save_two_pending_tool_created_proposals(session, task, field)
+
+    response = client.post(
+        f"/tasks/{task.id}/review-items/{proposal_ids[0]}/decision",
+        json={"decision": "needs_more_evidence"},
+    )
+
+    assert response.status_code == 200
+    run = session.get(AgentRun, f"task-{task.id}")
+    assert run is not None
+    assert run.pending_review_count == 1
 
 
 @pytest.mark.parametrize(

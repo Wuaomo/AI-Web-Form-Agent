@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import AgentPlan, AgentProposal, AgentRun, AgentToolCall, AgentToolResult, Task
+from app.models import AgentPlan, AgentRun, AgentToolCall, AgentToolResult, Task
 from app.services.agent_runtime.review_queue import persist_task_review_proposals
 from app.services.agent_runtime.schemas import Proposal
 from app.workflow_constants import WORKFLOW_TYPE_FORM_FILL
@@ -85,8 +85,7 @@ def save_governed_runtime_state(
         plan_payload=plan_payload,
         raw_state=raw_state,
     )
-    if _save_created_proposals(db, task=task, run_id=run_id, raw_state=raw_state):
-        run.pending_review_count = _pending_proposal_count(db, run_id)
+    _save_created_proposals(db, task=task, run_id=run_id, raw_state=raw_state)
 
     db.commit()
     db.refresh(run)
@@ -301,7 +300,7 @@ def _save_created_proposals(
     task: Task,
     run_id: str,
     raw_state: dict[str, Any],
-) -> bool:
+) -> None:
     proposals = [
         Proposal.model_validate(
             {
@@ -325,20 +324,6 @@ def _save_created_proposals(
     ]
     if proposals:
         persist_task_review_proposals(db, task=task, proposals=proposals)
-    return bool(proposals)
-
-
-def _pending_proposal_count(db: Session, run_id: str) -> int:
-    return len(
-        list(
-            db.scalars(
-                select(AgentProposal.id).where(
-                    AgentProposal.run_id == run_id,
-                    AgentProposal.status == "PENDING",
-                )
-            )
-        )
-    )
 
 
 def _load_tool_calls(

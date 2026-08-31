@@ -3,6 +3,7 @@
 import json
 from collections.abc import Generator
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
@@ -152,6 +153,30 @@ def create_governed_proposal(
     session.add_all([run, proposal])
     session.commit()
     return proposal
+
+
+def add_pending_sibling_proposal(
+    session: Session,
+    proposal: AgentProposal,
+    *,
+    proposal_id: str,
+) -> None:
+    proposal.run.pending_review_count = 2
+    session.add(
+        AgentProposal(
+            id=proposal_id,
+            run_id=proposal.run_id,
+            proposal_type="field_value",
+            target_type="form_field",
+            target_ref="1",
+            proposed_value="other@example.com",
+            rationale="Still pending.",
+            confidence=0.8,
+            risk_level="medium",
+            status="PENDING",
+        )
+    )
+    session.commit()
 
 
 async def noop_handler(
@@ -1039,6 +1064,70 @@ def test_governed_review_decision_edit_updates_proposed_value() -> None:
     session.refresh(proposal)
     assert proposal.status == "EDITED"
     assert proposal.proposed_value == "new@example.com"
+    session.close()
+
+
+@pytest.mark.parametrize("decision", ["approved", "edited", "rejected"])
+def test_governed_review_decision_decrements_pending_review_count_for_final_decisions(
+    decision: str,
+) -> None:
+    """POST /governed decision removes approved/edited/rejected items from pending count."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    proposal = create_governed_proposal(
+        session,
+        task,
+        proposal_id=f"governed-count-{task.id}-1",
+    )
+    add_pending_sibling_proposal(
+        session,
+        proposal,
+        proposal_id=f"governed-count-{task.id}-2",
+    )
+
+    response = client.post(
+        f"/workflows/{task.id}/governed/review-items/{proposal.id}/decision",
+        json={
+            "decision": decision,
+            "edited_value": "new@example.com" if decision == "edited" else None,
+        },
+    )
+
+    assert response.status_code == 200
+    run = session.get(AgentRun, proposal.run_id)
+    assert run is not None
+    assert run.pending_review_count == 1
+    session.close()
+
+
+def test_governed_review_decision_needs_more_evidence_decrements_pending_review_count() -> None:
+    """POST /governed decision treats needs_more_evidence as no longer pending."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    proposal = create_governed_proposal(
+        session,
+        task,
+        proposal_id=f"governed-evidence-{task.id}-1",
+    )
+    add_pending_sibling_proposal(
+        session,
+        proposal,
+        proposal_id=f"governed-evidence-{task.id}-2",
+    )
+
+    response = client.post(
+        f"/workflows/{task.id}/governed/review-items/{proposal.id}/decision",
+        json={"decision": "needs_more_evidence"},
+    )
+
+    assert response.status_code == 200
+    run = session.get(AgentRun, proposal.run_id)
+    assert run is not None
+    assert run.pending_review_count == 1
     session.close()
 
 
