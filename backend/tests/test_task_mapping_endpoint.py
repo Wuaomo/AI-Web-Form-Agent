@@ -549,6 +549,76 @@ def test_review_item_decision_edits_existing_field_mapping(
     assert field.confidence == 1.0
 
 
+def test_review_item_decision_uses_persisted_form_field_target_ref(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify custom persisted proposal ids can still update their target field."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_value = "old@example.com"
+    field.confidence = 0.5
+    run = AgentRun(
+        id=f"persisted-run-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review persisted proposal ids.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"runtime-proposal-{task.id}",
+        run=run,
+        proposal_type="field_value",
+        target_type="form_field",
+        target_ref=str(field.id),
+        proposed_value="persisted@example.com",
+        rationale="Review the persisted proposal.",
+        confidence=0.8,
+        risk_level="low",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+
+    response = client.post(
+        f"/tasks/{task.id}/review-items/{proposal.id}/decision",
+        json={"decision": "edited", "edited_value": "ada@example.com"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["proposal_id"] == proposal.id
+    session.refresh(field)
+    assert field.mapped_value == "ada@example.com"
+    assert field.confidence == 1.0
+
+
+def test_review_item_decision_keeps_legacy_field_id_fallback(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify legacy task-field proposal ids keep working during migration."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_value = "old@example.com"
+    field.confidence = 0.5
+    session.commit()
+
+    response = client.post(
+        f"/tasks/{task.id}/review-items/task-{task.id}-field-{field.id}/decision",
+        json={"decision": "approved"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["proposal_id"] == f"task-{task.id}-field-{field.id}"
+    session.refresh(field)
+    assert field.mapped_value == "old@example.com"
+    assert field.confidence == 1.0
+
+
 def test_review_item_decision_persists_review_decision(
     test_environment: tuple[TestClient, Session],
 ) -> None:

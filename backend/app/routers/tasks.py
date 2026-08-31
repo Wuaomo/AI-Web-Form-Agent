@@ -112,6 +112,7 @@ from app.services.agent_step_timeline import build_agent_steps_for_task
 from app.services.agent_runtime.form_field_persistence import replace_task_form_fields
 from app.services.agent_runtime.review_queue import (
     build_task_review_proposals,
+    load_persisted_task_review_proposal,
     load_persisted_task_review_proposals,
     persist_review_decision,
     persist_task_review_proposals,
@@ -1510,7 +1511,19 @@ def apply_task_review_item_decision(
     """Apply a generic proposal decision to the compatible mapping review state."""
 
     task = get_task_or_404(task_id, db)
-    field_id = _field_id_from_review_proposal_id(task_id, proposal_id)
+    persisted_proposal = load_persisted_task_review_proposal(
+        db,
+        task=task,
+        proposal_id=proposal_id,
+    )
+    field_id = (
+        _field_id_from_review_proposal_id(task_id, proposal_id)
+        if persisted_proposal is None
+        else int(persisted_proposal.target_ref)
+        if persisted_proposal.target_type == "form_field"
+        and persisted_proposal.target_ref.isdigit()
+        else None
+    )
     if field_id is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

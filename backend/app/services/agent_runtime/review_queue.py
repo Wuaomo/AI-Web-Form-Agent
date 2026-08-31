@@ -73,6 +73,25 @@ def load_persisted_task_review_proposals(
     return [_proposal_from_row(row) for row in rows]
 
 
+def load_persisted_task_review_proposal(
+    db: Session,
+    *,
+    task: Task,
+    proposal_id: str,
+) -> Proposal | None:
+    """Restore one persisted review proposal for the task runtime run."""
+
+    row = db.scalar(
+        select(AgentProposal)
+        .join(AgentRun)
+        .where(
+            AgentProposal.id == proposal_id,
+            AgentRun.legacy_task_id == task.id,
+        )
+    )
+    return _proposal_from_row(row) if row is not None else None
+
+
 def persist_task_review_proposals(
     db: Session,
     *,
@@ -473,6 +492,7 @@ def _evidence_id(task_id: int, field_id: int, kind: str, index: int) -> str:
 
 __all__ = [
     "build_task_review_proposals",
+    "load_persisted_task_review_proposal",
     "load_persisted_task_review_proposals",
     "persist_review_decision",
     "persist_task_review_proposals",
