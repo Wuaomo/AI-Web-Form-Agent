@@ -11,7 +11,15 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
-from app.models import ActionLog, ApprovalRequest, FormField, Profile, Task
+from app.models import (
+    ActionLog,
+    AgentProposal,
+    AgentRun,
+    ApprovalRequest,
+    FormField,
+    Profile,
+    Task,
+)
 from app.routers.approvals import router as approvals_router
 from app.routers.tasks import router as tasks_router
 
@@ -93,6 +101,28 @@ def test_confirm_submit_first_request_creates_approval_and_returns_409(
     approval = session.get(ApprovalRequest, approval_id)
     assert approval is not None
     assert approval.status == "PENDING"
+
+
+def test_confirm_submit_first_request_persists_submit_proposal(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task = create_task(session, "WAITING_APPROVAL")
+
+    response = client.post(f"/tasks/{task.id}/confirm-submit")
+
+    assert response.status_code == 409
+    approval_id = response.json()["detail"]["approval_id"]
+    proposal = session.get(AgentProposal, f"task-{task.id}-submit-{approval_id}")
+    assert proposal is not None
+    assert proposal.run_id == f"task-{task.id}"
+    assert proposal.proposal_type == "form_submit"
+    assert proposal.target_type == "approval_request"
+    assert proposal.target_ref == str(approval_id)
+    assert proposal.risk_level == "high"
+    assert proposal.status == "PENDING"
+    assert proposal.proposed_value["action"] == "submit_form"
+    assert session.get(AgentRun, f"task-{task.id}") is not None
 
 
 def test_confirm_submit_second_request_submits_after_approval(

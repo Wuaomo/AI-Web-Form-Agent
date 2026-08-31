@@ -14,6 +14,7 @@ from app.models import (
     AgentProposal,
     AgentReviewDecision,
     AgentRun,
+    ApprovalRequest,
     FormField,
     Task,
     TaskCheckpoint,
@@ -230,6 +231,41 @@ def split_fields_by_browser_write_review(
         if field.id not in blocked_field_ids
     ]
     return allowed_fields, blocked_fields
+
+
+def persist_submit_review_proposal(
+    db: Session,
+    *,
+    task: Task,
+    approval_request: ApprovalRequest,
+) -> None:
+    """Persist a high-risk proposal for an explicit submit approval gate."""
+
+    proposed_action = approval_request.proposed_action
+    fields = proposed_action.get("fields")
+    persist_task_review_proposals(
+        db,
+        task=task,
+        proposals=[
+            Proposal(
+                id=f"task-{task.id}-submit-{approval_request.id}",
+                run_id=_run_id(task.id),
+                proposal_type="form_submit",
+                target_type="approval_request",
+                target_ref=str(approval_request.id),
+                proposed_value={
+                    "action": "submit_form",
+                    "approval_id": approval_request.id,
+                    "field_count": len(fields) if isinstance(fields, list) else 0,
+                },
+                rationale=(
+                    "Final form submission requires explicit approval "
+                    "before browser execution."
+                ),
+                risk_level="high",
+            )
+        ],
+    )
 
 
 def persist_task_review_proposals(
@@ -676,6 +712,7 @@ __all__ = [
     "load_persisted_task_review_proposal",
     "load_persisted_task_review_proposals",
     "persist_review_decision",
+    "persist_submit_review_proposal",
     "persist_task_review_proposals",
     "refresh_pending_review_count",
     "resolve_task_review_item_target",

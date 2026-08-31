@@ -115,6 +115,7 @@ from app.services.agent_runtime.review_queue import (
     build_task_review_proposals,
     load_or_create_task_review_proposals,
     persist_review_decision,
+    persist_submit_review_proposal,
     persist_task_review_proposals,
     resolve_task_review_item_target,
     split_fields_by_browser_write_review,
@@ -2319,6 +2320,11 @@ async def confirm_task_submission(
                 step_name=submit_step_name,
                 policy_decision=submit_policy,
                 proposed_action=submit_proposed_action,
+            )
+            persist_submit_review_proposal(
+                db,
+                task=task,
+                approval_request=pending_submit_request,
             )
             apply_workflow_status(task, WORKFLOW_STATUS_WAITING_APPROVAL, reason="submit_approval_created")
             db.commit()
