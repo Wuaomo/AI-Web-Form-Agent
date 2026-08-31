@@ -1,6 +1,9 @@
 """Workflow template and runtime API endpoints."""
 
+from typing import Any, Literal
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app import config
@@ -24,7 +27,11 @@ from app.services.agent_runtime import (
     resume_from_review,
     start_runtime,
 )
-from app.services.agent_runtime.schemas import RunMode
+from app.services.agent_runtime.review_queue import (
+    load_persisted_task_review_proposal,
+    persist_review_decision,
+)
+from app.services.agent_runtime.schemas import ReviewDecision, RunMode
 from app.services.agent_runtime.state_store import (
     restore_governed_runtime_state,
     save_governed_runtime_state,
@@ -37,6 +44,12 @@ from app.workflow_constants import (
 from app.workflow_templates import list_workflow_templates
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
+
+
+class GovernedReviewDecisionRequest(BaseModel):
+    decision: Literal["approved", "edited", "rejected", "needs_more_evidence"]
+    edited_value: Any = None
+    reviewer_note: str | None = None
 
 
 @router.get("/templates", response_model=list[WorkflowTemplateResponse])
@@ -373,6 +386,48 @@ def get_governed_workflow_state(
             )
 
     return _to_governed_compact_state(raw_state)
+
+
+@router.post(
+    "/{task_id}/governed/review-items/{proposal_id}/decision",
+    response_model=ReviewDecision,
+)
+def apply_governed_review_item_decision(
+    task_id: int,
+    proposal_id: str,
+    request: GovernedReviewDecisionRequest,
+    db: Session = Depends(get_db),
+) -> ReviewDecision:
+    """Persist a governed proposal review decision."""
+
+    task = _get_task_or_404(db, task_id)
+    _ensure_governed_workflow(task)
+    proposal = load_persisted_task_review_proposal(
+        db,
+        task=task,
+        proposal_id=proposal_id,
+    )
+    if proposal is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Review item not found",
+        )
+    if request.decision == "edited" and request.edited_value is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="edited_value is required for edited decisions",
+        )
+
+    decision = ReviewDecision(
+        id=f"decision-{proposal_id}",
+        proposal_id=proposal_id,
+        decision=request.decision,
+        edited_value=request.edited_value,
+        reviewer_note=request.reviewer_note,
+    )
+    persist_review_decision(db, decision=decision)
+    db.commit()
+    return decision
 
 
 @router.get(

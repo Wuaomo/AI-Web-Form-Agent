@@ -10,7 +10,15 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
-from app.models import FormField, Profile, Task
+from app.models import (
+    AgentProposal,
+    AgentReviewDecision,
+    AgentRun,
+    FormField,
+    Profile,
+    Task,
+    WorkflowMemoryItem,
+)
 from app.routers.workflows import router as workflows_router
 from app.services.agent_runtime.security_questionnaire_graph import (
     _reset_runtime_for_tests,
@@ -106,6 +114,43 @@ def create_form_fill_task(session: Session, profile: Profile) -> Task:
     session.add(task)
     session.commit()
     return task
+
+
+def create_governed_proposal(
+    session: Session,
+    task: Task,
+    *,
+    proposal_id: str,
+    proposal_type: str = "field_value",
+    target_type: str = "form_field",
+    proposed_value: str = "old@example.com",
+) -> AgentProposal:
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review governed proposal.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=proposal_id,
+        run=run,
+        proposal_type=proposal_type,
+        target_type=target_type,
+        target_ref="1",
+        proposed_value=proposed_value,
+        rationale="Review governed proposal.",
+        confidence=0.8,
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+    return proposal
 
 
 async def noop_handler(
@@ -889,6 +934,82 @@ def test_get_endpoint_returns_404_when_no_runtime_state() -> None:
     response = client.get(f"/workflows/{task.id}")
 
     assert response.status_code == 404
+    session.close()
+
+
+def test_governed_review_decision_persists_agent_decision_and_status() -> None:
+    """POST /governed review decision double-writes the proposal decision."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    proposal = create_governed_proposal(
+        session,
+        task,
+        proposal_id=f"governed-proposal-{task.id}",
+    )
+
+    response = client.post(
+        f"/workflows/{task.id}/governed/review-items/{proposal.id}/decision",
+        json={"decision": "approved"},
+    )
+
+    assert response.status_code == 200
+    decision = session.get(AgentReviewDecision, f"decision-{proposal.id}")
+    assert decision is not None
+    assert decision.decision == "approved"
+    session.refresh(proposal)
+    assert proposal.status == "APPROVED"
+    assert proposal.proposed_value == "old@example.com"
+    session.close()
+
+
+def test_governed_review_decision_edit_updates_proposed_value() -> None:
+    """Verify edited governed decisions update the persisted proposal value."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    proposal = create_governed_proposal(
+        session,
+        task,
+        proposal_id=f"governed-edit-{task.id}",
+    )
+
+    response = client.post(
+        f"/workflows/{task.id}/governed/review-items/{proposal.id}/decision",
+        json={"decision": "edited", "edited_value": "new@example.com"},
+    )
+
+    assert response.status_code == 200
+    session.refresh(proposal)
+    assert proposal.status == "EDITED"
+    assert proposal.proposed_value == "new@example.com"
+    session.close()
+
+
+def test_governed_review_decision_does_not_write_workflow_memory() -> None:
+    """Verify memory-write proposals are only reviewed, not directly saved."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    proposal = create_governed_proposal(
+        session,
+        task,
+        proposal_id=f"governed-memory-{task.id}",
+        proposal_type="memory_write",
+        target_type="workflow_memory",
+        proposed_value="email",
+    )
+
+    response = client.post(
+        f"/workflows/{task.id}/governed/review-items/{proposal.id}/decision",
+        json={"decision": "approved"},
+    )
+
+    assert response.status_code == 200
+    assert session.query(WorkflowMemoryItem).count() == 0
     session.close()
 
 
