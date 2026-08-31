@@ -987,6 +987,74 @@ def test_governed_get_restores_skipped_generic_verification_summary_from_db() ->
     session.close()
 
 
+def test_governed_get_restores_mixed_skipped_generic_verification_as_partial() -> None:
+    """Mixed verified and skipped generic verification restores as partial."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+
+    save_governed_runtime_state(
+        session,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": "Verify state.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": "COMPLETED",
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:plan:1",
+                "version": 1,
+                "goal": "Verify state.",
+                "steps": [
+                    {
+                        "step_id": "verify",
+                        "tool_name": "verify_browser_state",
+                        "reason": "Verify browser state.",
+                        "input_json": {"task_id": task.id},
+                        "risk_level": "low",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "verification_results": [
+                {
+                    "tool_call_id": f"task-{task.id}:verify",
+                    "target_type": "page_state",
+                    "target_ref": "browser_state",
+                    "verification_type": "page_state",
+                    "status": "VERIFIED",
+                },
+                {
+                    "tool_call_id": f"task-{task.id}:verify",
+                    "target_type": "page_state",
+                    "target_ref": "optional_banner",
+                    "verification_type": "page_state",
+                    "status": "SKIPPED",
+                    "reason": "NOT_AVAILABLE",
+                },
+            ],
+        },
+    )
+
+    _reset_governed_runtime_for_tests()
+    response = client.get(f"/workflows/{task.id}/governed")
+
+    assert response.status_code == 200
+    assert response.json()["verification_result"]["status"] == "PARTIAL"
+    assert response.json()["verification_result"]["verified"] == 1
+    assert response.json()["verification_result"]["skipped"] == 1
+    session.close()
+
+
 def test_save_governed_runtime_state_persists_verify_browser_state_result() -> None:
     """verify_browser_state tool results become generic verification rows."""
 

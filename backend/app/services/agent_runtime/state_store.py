@@ -708,6 +708,8 @@ def _verification_summary(db: Session, *, run_id: str) -> dict[str, Any]:
             if partial
             else VERIFICATION_STATUS_SKIPPED
             if len(skipped) == len(results)
+            else VERIFICATION_STATUS_PARTIAL
+            if skipped
             else VERIFICATION_STATUS_VERIFIED
         ),
         "total": len(results),
