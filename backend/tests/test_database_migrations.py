@@ -829,6 +829,140 @@ def test_field_verification_result_model_creates_and_persists(tmp_path):
     session.close()
 
 
+def test_agent_verification_result_model_creates_and_persists_json_values(tmp_path):
+    """Verify AgentVerificationResult stores generic JSON values safely."""
+
+    from app.database import Base
+    from app.models import (
+        AgentRun,
+        AgentToolCall,
+        AgentVerificationResult,
+        Profile,
+        Task,
+    )
+
+    db_path = tmp_path / "agent_verification_result_test.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+
+    Base.metadata.create_all(bind=engine)
+
+    inspector = inspect(engine)
+    assert "agent_verification_results" in inspector.get_table_names()
+    columns = {
+        column["name"]
+        for column in inspector.get_columns("agent_verification_results")
+    }
+    assert {"expected", "actual", "evidence_items_json"} <= columns
+
+    from sqlalchemy.orm import sessionmaker
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    profile = Profile(profile_name="Test Profile")
+    session.add(profile)
+    session.commit()
+
+    task = Task(url="https://example.com/form", profile_id=profile.id)
+    session.add(task)
+    session.commit()
+
+    run = AgentRun(
+        id="run-1",
+        legacy_task_id=task.id,
+        goal="Verify browser state",
+        target_url=task.url,
+        profile_id=profile.id,
+        status="COMPLETED",
+        mode="deterministic",
+    )
+    tool_call = AgentToolCall(
+        id="run-1:verify",
+        run_id=run.id,
+        tool_name="verify_browser_state",
+        input_payload_json="{}",
+        status="SUCCEEDED",
+        risk_level="low",
+    )
+    session.add_all([run, tool_call])
+    session.commit()
+
+    values = [
+        ("dict", {"verified": True}, {"verified": False}),
+        ("list", [{"field": "email"}], [{"field": "email", "ok": True}]),
+        ("scalar", "expected text", 42),
+        ("null", None, None),
+    ]
+    for name, expected, actual in values:
+        verification = AgentVerificationResult(
+            id=f"run-1:verify:{name}",
+            run_id=run.id,
+            tool_call_id=tool_call.id,
+            target_type="page_state",
+            target_ref=name,
+            verification_type="page_state",
+            expected_json="null",
+            actual_json="null",
+            status="VERIFIED",
+            evidence_items_json="[]",
+        )
+        verification.expected = expected
+        verification.actual = actual
+        verification.evidence_items = [
+            {
+                "source_type": "dom",
+                "quote_or_summary": f"{name} evidence",
+            }
+        ]
+        session.add(verification)
+    session.commit()
+
+    rows = {
+        row.target_ref: row
+        for row in session.query(AgentVerificationResult).order_by(
+            AgentVerificationResult.id
+        )
+    }
+    assert rows["dict"].expected == {"verified": True}
+    assert rows["dict"].actual == {"verified": False}
+    assert rows["list"].expected == [{"field": "email"}]
+    assert rows["list"].actual == [{"field": "email", "ok": True}]
+    assert rows["scalar"].expected == "expected text"
+    assert rows["scalar"].actual == 42
+    assert rows["null"].expected is None
+    assert rows["null"].actual is None
+    assert rows["dict"].evidence_items == [
+        {
+            "source_type": "dom",
+            "quote_or_summary": "dict evidence",
+        }
+    ]
+
+    invalid = AgentVerificationResult(
+        id="run-1:verify:invalid",
+        run_id=run.id,
+        tool_call_id=tool_call.id,
+        target_type="page_state",
+        target_ref="invalid",
+        verification_type="page_state",
+        expected_json="{invalid json}",
+        actual_json="{invalid json}",
+        status="FAILED",
+        evidence_items_json="{invalid json}",
+    )
+    session.add(invalid)
+    session.commit()
+    session.refresh(invalid)
+
+    assert invalid.expected is None
+    assert invalid.actual is None
+    assert invalid.evidence_items == []
+
+    session.refresh(run)
+    assert len(run.verification_results) == 5
+
+    session.close()
+
+
 def test_agent_review_model_creates_and_persists(tmp_path):
     """Verify AgentReview model creates and loads correctly with relationship."""
 
