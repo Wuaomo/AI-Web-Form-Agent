@@ -234,6 +234,51 @@ async def test_generate_field_mappings_is_alias_for_map_fields() -> None:
 
 
 @pytest.mark.anyio
+async def test_fill_form_wraps_browser_executor_after_approval() -> None:
+    """Verify fill_form is available as an approved browser-write tool."""
+
+    screenshot = SimpleNamespace(id=12)
+    verification = [
+        SimpleNamespace(field_id=1, status="VERIFIED"),
+        SimpleNamespace(field_id=2, status="SKIPPED"),
+    ]
+    fill_handler = AsyncMock(return_value=(screenshot, verification))
+    fields = [SimpleNamespace(id=1), SimpleNamespace(id=2)]
+    runtime = build_default_tool_runtime(fill_form_handler=fill_handler)
+
+    result = await runtime.execute(
+        tool_call_id="task-7:fill_form",
+        tool_name="fill_form",
+        tool_input={
+            "task_id": 7,
+            "url": "https://example.com/form",
+            "profile_id": 3,
+            "fields": fields,
+        },
+        context=ToolExecutionContext(
+            metadata={"approved_tool_call_ids": ["task-7:fill_form"]}
+        ),
+    )
+
+    assert result.status == "SUCCEEDED"
+    assert result.governance_decision is not None
+    assert result.governance_decision.decision == "VERIFY_REQUIRED"
+    assert result.output_json == {
+        "filled_count": 2,
+        "screenshot_id": 12,
+        "verification_count": 2,
+    }
+    fill_handler.assert_awaited_once_with(
+        task_id=7,
+        url="https://example.com/form",
+        profile_id=3,
+        fields=fields,
+        stage="filled_form",
+        db=None,
+    )
+
+
+@pytest.mark.anyio
 async def test_tool_runtime_records_success_trace_when_task_context_exists() -> None:
     """Verify successful tool calls create and finish workflow trace spans."""
 
