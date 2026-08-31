@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+import re
 from typing import Any
 
 from sqlalchemy import select
@@ -24,6 +26,15 @@ from app.services.workflow_memory import (
 from app.workflow_constants import WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE
 
 ACTION_FIELD_TYPES = {"button", "file", "submit", "reset", "image"}
+
+
+@dataclass(frozen=True)
+class ReviewItemTarget:
+    """Resolved compatibility target for a task review item decision."""
+
+    proposal: AgentProposal | None
+    field: FormField | None
+    requires_form_field_sync: bool
 
 
 def build_task_review_proposals(
@@ -90,6 +101,37 @@ def load_persisted_task_review_proposal(
         )
     )
     return _proposal_from_row(row) if row is not None else None
+
+
+def resolve_task_review_item_target(
+    db: Session,
+    *,
+    task: Task,
+    proposal_id: str,
+) -> ReviewItemTarget | None:
+    """Resolve persisted and legacy task review item ids to their sync target."""
+
+    proposal = db.scalar(
+        select(AgentProposal)
+        .join(AgentRun)
+        .where(
+            AgentProposal.id == proposal_id,
+            AgentRun.legacy_task_id == task.id,
+        )
+    )
+    if proposal is not None:
+        if proposal.target_type != "form_field":
+            return ReviewItemTarget(proposal, None, False)
+        if not proposal.target_ref.isdigit():
+            return None
+        field = _task_field(db, task.id, int(proposal.target_ref))
+        return ReviewItemTarget(proposal, field, True) if field else None
+
+    field_id = _field_id_from_review_proposal_id(task.id, proposal_id)
+    if field_id is None:
+        return None
+    field = _task_field(db, task.id, field_id)
+    return ReviewItemTarget(None, field, True) if field else None
 
 
 def persist_task_review_proposals(
@@ -439,6 +481,20 @@ def _field_id(item: dict[str, Any]) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
+def _task_field(db: Session, task_id: int, field_id: int) -> FormField | None:
+    return db.scalar(
+        select(FormField).where(
+            FormField.id == field_id,
+            FormField.task_id == task_id,
+        )
+    )
+
+
+def _field_id_from_review_proposal_id(task_id: int, proposal_id: str) -> int | None:
+    match = re.fullmatch(rf"task-{task_id}-field-(\d+)", proposal_id)
+    return int(match.group(1)) if match else None
+
+
 def _score(item: dict[str, Any]) -> float | None:
     value = item.get("score")
     if isinstance(value, int | float) and 0 <= value <= 1:
@@ -496,4 +552,5 @@ __all__ = [
     "load_persisted_task_review_proposals",
     "persist_review_decision",
     "persist_task_review_proposals",
+    "resolve_task_review_item_target",
 ]

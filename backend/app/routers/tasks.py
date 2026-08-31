@@ -112,10 +112,10 @@ from app.services.agent_step_timeline import build_agent_steps_for_task
 from app.services.agent_runtime.form_field_persistence import replace_task_form_fields
 from app.services.agent_runtime.review_queue import (
     build_task_review_proposals,
-    load_persisted_task_review_proposal,
     load_persisted_task_review_proposals,
     persist_review_decision,
     persist_task_review_proposals,
+    resolve_task_review_item_target,
 )
 from app.services.agent_runtime.schemas import Proposal, ReviewDecision
 from app.workflow_templates import require_enabled_template
@@ -496,11 +496,6 @@ def get_task_field_or_404(task_id: int, field_id: int, db: Session) -> FormField
             detail="Form field not found",
         )
     return field
-
-
-def _field_id_from_review_proposal_id(task_id: int, proposal_id: str) -> int | None:
-    match = re.fullmatch(rf"task-{task_id}-field-(\d+)", proposal_id)
-    return int(match.group(1)) if match else None
 
 
 def get_next_log_step(task_id: int, db: Session) -> int:
@@ -1511,27 +1506,13 @@ def apply_task_review_item_decision(
     """Apply a generic proposal decision to the compatible mapping review state."""
 
     task = get_task_or_404(task_id, db)
-    persisted_proposal = load_persisted_task_review_proposal(
-        db,
-        task=task,
-        proposal_id=proposal_id,
-    )
-    field = None
-    if persisted_proposal is not None and persisted_proposal.target_type == "form_field":
-        if not persisted_proposal.target_ref.isdigit():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Review item not found",
-            )
-        field = get_task_field_or_404(task_id, int(persisted_proposal.target_ref), db)
-    elif persisted_proposal is None:
-        field_id = _field_id_from_review_proposal_id(task_id, proposal_id)
-        if field_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Review item not found",
-            )
-        field = get_task_field_or_404(task_id, field_id, db)
+    target = resolve_task_review_item_target(db, task=task, proposal_id=proposal_id)
+    if target is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Review item not found",
+        )
+    field = target.field
 
     if request.decision == "edited":
         if request.edited_value is None:

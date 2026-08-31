@@ -33,6 +33,7 @@ from app.routers.approvals import router as approvals_router
 from app.routers.tasks import router as tasks_router
 from app.services.field_mapper import map_fields_with_llm
 from app.services.form_extractor import ExtractedFormField
+from app.services.agent_runtime import review_queue
 from app.services.llm_client import LLMResult
 
 
@@ -595,6 +596,113 @@ def test_review_item_decision_uses_persisted_form_field_target_ref(
     session.refresh(field)
     assert field.mapped_value == "ada@example.com"
     assert field.confidence == 1.0
+
+
+def test_review_queue_resolves_persisted_form_field_target(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify persisted form-field proposals resolve through the review queue helper."""
+
+    _, session = test_environment
+    task, field = create_task_with_field(session)
+    run = AgentRun(
+        id=f"helper-run-{task.id}",
+        legacy_task_id=task.id,
+        goal="Resolve persisted field proposal.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"helper-proposal-{task.id}",
+        run=run,
+        proposal_type="field_value",
+        target_type="form_field",
+        target_ref=str(field.id),
+        proposed_value="ada@example.com",
+        rationale="Review helper target.",
+        confidence=0.8,
+        risk_level="low",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+
+    target = review_queue.resolve_task_review_item_target(
+        session,
+        task=task,
+        proposal_id=proposal.id,
+    )
+
+    assert target.proposal == proposal
+    assert target.field == field
+    assert target.requires_form_field_sync is True
+
+
+def test_review_queue_resolves_non_field_target_without_form_field_sync(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify persisted non-field proposals do not require FormField sync."""
+
+    _, session = test_environment
+    task, field = create_task_with_field(session)
+    run = AgentRun(
+        id=f"helper-memory-run-{task.id}",
+        legacy_task_id=task.id,
+        goal="Resolve persisted memory proposal.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"helper-memory-{task.id}",
+        run=run,
+        proposal_type="memory_write",
+        target_type="workflow_memory",
+        target_ref=str(field.id),
+        proposed_value="email",
+        rationale="Review memory target.",
+        confidence=0.8,
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+
+    target = review_queue.resolve_task_review_item_target(
+        session,
+        task=task,
+        proposal_id=proposal.id,
+    )
+
+    assert target.proposal == proposal
+    assert target.field is None
+    assert target.requires_form_field_sync is False
+
+
+def test_review_queue_keeps_legacy_field_id_fallback(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify legacy task-field proposal ids still resolve during migration."""
+
+    _, session = test_environment
+    task, field = create_task_with_field(session)
+
+    target = review_queue.resolve_task_review_item_target(
+        session,
+        task=task,
+        proposal_id=f"task-{task.id}-field-{field.id}",
+    )
+
+    assert target.proposal is None
+    assert target.field == field
+    assert target.requires_form_field_sync is True
 
 
 def test_review_item_decision_keeps_legacy_field_id_fallback(
