@@ -301,29 +301,52 @@ def _save_created_proposals(
     run_id: str,
     raw_state: dict[str, Any],
 ) -> None:
-    proposals = [
-        Proposal.model_validate(
-            {
-                **proposal,
-                "run_id": str(proposal.get("run_id") or run_id),
-                "evidence": [
+    proposals = []
+    for result in _dict_items(raw_state.get("tool_results")):
+        result_evidence = _dict_items(result.get("evidence_items"))
+        for proposal in _dict_items(result.get("created_proposals")):
+            if not proposal.get("id"):
+                continue
+            evidence = _proposal_evidence_items(
+                proposal=proposal,
+                result_evidence=result_evidence,
+                run_id=run_id,
+            )
+            proposals.append(
+                Proposal.model_validate(
                     {
-                        **evidence,
-                        "run_id": str(evidence.get("run_id") or run_id),
-                        "proposal_id": str(
-                            evidence.get("proposal_id") or proposal["id"]
-                        ),
+                        **proposal,
+                        "run_id": str(proposal.get("run_id") or run_id),
+                        "evidence": evidence,
                     }
-                    for evidence in _dict_items(proposal.get("evidence"))
-                ],
-            }
-        )
-        for result in _dict_items(raw_state.get("tool_results"))
-        for proposal in _dict_items(result.get("created_proposals"))
-        if proposal.get("id")
-    ]
+                )
+            )
     if proposals:
         persist_task_review_proposals(db, task=task, proposals=proposals)
+
+
+def _proposal_evidence_items(
+    *,
+    proposal: dict[str, Any],
+    result_evidence: list[dict[str, Any]],
+    run_id: str,
+) -> list[dict[str, Any]]:
+    proposal_id = str(proposal["id"])
+    return [
+        {
+            **evidence,
+            "run_id": str(evidence.get("run_id") or run_id),
+            "proposal_id": str(evidence.get("proposal_id") or proposal_id),
+        }
+        for evidence in [
+            *_dict_items(proposal.get("evidence")),
+            *[
+                item
+                for item in result_evidence
+                if item.get("proposal_id") == proposal_id
+            ],
+        ]
+    ]
 
 
 def _load_tool_calls(
