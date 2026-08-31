@@ -163,14 +163,6 @@ def build_default_tool_runtime(
             "screenshot_id": screenshot_id,
             "verification_count": len(verification),
         }
-        if verification:
-            output["verification_results"] = [
-                _field_verification_to_runtime_result(
-                    item,
-                    screenshot_id=screenshot_id,
-                )
-                for item in verification
-            ]
         return output
 
     async def run_submit_form(
@@ -360,25 +352,6 @@ def _mapped_field_to_dict(field: object) -> dict[str, Any]:
         "mapped_profile_key": getattr(field, "mapped_profile_key"),
         "mapped_value": getattr(field, "mapped_value"),
         "confidence": getattr(field, "confidence"),
-    }
-
-
-def _field_verification_to_runtime_result(
-    item: object,
-    *,
-    screenshot_id: int | None,
-) -> dict[str, Any]:
-    field_id = getattr(item, "field_id", None)
-    selector = str(getattr(item, "selector", ""))
-    return {
-        "target_type": "field_value",
-        "target_ref": str(field_id) if field_id is not None else selector,
-        "verification_type": "field_value",
-        "expected": getattr(item, "expected_value", None),
-        "actual": getattr(item, "actual_value", None),
-        "status": str(getattr(item, "status", "FAILED")),
-        "reason": getattr(item, "reason", None),
-        "screenshot_id": screenshot_id,
     }
 
 

@@ -2072,6 +2072,7 @@ async def fill_task_form(
                 db,
                 task=task,
                 tool_result=tool_result,
+                verification_data=verification_data,
             )
             write_checkpoint(
                 task_id=task.id,

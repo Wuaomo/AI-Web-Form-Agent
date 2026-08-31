@@ -113,9 +113,13 @@ def save_fill_form_runtime_state(
     *,
     task: Task,
     tool_result: Any,
+    verification_data: list[Any] | None = None,
 ) -> AgentRun:
     """Persist compact runtime state for a legacy fill_form browser write."""
 
+    tool_payload = tool_result.model_dump(mode="json")
+    tool_output = _dict_value(tool_payload.get("output_json"))
+    screenshot_id = tool_output.get("screenshot_id")
     return save_governed_runtime_state(
         db,
         task=task,
@@ -149,7 +153,15 @@ def save_fill_form_runtime_state(
                 ),
                 "created_by": "deterministic",
             },
-            "tool_results": [tool_result.model_dump(mode="json")],
+            "tool_results": [tool_payload],
+            "verification_results": [
+                _field_verification_runtime_result(
+                    item,
+                    tool_call_id=f"task-{task.id}:fill_form",
+                    screenshot_id=screenshot_id,
+                )
+                for item in verification_data or []
+            ],
         },
     )
 
@@ -489,6 +501,27 @@ def _save_verification_results(
             persisted.actual = item.get("actual")
             persisted.evidence_items = _dict_items(item.get("evidence_items"))
             db.add(persisted)
+
+
+def _field_verification_runtime_result(
+    item: object,
+    *,
+    tool_call_id: str,
+    screenshot_id: object,
+) -> dict[str, Any]:
+    field_id = getattr(item, "field_id", None)
+    selector = str(getattr(item, "selector", ""))
+    return {
+        "tool_call_id": tool_call_id,
+        "target_type": "field_value",
+        "target_ref": str(field_id) if field_id is not None else selector,
+        "verification_type": "field_value",
+        "expected": getattr(item, "expected_value", None),
+        "actual": getattr(item, "actual_value", None),
+        "status": str(getattr(item, "status", "FAILED")),
+        "reason": getattr(item, "reason", None),
+        "screenshot_id": screenshot_id,
+    }
 
 
 def _save_created_proposals(

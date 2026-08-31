@@ -457,7 +457,7 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
     db.flush()
 
     try:
-        tool_result, screenshot, _ = asyncio.run(
+        tool_result, screenshot, verification_data = asyncio.run(
             execute_fill_form_runtime_tool(
                 db=db,
                 task=task,
@@ -470,6 +470,7 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
             db,
             task=task,
             tool_result=tool_result,
+            verification_data=verification_data,
         )
         write_checkpoint(
             task_id=task.id,
