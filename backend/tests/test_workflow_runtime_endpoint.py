@@ -27,6 +27,7 @@ from app.services.agent_runtime.governed_agent_graph import (
     _reset_governed_runtime_for_tests,
 )
 from app.services.agent_runtime.tool_runtime import AgentTool, ToolExecutionContext, ToolRuntime
+from app.services.agent_runtime.state_store import save_governed_runtime_state
 
 
 def _clear_runtime_state() -> None:
@@ -464,6 +465,59 @@ def test_governed_start_persists_tool_calls_and_results() -> None:
     assert result_row["status"] == "SUCCEEDED"
     assert json.loads(result_row["output_json"])["raw_output_json"] == "persist but do not expose"
     assert result_row["error"] is None
+    session.close()
+
+
+def test_save_governed_runtime_state_counts_pending_tool_created_proposals() -> None:
+    """Persisted AgentRun count tracks pending tool-created proposals only."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    proposal_statuses = ["PENDING", "PENDING", "APPROVED", "EDITED", "REJECTED"]
+    raw_state = {
+        "run_id": f"task-{task.id}",
+        "task_id": task.id,
+        "workflow_type": task.workflow_type,
+        "planner_mode": "deterministic",
+        "run": {
+            "id": f"task-{task.id}",
+            "goal": "Count pending proposals.",
+            "target_url": task.url,
+            "profile_id": task.profile_id,
+            "status": "WAITING_REVIEW",
+            "mode": "deterministic",
+        },
+        "tool_results": [
+            {
+                "tool_call_id": f"task-{task.id}:map_fields",
+                "status": "SUCCEEDED",
+                "created_proposals": [
+                    {
+                        "id": f"{status.lower()}-{index}-{task.id}",
+                        "proposal_type": "field_value",
+                        "target_type": "form_field",
+                        "target_ref": str(index),
+                        "proposed_value": f"{status.lower()}@example.com",
+                        "rationale": "Review tool-created value.",
+                        "confidence": 0.8,
+                        "risk_level": "low",
+                        "status": status,
+                    }
+                    for index, status in enumerate(proposal_statuses, start=1)
+                ],
+            }
+        ],
+    }
+
+    save_governed_runtime_state(session, task=task, raw_state=raw_state)
+    save_governed_runtime_state(session, task=task, raw_state=raw_state)
+
+    run = session.get(AgentRun, f"task-{task.id}")
+    assert run is not None
+    assert run.pending_review_count == 2
+    assert session.query(AgentProposal).count() == 5
+    client.close()
     session.close()
 
 
