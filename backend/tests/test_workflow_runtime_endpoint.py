@@ -1,15 +1,25 @@
 """Tests for workflow runtime API (start/get/review)."""
 
+import json
 from collections.abc import Generator
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
-from app.models import FormField, Profile, Task
+from app.models import (
+    AgentProposal,
+    AgentReviewDecision,
+    AgentRun,
+    FormField,
+    Profile,
+    Task,
+    WorkflowMemoryItem,
+)
 from app.routers.workflows import router as workflows_router
 from app.services.agent_runtime.security_questionnaire_graph import (
     _reset_runtime_for_tests,
@@ -18,6 +28,7 @@ from app.services.agent_runtime.governed_agent_graph import (
     _reset_governed_runtime_for_tests,
 )
 from app.services.agent_runtime.tool_runtime import AgentTool, ToolExecutionContext, ToolRuntime
+from app.services.agent_runtime.state_store import save_governed_runtime_state
 
 
 def _clear_runtime_state() -> None:
@@ -105,6 +116,68 @@ def create_form_fill_task(session: Session, profile: Profile) -> Task:
     session.add(task)
     session.commit()
     return task
+
+
+def create_governed_proposal(
+    session: Session,
+    task: Task,
+    *,
+    proposal_id: str,
+    proposal_type: str = "field_value",
+    target_type: str = "form_field",
+    target_ref: str = "1",
+    proposed_value: str = "old@example.com",
+) -> AgentProposal:
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review governed proposal.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=proposal_id,
+        run=run,
+        proposal_type=proposal_type,
+        target_type=target_type,
+        target_ref=target_ref,
+        proposed_value=proposed_value,
+        rationale="Review governed proposal.",
+        confidence=0.8,
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+    return proposal
+
+
+def add_pending_sibling_proposal(
+    session: Session,
+    proposal: AgentProposal,
+    *,
+    proposal_id: str,
+) -> None:
+    proposal.run.pending_review_count = 2
+    session.add(
+        AgentProposal(
+            id=proposal_id,
+            run_id=proposal.run_id,
+            proposal_type="field_value",
+            target_type="form_field",
+            target_ref="1",
+            proposed_value="other@example.com",
+            rationale="Still pending.",
+            confidence=0.8,
+            risk_level="medium",
+            status="PENDING",
+        )
+    )
+    session.commit()
 
 
 async def noop_handler(
@@ -257,6 +330,279 @@ def test_governed_start_keeps_deterministic_mode_without_openai_key() -> None:
     session.close()
 
 
+def test_governed_start_persists_agent_run_and_plan() -> None:
+    """POST /governed/start double-writes the compact AgentRun and AgentPlan."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    runtime = ToolRuntime(
+        [
+            make_runtime_tool(
+                "extract_form",
+                {"fields": [], "field_count": 0, "login_required": False},
+            ),
+            make_runtime_tool(
+                "map_fields",
+                {"fields": [], "field_count": 0, "mapped_count": 0},
+            ),
+        ]
+    )
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+
+    assert response.status_code == 200
+
+    run_row = session.execute(
+        text(
+            """
+            SELECT id, legacy_task_id, goal, target_url, profile_id,
+                   workflow_hint, status, mode, current_plan_id
+            FROM agent_runs
+            WHERE legacy_task_id = :task_id
+            """
+        ),
+        {"task_id": task.id},
+    ).mappings().one()
+    assert run_row["id"] == f"task-{task.id}"
+    assert run_row["legacy_task_id"] == task.id
+    assert run_row["goal"] == "Complete the requested browser workflow."
+    assert run_row["target_url"] == task.url
+    assert run_row["profile_id"] == profile.id
+    assert run_row["workflow_hint"] == "form_fill"
+    assert run_row["status"] == "COMPLETED"
+    assert run_row["mode"] == "deterministic"
+    assert run_row["current_plan_id"] == f"task-{task.id}:plan:1"
+
+    plan_row = session.execute(
+        text(
+            """
+            SELECT id, run_id, version, goal, steps_json, created_by
+            FROM agent_plans
+            WHERE run_id = :run_id
+            """
+        ),
+        {"run_id": f"task-{task.id}"},
+    ).mappings().one()
+    assert plan_row["id"] == f"task-{task.id}:plan:1"
+    assert plan_row["run_id"] == f"task-{task.id}"
+    assert plan_row["version"] == 1
+    assert plan_row["goal"] == "Complete the requested browser workflow."
+    assert plan_row["created_by"] == "deterministic"
+    assert [step["step_id"] for step in json.loads(plan_row["steps_json"])] == [
+        "extract_form",
+        "map_fields",
+    ]
+    session.close()
+
+
+def test_governed_start_persists_tool_calls_and_results() -> None:
+    """POST /governed/start double-writes compact ToolCall and raw ToolResult rows."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    runtime = ToolRuntime(
+        [
+            make_runtime_tool(
+                "extract_form",
+                {
+                    "fields": [],
+                    "field_count": 0,
+                    "login_required": False,
+                    "raw_output_json": "persist but do not expose",
+                },
+            ),
+            make_runtime_tool(
+                "map_fields",
+                {"fields": [], "field_count": 0, "mapped_count": 0},
+            ),
+        ]
+    )
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+
+    assert response.status_code == 200
+
+    call_rows = session.execute(
+        text(
+            """
+            SELECT id, run_id, plan_step_id, tool_name, status,
+                   risk_level, governance_decision_json, error
+            FROM agent_tool_calls
+            WHERE run_id = :run_id
+            ORDER BY plan_step_id
+            """
+        ),
+        {"run_id": f"task-{task.id}"},
+    ).mappings().all()
+    assert [
+        {
+            "id": row["id"],
+            "plan_step_id": row["plan_step_id"],
+            "tool_name": row["tool_name"],
+            "status": row["status"],
+            "risk_level": row["risk_level"],
+            "governance_decision": json.loads(row["governance_decision_json"])["decision"],
+            "error": row["error"],
+        }
+        for row in call_rows
+    ] == [
+        {
+            "id": f"task-{task.id}:extract_form",
+            "plan_step_id": "extract_form",
+            "tool_name": "extract_form",
+            "status": "SUCCEEDED",
+            "risk_level": "low",
+            "governance_decision": "ALLOW",
+            "error": None,
+        },
+        {
+            "id": f"task-{task.id}:map_fields",
+            "plan_step_id": "map_fields",
+            "tool_name": "map_fields",
+            "status": "SUCCEEDED",
+            "risk_level": "medium",
+            "governance_decision": "RECORD_ONLY",
+            "error": None,
+        },
+    ]
+
+    result_row = session.execute(
+        text(
+            """
+            SELECT tool_call_id, status, output_json, error
+            FROM agent_tool_results
+            WHERE tool_call_id = :tool_call_id
+            """
+        ),
+        {"tool_call_id": f"task-{task.id}:extract_form"},
+    ).mappings().one()
+    assert result_row["status"] == "SUCCEEDED"
+    assert json.loads(result_row["output_json"])["raw_output_json"] == "persist but do not expose"
+    assert result_row["error"] is None
+    session.close()
+
+
+def test_save_governed_runtime_state_counts_pending_tool_created_proposals() -> None:
+    """Persisted AgentRun count tracks pending tool-created proposals only."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    proposal_statuses = ["PENDING", "PENDING", "APPROVED", "EDITED", "REJECTED"]
+    raw_state = {
+        "run_id": f"task-{task.id}",
+        "task_id": task.id,
+        "workflow_type": task.workflow_type,
+        "planner_mode": "deterministic",
+        "run": {
+            "id": f"task-{task.id}",
+            "goal": "Count pending proposals.",
+            "target_url": task.url,
+            "profile_id": task.profile_id,
+            "status": "WAITING_REVIEW",
+            "mode": "deterministic",
+        },
+        "tool_results": [
+            {
+                "tool_call_id": f"task-{task.id}:map_fields",
+                "status": "SUCCEEDED",
+                "created_proposals": [
+                    {
+                        "id": f"{status.lower()}-{index}-{task.id}",
+                        "proposal_type": "field_value",
+                        "target_type": "form_field",
+                        "target_ref": str(index),
+                        "proposed_value": f"{status.lower()}@example.com",
+                        "rationale": "Review tool-created value.",
+                        "confidence": 0.8,
+                        "risk_level": "low",
+                        "status": status,
+                    }
+                    for index, status in enumerate(proposal_statuses, start=1)
+                ],
+            }
+        ],
+    }
+
+    save_governed_runtime_state(session, task=task, raw_state=raw_state)
+    save_governed_runtime_state(session, task=task, raw_state=raw_state)
+
+    run = session.get(AgentRun, f"task-{task.id}")
+    assert run is not None
+    assert run.pending_review_count == 2
+    assert session.query(AgentProposal).count() == 5
+    client.close()
+    session.close()
+
+
+def test_save_governed_runtime_state_preserves_existing_pending_proposal_count() -> None:
+    """Persisted AgentRun count keeps tracking proposals absent from raw state."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review existing proposal.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+        pending_review_count=1,
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"existing-pending-{task.id}",
+        run=run,
+        proposal_type="field_value",
+        target_type="form_field",
+        target_ref="1",
+        proposed_value="pending@example.com",
+        rationale="Already persisted proposal.",
+        confidence=0.8,
+        risk_level="low",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+    raw_state = {
+        "run_id": run.id,
+        "task_id": task.id,
+        "workflow_type": task.workflow_type,
+        "planner_mode": "deterministic",
+        "run": {
+            "id": run.id,
+            "goal": "Review existing proposal.",
+            "target_url": task.url,
+            "profile_id": task.profile_id,
+            "status": "COMPLETED",
+            "mode": "deterministic",
+        },
+        "tool_results": [],
+    }
+
+    save_governed_runtime_state(session, task=task, raw_state=raw_state)
+
+    session.refresh(run)
+    assert run.pending_review_count == 1
+    client.close()
+    session.close()
+
+
 def test_governed_get_returns_last_compact_state_after_start() -> None:
     """GET /workflows/{task_id}/governed reloads the latest generic runtime state."""
 
@@ -317,6 +663,162 @@ def test_governed_get_returns_last_compact_state_after_start() -> None:
             "proposal_count": 0,
             "verification_candidate_count": 0,
         },
+    ]
+    session.close()
+
+
+def test_governed_get_restores_compact_state_from_db_when_memory_state_is_missing() -> None:
+    """GET /governed falls back to persisted compact runtime state."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    runtime = ToolRuntime(
+        [
+            make_runtime_tool(
+                "extract_form",
+                {
+                    "fields": [],
+                    "field_count": 0,
+                    "login_required": False,
+                    "raw_output_json": "do not expose me",
+                },
+            ),
+            make_runtime_tool(
+                "map_fields",
+                {"fields": [], "field_count": 0, "mapped_count": 0},
+            ),
+        ]
+    )
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        start_response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+    assert start_response.status_code == 200
+
+    _reset_governed_runtime_for_tests()
+    response = client.get(f"/workflows/{task.id}/governed")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["task_id"] == task.id
+    assert payload["workflow_type"] == "form_fill"
+    assert payload["planner_mode"] == "deterministic"
+    assert payload["status"] == "COMPLETED"
+    assert payload["plan"]["created_by"] == "deterministic"
+    assert payload["tool_result_count"] == 2
+    assert payload["tool_calls"] == [
+        {
+            "tool_call_id": f"task-{task.id}:extract_form",
+            "plan_step_id": "extract_form",
+            "tool_name": "extract_form",
+            "status": "SUCCEEDED",
+            "governance_decision": "ALLOW",
+            "error": None,
+            "evidence_count": 0,
+            "proposal_count": 0,
+            "verification_candidate_count": 0,
+        },
+        {
+            "tool_call_id": f"task-{task.id}:map_fields",
+            "plan_step_id": "map_fields",
+            "tool_name": "map_fields",
+            "status": "SUCCEEDED",
+            "governance_decision": "RECORD_ONLY",
+            "error": None,
+            "evidence_count": 0,
+            "proposal_count": 0,
+            "verification_candidate_count": 0,
+        },
+    ]
+    assert "raw_output_json" not in json.dumps(payload)
+    assert "do not expose me" not in json.dumps(payload)
+    session.close()
+
+
+def test_governed_get_restores_paused_tool_call_governance_from_db() -> None:
+    """GET /governed restores paused tool-call governance after memory loss."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+
+    async def handler(
+        _context: ToolExecutionContext,
+        _tool_input: dict[str, object],
+    ) -> dict[str, object]:
+        return {"filled_count": 1}
+
+    runtime = ToolRuntime(
+        [
+            AgentTool(
+                name="fill_form",
+                description="Fill fields.",
+                input_schema={"type": "object", "properties": {}},
+                output_schema={},
+                risk_level="medium",
+                mutates_browser=True,
+                mutates_external_system=False,
+                trace_phase="fill",
+                handler=handler,
+            )
+        ]
+    )
+
+    class FakeAdapter:
+        def __init__(self, **_kwargs):
+            pass
+
+        def plan(self, _context):
+            return {
+                "steps": [
+                    {
+                        "step_id": "fill_form",
+                        "tool_name": "fill_form",
+                        "reason": "Fill only after review.",
+                        "input_json": {},
+                        "risk_level": "medium",
+                    }
+                ]
+            }
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.config.OPENAI_API_KEY", "test-key"), patch(
+        "app.routers.workflows.build_default_tool_runtime",
+        return_value=runtime,
+    ), patch(
+        "app.routers.workflows.OpenAIStructuredPlannerAdapter",
+        FakeAdapter,
+    ):
+        start_response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=llm_structured"
+        )
+    assert start_response.status_code == 200
+    assert start_response.json()["interrupt_at"] == "review"
+
+    _reset_governed_runtime_for_tests()
+    response = client.get(f"/workflows/{task.id}/governed")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["interrupt_at"] == "review"
+    assert payload["tool_result_count"] == 0
+    assert payload["tool_calls"] == [
+        {
+            "tool_call_id": f"task-{task.id}:fill_form",
+            "plan_step_id": "fill_form",
+            "tool_name": "fill_form",
+            "status": "WAITING_REVIEW",
+            "governance_decision": "REVIEW_REQUIRED",
+            "error": None,
+            "evidence_count": 0,
+            "proposal_count": 0,
+            "verification_candidate_count": 0,
+        }
     ]
     session.close()
 
@@ -568,6 +1070,182 @@ def test_get_endpoint_returns_404_when_no_runtime_state() -> None:
     response = client.get(f"/workflows/{task.id}")
 
     assert response.status_code == 404
+    session.close()
+
+
+def test_governed_review_decision_persists_agent_decision_and_status() -> None:
+    """POST /governed review decision double-writes the proposal decision."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    proposal = create_governed_proposal(
+        session,
+        task,
+        proposal_id=f"governed-proposal-{task.id}",
+    )
+
+    response = client.post(
+        f"/workflows/{task.id}/governed/review-items/{proposal.id}/decision",
+        json={"decision": "approved"},
+    )
+
+    assert response.status_code == 200
+    decision = session.get(AgentReviewDecision, f"decision-{proposal.id}")
+    assert decision is not None
+    assert decision.decision == "approved"
+    session.refresh(proposal)
+    assert proposal.status == "APPROVED"
+    assert proposal.proposed_value == "old@example.com"
+    session.close()
+
+
+def test_governed_review_decision_edit_updates_proposed_value() -> None:
+    """Verify edited governed decisions update the persisted proposal value."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    proposal = create_governed_proposal(
+        session,
+        task,
+        proposal_id=f"governed-edit-{task.id}",
+    )
+
+    response = client.post(
+        f"/workflows/{task.id}/governed/review-items/{proposal.id}/decision",
+        json={"decision": "edited", "edited_value": "new@example.com"},
+    )
+
+    assert response.status_code == 200
+    session.refresh(proposal)
+    assert proposal.status == "EDITED"
+    assert proposal.proposed_value == "new@example.com"
+    session.close()
+
+
+def test_governed_review_decision_approve_syncs_form_field_value() -> None:
+    """POST /governed decision keeps the legacy fill path in sync."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    field = FormField(
+        task_id=task.id,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        mapped_value="stale@example.com",
+        confidence=0.5,
+    )
+    session.add(field)
+    session.commit()
+    proposal = create_governed_proposal(
+        session,
+        task,
+        proposal_id=f"governed-field-sync-{task.id}",
+        target_ref=str(field.id),
+        proposed_value="persisted@example.com",
+    )
+
+    response = client.post(
+        f"/workflows/{task.id}/governed/review-items/{proposal.id}/decision",
+        json={"decision": "approved"},
+    )
+
+    assert response.status_code == 200
+    session.refresh(field)
+    assert field.mapped_value == "persisted@example.com"
+    assert field.confidence == 1.0
+    session.close()
+
+
+@pytest.mark.parametrize("decision", ["approved", "edited", "rejected"])
+def test_governed_review_decision_decrements_pending_review_count_for_final_decisions(
+    decision: str,
+) -> None:
+    """POST /governed decision removes approved/edited/rejected items from pending count."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    proposal = create_governed_proposal(
+        session,
+        task,
+        proposal_id=f"governed-count-{task.id}-1",
+    )
+    add_pending_sibling_proposal(
+        session,
+        proposal,
+        proposal_id=f"governed-count-{task.id}-2",
+    )
+
+    response = client.post(
+        f"/workflows/{task.id}/governed/review-items/{proposal.id}/decision",
+        json={
+            "decision": decision,
+            "edited_value": "new@example.com" if decision == "edited" else None,
+        },
+    )
+
+    assert response.status_code == 200
+    run = session.get(AgentRun, proposal.run_id)
+    assert run is not None
+    assert run.pending_review_count == 1
+    session.close()
+
+
+def test_governed_review_decision_needs_more_evidence_decrements_pending_review_count() -> None:
+    """POST /governed decision treats needs_more_evidence as no longer pending."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    proposal = create_governed_proposal(
+        session,
+        task,
+        proposal_id=f"governed-evidence-{task.id}-1",
+    )
+    add_pending_sibling_proposal(
+        session,
+        proposal,
+        proposal_id=f"governed-evidence-{task.id}-2",
+    )
+
+    response = client.post(
+        f"/workflows/{task.id}/governed/review-items/{proposal.id}/decision",
+        json={"decision": "needs_more_evidence"},
+    )
+
+    assert response.status_code == 200
+    run = session.get(AgentRun, proposal.run_id)
+    assert run is not None
+    assert run.pending_review_count == 1
+    session.close()
+
+
+def test_governed_review_decision_does_not_write_workflow_memory() -> None:
+    """Verify memory-write proposals are only reviewed, not directly saved."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    proposal = create_governed_proposal(
+        session,
+        task,
+        proposal_id=f"governed-memory-{task.id}",
+        proposal_type="memory_write",
+        target_type="workflow_memory",
+        proposed_value="email",
+    )
+
+    response = client.post(
+        f"/workflows/{task.id}/governed/review-items/{proposal.id}/decision",
+        json={"decision": "approved"},
+    )
+
+    assert response.status_code == 200
+    assert session.query(WorkflowMemoryItem).count() == 0
     session.close()
 
 

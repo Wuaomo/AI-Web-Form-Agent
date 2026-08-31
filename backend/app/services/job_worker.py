@@ -397,6 +397,8 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
         get_missing_required_fields,
         missing_required_detail,
     )
+    from app.services.agent_runtime.state_store import save_fill_form_runtime_state
+    from app.services.agent_runtime.tools import execute_fill_form_runtime_tool
     from app.services.browser_executor import fill_form_and_capture_screenshot
     from app.services.checkpoint_service import write_checkpoint
     from app.workflow_constants import WORKFLOW_STAGE_FILL, CHECKPOINT_SUCCESS, CHECKPOINT_FAILED
@@ -455,17 +457,20 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
     db.flush()
 
     try:
-        screenshot, _ = asyncio.run(
-            fill_form_and_capture_screenshot(
-                task_id=task.id,
-                url=task.url,
-                profile_id=task.profile_id,
-                fields=filtered_fields,
-                stage="filled_form",
+        tool_result, screenshot, _ = asyncio.run(
+            execute_fill_form_runtime_tool(
                 db=db,
+                task=task,
+                fields=filtered_fields,
+                fill_form_handler=fill_form_and_capture_screenshot
             )
         )
         set_workflow_status(task, WORKFLOW_STATUS_WAITING_APPROVAL, reason="fill_completed")
+        save_fill_form_runtime_state(
+            db,
+            task=task,
+            tool_result=tool_result,
+        )
         write_checkpoint(
             task_id=task.id,
             stage=WORKFLOW_STAGE_FILL,

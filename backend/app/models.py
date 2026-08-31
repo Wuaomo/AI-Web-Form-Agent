@@ -2,7 +2,7 @@
 
 import json
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -111,6 +111,7 @@ class Task(Base):
     jobs: Mapped[list["Job"]] = relationship(back_populates="task")
     verification_results: Mapped[list["FieldVerificationResult"]] = relationship(back_populates="task")
     agent_reviews: Mapped[list["AgentReview"]] = relationship(back_populates="task")
+    agent_runs: Mapped[list["AgentRun"]] = relationship(back_populates="task")
 
     @property
     def workflow_plan(self) -> dict[str, object]:
@@ -198,6 +199,376 @@ class FormField(Base):
         """Persist structured choices as JSON."""
 
         self.field_options = json.dumps(value or [], ensure_ascii=False)
+
+
+class AgentRun(Base):
+    """Persisted compatibility record for one governed runtime run."""
+
+    __tablename__ = "agent_runs"
+
+    id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    legacy_task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), nullable=False)
+    goal: Mapped[str] = mapped_column(Text, nullable=False)
+    target_url: Mapped[Optional[str]] = mapped_column(String(2048))
+    profile_id: Mapped[Optional[int]] = mapped_column(Integer)
+    workflow_hint: Mapped[Optional[str]] = mapped_column(String(50))
+    status: Mapped[str] = mapped_column(String(50), nullable=False)
+    mode: Mapped[str] = mapped_column(String(50), nullable=False)
+    current_plan_id: Mapped[Optional[str]] = mapped_column(String(200))
+    pending_review_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    final_result_json: Mapped[Optional[str]] = mapped_column("final_result", Text)
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    task: Mapped["Task"] = relationship(back_populates="agent_runs")
+    plans: Mapped[list["AgentPlan"]] = relationship(back_populates="run")
+    tool_calls: Mapped[list["AgentToolCall"]] = relationship(back_populates="run")
+    proposals: Mapped[list["AgentProposal"]] = relationship(back_populates="run")
+
+    @property
+    def final_result(self) -> dict[str, object]:
+        """Return structured final result data."""
+
+        if not self.final_result_json:
+            return {}
+        try:
+            parsed = json.loads(self.final_result_json)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    @final_result.setter
+    def final_result(self, value: dict[str, object] | None) -> None:
+        """Persist final result as stable JSON."""
+
+        self.final_result_json = json.dumps(
+            value or {},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+
+
+class AgentPlan(Base):
+    """Persisted compact plan for one governed runtime run."""
+
+    __tablename__ = "agent_plans"
+
+    id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("agent_runs.id"), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    goal: Mapped[str] = mapped_column(Text, nullable=False)
+    steps_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[str] = mapped_column(String(50), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    run: Mapped["AgentRun"] = relationship(back_populates="plans")
+
+    @property
+    def steps(self) -> list[dict[str, object]]:
+        """Return compact planned tool calls."""
+
+        try:
+            parsed = json.loads(self.steps_json)
+        except json.JSONDecodeError:
+            return []
+        return parsed if isinstance(parsed, list) else []
+
+    @steps.setter
+    def steps(self, value: list[dict[str, object]] | None) -> None:
+        """Persist plan steps as stable JSON."""
+
+        self.steps_json = json.dumps(
+            value or [],
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+
+
+class AgentToolCall(Base):
+    """Persisted compact tool call record for a governed runtime run."""
+
+    __tablename__ = "agent_tool_calls"
+
+    id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("agent_runs.id"), nullable=False)
+    plan_step_id: Mapped[Optional[str]] = mapped_column(String(200))
+    tool_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    input_payload_json: Mapped[str] = mapped_column("input_json", Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False)
+    risk_level: Mapped[str] = mapped_column(String(20), nullable=False)
+    governance_decision_json: Mapped[Optional[str]] = mapped_column(Text)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    run: Mapped["AgentRun"] = relationship(back_populates="tool_calls")
+    result: Mapped[Optional["AgentToolResult"]] = relationship(
+        back_populates="tool_call",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+
+    @property
+    def input_json(self) -> dict[str, object]:
+        """Return structured tool input."""
+
+        try:
+            parsed = json.loads(self.input_payload_json)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    @input_json.setter
+    def input_json(self, value: dict[str, object] | None) -> None:
+        """Persist tool input as stable JSON."""
+
+        self.input_payload_json = json.dumps(
+            value or {},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+
+    @property
+    def governance_decision(self) -> dict[str, object]:
+        """Return structured governance decision data."""
+
+        if not self.governance_decision_json:
+            return {}
+        try:
+            parsed = json.loads(self.governance_decision_json)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    @governance_decision.setter
+    def governance_decision(self, value: dict[str, object] | None) -> None:
+        """Persist governance decision as stable JSON."""
+
+        self.governance_decision_json = json.dumps(
+            value or {},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+
+
+class AgentToolResult(Base):
+    """Persisted raw result for one governed runtime tool call."""
+
+    __tablename__ = "agent_tool_results"
+
+    tool_call_id: Mapped[str] = mapped_column(
+        ForeignKey("agent_tool_calls.id"),
+        primary_key=True,
+    )
+    status: Mapped[str] = mapped_column(String(50), nullable=False)
+    output_payload_json: Mapped[str] = mapped_column("output_json", Text, nullable=False)
+    evidence_items_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_proposals_json: Mapped[str] = mapped_column(Text, nullable=False)
+    verification_candidates_json: Mapped[str] = mapped_column(Text, nullable=False)
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    tool_call: Mapped["AgentToolCall"] = relationship(back_populates="result")
+
+    @property
+    def output_json(self) -> dict[str, object]:
+        """Return structured raw tool output for backend-only recovery."""
+
+        try:
+            parsed = json.loads(self.output_payload_json)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    @output_json.setter
+    def output_json(self, value: dict[str, object] | None) -> None:
+        """Persist raw tool output as stable JSON."""
+
+        self.output_payload_json = json.dumps(
+            value or {},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+
+    @property
+    def evidence_items(self) -> list[dict[str, object]]:
+        """Return persisted evidence item payloads."""
+
+        return _json_list(self.evidence_items_json)
+
+    @evidence_items.setter
+    def evidence_items(self, value: list[dict[str, object]] | None) -> None:
+        """Persist evidence items as stable JSON."""
+
+        self.evidence_items_json = _dump_json_list(value)
+
+    @property
+    def created_proposals(self) -> list[dict[str, object]]:
+        """Return persisted proposal payloads."""
+
+        return _json_list(self.created_proposals_json)
+
+    @created_proposals.setter
+    def created_proposals(self, value: list[dict[str, object]] | None) -> None:
+        """Persist created proposals as stable JSON."""
+
+        self.created_proposals_json = _dump_json_list(value)
+
+    @property
+    def verification_candidates(self) -> list[dict[str, object]]:
+        """Return persisted verification candidate payloads."""
+
+        return _json_list(self.verification_candidates_json)
+
+    @verification_candidates.setter
+    def verification_candidates(self, value: list[dict[str, object]] | None) -> None:
+        """Persist verification candidates as stable JSON."""
+
+        self.verification_candidates_json = _dump_json_list(value)
+
+
+class AgentProposal(Base):
+    """Persisted review proposal for a governed runtime run."""
+
+    __tablename__ = "agent_proposals"
+
+    id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("agent_runs.id"), nullable=False)
+    proposal_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    target_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    target_ref: Mapped[str] = mapped_column(String(200), nullable=False)
+    proposed_value_json: Mapped[str] = mapped_column(
+        "proposed_value",
+        Text,
+        nullable=False,
+    )
+    rationale: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[Optional[float]] = mapped_column(Float)
+    risk_level: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    run: Mapped["AgentRun"] = relationship(back_populates="proposals")
+    evidence_items: Mapped[list["AgentEvidenceItem"]] = relationship(
+        back_populates="proposal",
+        cascade="all, delete-orphan",
+    )
+    review_decisions: Mapped[list["AgentReviewDecision"]] = relationship(
+        back_populates="proposal",
+        cascade="all, delete-orphan",
+    )
+
+    @property
+    def proposed_value(self) -> Any:
+        """Return the structured value proposed for review."""
+
+        return _json_value(self.proposed_value_json)
+
+    @proposed_value.setter
+    def proposed_value(self, value: Any) -> None:
+        """Persist the proposed value as stable JSON."""
+
+        self.proposed_value_json = _dump_json_value(value)
+
+
+class AgentEvidenceItem(Base):
+    """Persisted compact evidence backing a runtime proposal."""
+
+    __tablename__ = "agent_evidence_items"
+
+    id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("agent_runs.id"), nullable=False)
+    proposal_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("agent_proposals.id")
+    )
+    source_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    source_id: Mapped[Optional[str]] = mapped_column(String(200))
+    source_title: Mapped[Optional[str]] = mapped_column(String(300))
+    section_title: Mapped[Optional[str]] = mapped_column(String(500))
+    quote_or_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    score: Mapped[Optional[float]] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    proposal: Mapped[Optional["AgentProposal"]] = relationship(
+        back_populates="evidence_items"
+    )
+
+
+class AgentReviewDecision(Base):
+    """Persisted human decision for one runtime proposal."""
+
+    __tablename__ = "agent_review_decisions"
+
+    id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    proposal_id: Mapped[str] = mapped_column(
+        ForeignKey("agent_proposals.id"),
+        nullable=False,
+    )
+    decision: Mapped[str] = mapped_column(String(50), nullable=False)
+    edited_value_json: Mapped[Optional[str]] = mapped_column("edited_value", Text)
+    reviewer_note: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    proposal: Mapped["AgentProposal"] = relationship(back_populates="review_decisions")
+
+    @property
+    def edited_value(self) -> Any:
+        """Return a structured edited value when present."""
+
+        if self.edited_value_json is None:
+            return None
+        return _json_value(self.edited_value_json)
+
+    @edited_value.setter
+    def edited_value(self, value: Any) -> None:
+        """Persist an edited value as stable JSON."""
+
+        self.edited_value_json = None if value is None else _dump_json_value(value)
+
+
+def _json_list(value: str | None) -> list[dict[str, object]]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [item for item in parsed if isinstance(item, dict)]
+
+
+def _dump_json_list(value: list[dict[str, object]] | None) -> str:
+    return json.dumps(value or [], ensure_ascii=False, sort_keys=True)
+
+
+def _json_value(value: str | None) -> Any:
+    if value is None:
+        return None
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return None
+
+
+def _dump_json_value(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
 
 class ActionLog(Base):

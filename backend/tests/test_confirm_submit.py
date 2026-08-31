@@ -11,9 +11,23 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
-from app.models import ActionLog, ApprovalRequest, FormField, Profile, Task
+from app.models import (
+    ActionLog,
+    AgentPlan,
+    AgentProposal,
+    AgentReviewDecision,
+    AgentRun,
+    AgentToolCall,
+    AgentToolResult,
+    ApprovalRequest,
+    FormField,
+    Profile,
+    Task,
+)
 from app.routers.approvals import router as approvals_router
 from app.routers.tasks import router as tasks_router
+from app.services.agent_runtime.schemas import GovernanceDecision, ToolResult
+from app.services.agent_runtime.state_store import save_fill_form_runtime_state
 
 
 @pytest.fixture
@@ -95,6 +109,100 @@ def test_confirm_submit_first_request_creates_approval_and_returns_409(
     assert approval.status == "PENDING"
 
 
+def test_confirm_submit_first_request_persists_submit_proposal(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task = create_task(session, "WAITING_APPROVAL")
+
+    response = client.post(f"/tasks/{task.id}/confirm-submit")
+
+    assert response.status_code == 409
+    approval_id = response.json()["detail"]["approval_id"]
+    proposal = session.get(AgentProposal, f"task-{task.id}-submit-{approval_id}")
+    assert proposal is not None
+    assert proposal.run_id == f"task-{task.id}"
+    assert proposal.proposal_type == "form_submit"
+    assert proposal.target_type == "approval_request"
+    assert proposal.target_ref == str(approval_id)
+    assert proposal.risk_level == "high"
+    assert proposal.status == "PENDING"
+    assert proposal.proposed_value["action"] == "submit_form"
+    assert session.get(AgentRun, f"task-{task.id}") is not None
+
+
+def test_confirm_submit_existing_pending_approval_persists_submit_proposal(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task = create_task(session, "WAITING_APPROVAL")
+    field = session.scalar(select(FormField).where(FormField.task_id == task.id))
+    approval = ApprovalRequest(
+        task_id=task.id,
+        step_name="submit_form",
+        risk_type="final_submit",
+        risk_level="high",
+        decision="REVIEW_REQUIRED",
+        reason="Final submission requires explicit approval.",
+        status="PENDING",
+    )
+    approval.proposed_action = {
+        "action": "submit_form",
+        "fields": [{"field_id": field.id, "mapped_value": field.mapped_value}],
+    }
+    session.add(approval)
+    session.commit()
+
+    response = client.post(f"/tasks/{task.id}/confirm-submit")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["approval_id"] == approval.id
+    assert (
+        session.get(AgentProposal, f"task-{task.id}-submit-{approval.id}")
+        is not None
+    )
+
+
+def test_approve_submit_approval_syncs_submit_proposal(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task = create_task(session, "WAITING_APPROVAL")
+    first_response = client.post(f"/tasks/{task.id}/confirm-submit")
+    approval_id = first_response.json()["detail"]["approval_id"]
+    proposal_id = f"task-{task.id}-submit-{approval_id}"
+
+    response = client.post(f"/approvals/{approval_id}/approve")
+
+    assert response.status_code == 200
+    proposal = session.get(AgentProposal, proposal_id)
+    assert proposal is not None
+    assert proposal.status == "APPROVED"
+    decision = session.get(AgentReviewDecision, f"decision-{proposal_id}")
+    assert decision is not None
+    assert decision.decision == "approved"
+
+
+def test_reject_submit_approval_syncs_submit_proposal(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task = create_task(session, "WAITING_APPROVAL")
+    first_response = client.post(f"/tasks/{task.id}/confirm-submit")
+    approval_id = first_response.json()["detail"]["approval_id"]
+    proposal_id = f"task-{task.id}-submit-{approval_id}"
+
+    response = client.post(f"/approvals/{approval_id}/reject")
+
+    assert response.status_code == 200
+    proposal = session.get(AgentProposal, proposal_id)
+    assert proposal is not None
+    assert proposal.status == "REJECTED"
+    decision = session.get(AgentReviewDecision, f"decision-{proposal_id}")
+    assert decision is not None
+    assert decision.decision == "rejected"
+
+
 def test_confirm_submit_second_request_submits_after_approval(
     test_environment: tuple[TestClient, Session],
 ) -> None:
@@ -135,6 +243,85 @@ def test_confirm_submit_second_request_submits_after_approval(
     assert logs[1].action == "submit_form"
     assert logs[1].message == "Submitted the reviewed form after user approval."
     assert logs[1].status == "SUCCESS"
+
+
+def test_confirm_submit_records_submit_runtime_tool_call(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task = create_task(session, "WAITING_APPROVAL")
+
+    first_response = client.post(f"/tasks/{task.id}/confirm-submit")
+    approval_id = first_response.json()["detail"]["approval_id"]
+    approve_response = client.post(f"/approvals/{approval_id}/approve")
+    assert approve_response.status_code == 200
+
+    with patch(
+        "app.routers.tasks.submit_form_and_capture_screenshot",
+        new_callable=AsyncMock,
+    ) as submit_form:
+        submit_form.return_value = type("Screenshot", (), {"id": 5})()
+        response = client.post(f"/tasks/{task.id}/confirm-submit")
+
+    assert response.status_code == 200
+
+    call = session.get(AgentToolCall, f"task-{task.id}:submit_form")
+    assert call is not None
+    assert call.tool_name == "submit_form"
+    assert call.status == "SUCCEEDED"
+    assert call.risk_level == "high"
+    assert call.governance_decision["decision"] == "VERIFY_REQUIRED"
+
+    result = session.get(AgentToolResult, f"task-{task.id}:submit_form")
+    assert result is not None
+    assert result.status == "SUCCEEDED"
+    assert result.output_json == {
+        "submitted": True,
+        "field_count": 1,
+        "screenshot_id": 5,
+    }
+
+
+def test_confirm_submit_keeps_fill_and_submit_runtime_plan_steps(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task = create_task(session, "WAITING_APPROVAL")
+    save_fill_form_runtime_state(
+        session,
+        task=task,
+        tool_result=ToolResult(
+            tool_call_id=f"task-{task.id}:fill_form",
+            status="SUCCEEDED",
+            governance_decision=GovernanceDecision(
+                decision="VERIFY_REQUIRED",
+                reason="Approved browser write requires verification after execution.",
+                risk_level="medium",
+            ),
+            output_json={
+                "filled_count": 1,
+                "screenshot_id": 4,
+                "verification_count": 0,
+            },
+        ),
+    )
+
+    first_response = client.post(f"/tasks/{task.id}/confirm-submit")
+    approval_id = first_response.json()["detail"]["approval_id"]
+    approve_response = client.post(f"/approvals/{approval_id}/approve")
+    assert approve_response.status_code == 200
+
+    with patch(
+        "app.routers.tasks.submit_form_and_capture_screenshot",
+        new_callable=AsyncMock,
+    ) as submit_form:
+        submit_form.return_value = type("Screenshot", (), {"id": 5})()
+        response = client.post(f"/tasks/{task.id}/confirm-submit")
+
+    assert response.status_code == 200
+    plan = session.get(AgentPlan, f"task-{task.id}:browser-write-plan:1")
+    assert plan is not None
+    assert [step["step_id"] for step in plan.steps] == ["fill_form", "submit_form"]
 
 
 def test_confirm_submit_rejects_task_not_waiting_for_approval(

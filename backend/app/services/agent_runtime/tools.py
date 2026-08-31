@@ -12,6 +12,10 @@ from app.services.agent_runtime.tool_runtime import (
 )
 from app.services.field_mapper import map_fields_by_rules
 from app.services.form_extractor import extract_form_analysis
+from app.services.browser_executor import (
+    fill_form_and_capture_screenshot,
+    submit_form_and_capture_screenshot,
+)
 
 
 EXTRACT_FORM_INPUT_SCHEMA: dict[str, Any] = {
@@ -52,13 +56,57 @@ MAP_FIELDS_OUTPUT_SCHEMA: dict[str, Any] = {
     },
 }
 
+FILL_FORM_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["task_id", "url", "profile_id", "fields"],
+    "properties": {
+        "task_id": {"type": "integer"},
+        "url": {"type": "string"},
+        "profile_id": {"type": "integer"},
+        "fields": {"type": "array"},
+    },
+}
+
+FILL_FORM_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["filled_count", "screenshot_id", "verification_count"],
+    "properties": {
+        "filled_count": {"type": "integer"},
+        "screenshot_id": {"type": "integer"},
+        "verification_count": {"type": "integer"},
+    },
+}
+
+SUBMIT_FORM_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["task_id", "url", "profile_id", "fields"],
+    "properties": {
+        "task_id": {"type": "integer"},
+        "url": {"type": "string"},
+        "profile_id": {"type": "integer"},
+        "fields": {"type": "array"},
+    },
+}
+
+SUBMIT_FORM_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["submitted", "field_count", "screenshot_id"],
+    "properties": {
+        "submitted": {"type": "boolean"},
+        "field_count": {"type": "integer"},
+        "screenshot_id": {"type": "integer"},
+    },
+}
+
 
 def build_default_tool_runtime(
     *,
     extract_form_analysis_handler=extract_form_analysis,
     map_fields_by_rules_handler=map_fields_by_rules,
+    fill_form_handler=fill_form_and_capture_screenshot,
+    submit_form_handler=submit_form_and_capture_screenshot,
 ) -> ToolRuntime:
-    """Return the default runtime with internal read-only tools registered."""
+    """Return the default runtime with internal tools registered."""
 
     async def run_extract_form(
         _context: ToolExecutionContext,
@@ -93,6 +141,49 @@ def build_default_tool_runtime(
             "mode": "rules",
         }
 
+    async def run_fill_form(
+        context: ToolExecutionContext,
+        tool_input: dict[str, Any],
+    ) -> dict[str, Any]:
+        screenshot, verification = await fill_form_handler(
+            task_id=tool_input["task_id"],
+            url=tool_input["url"],
+            profile_id=tool_input["profile_id"],
+            fields=tool_input["fields"],
+            stage="filled_form",
+            db=context.metadata.get("db"),
+        )
+        sink = context.metadata.get("fill_form_result")
+        if isinstance(sink, dict):
+            sink["screenshot"] = screenshot
+            sink["verification_data"] = verification
+        return {
+            "filled_count": len(tool_input["fields"]),
+            "screenshot_id": getattr(screenshot, "id", None),
+            "verification_count": len(verification),
+        }
+
+    async def run_submit_form(
+        context: ToolExecutionContext,
+        tool_input: dict[str, Any],
+    ) -> dict[str, Any]:
+        screenshot = await submit_form_handler(
+            task_id=tool_input["task_id"],
+            url=tool_input["url"],
+            profile_id=tool_input["profile_id"],
+            fields=tool_input["fields"],
+            stage="submitted_form",
+            db=context.metadata.get("db"),
+        )
+        sink = context.metadata.get("submit_form_result")
+        if isinstance(sink, dict):
+            sink["screenshot"] = screenshot
+        return {
+            "submitted": True,
+            "field_count": len(tool_input["fields"]),
+            "screenshot_id": getattr(screenshot, "id", None),
+        }
+
     runtime = ToolRuntime()
     for name in ("extract_form", "extract_form_fields"):
         runtime.register(
@@ -122,7 +213,109 @@ def build_default_tool_runtime(
                 handler=run_map_fields,
             )
         )
+    runtime.register(
+        AgentTool(
+            name="fill_form",
+            description="Fill reviewed form fields in the browser.",
+            input_schema=FILL_FORM_INPUT_SCHEMA,
+            output_schema=FILL_FORM_OUTPUT_SCHEMA,
+            risk_level="medium",
+            mutates_browser=True,
+            mutates_external_system=False,
+            trace_phase="browser",
+            handler=run_fill_form,
+        )
+    )
+    runtime.register(
+        AgentTool(
+            name="submit_form",
+            description="Submit the reviewed browser form.",
+            input_schema=SUBMIT_FORM_INPUT_SCHEMA,
+            output_schema=SUBMIT_FORM_OUTPUT_SCHEMA,
+            risk_level="high",
+            mutates_browser=True,
+            mutates_external_system=False,
+            trace_phase="submit",
+            handler=run_submit_form,
+        )
+    )
     return runtime
+
+
+async def execute_fill_form_runtime_tool(
+    *,
+    db: Any,
+    task: Any,
+    fields: list[Any],
+    fill_form_handler=fill_form_and_capture_screenshot,
+) -> tuple[Any, Any, list[Any]]:
+    """Run the approved fill_form browser-write tool for a legacy task."""
+
+    tool_call_id = f"task-{task.id}:fill_form"
+    fill_result: dict[str, Any] = {}
+    tool_result = await build_default_tool_runtime(
+        fill_form_handler=fill_form_handler
+    ).execute(
+        tool_call_id=tool_call_id,
+        tool_name="fill_form",
+        tool_input={
+            "task_id": task.id,
+            "url": task.url,
+            "profile_id": task.profile_id,
+            "fields": fields,
+        },
+        context=ToolExecutionContext(
+            metadata={
+                "db": db,
+                "task_id": task.id,
+                "approved_tool_call_ids": [tool_call_id],
+                "fill_form_result": fill_result,
+            }
+        ),
+    )
+    if tool_result.status != "SUCCEEDED":
+        raise RuntimeError(tool_result.error or "Runtime fill_form failed")
+    return (
+        tool_result,
+        fill_result.get("screenshot"),
+        fill_result.get("verification_data", []),
+    )
+
+
+async def execute_submit_form_runtime_tool(
+    *,
+    db: Any,
+    task: Any,
+    fields: list[Any],
+    submit_form_handler=submit_form_and_capture_screenshot,
+) -> tuple[Any, Any]:
+    """Run the approved submit_form browser-write tool for a legacy task."""
+
+    tool_call_id = f"task-{task.id}:submit_form"
+    submit_result: dict[str, Any] = {}
+    tool_result = await build_default_tool_runtime(
+        submit_form_handler=submit_form_handler
+    ).execute(
+        tool_call_id=tool_call_id,
+        tool_name="submit_form",
+        tool_input={
+            "task_id": task.id,
+            "url": task.url,
+            "profile_id": task.profile_id,
+            "fields": fields,
+        },
+        context=ToolExecutionContext(
+            metadata={
+                "db": db,
+                "task_id": task.id,
+                "approved_tool_call_ids": [tool_call_id],
+                "submit_form_result": submit_result,
+            }
+        ),
+    )
+    if tool_result.status != "SUCCEEDED":
+        raise RuntimeError(tool_result.error or "Runtime submit_form failed")
+    return tool_result, submit_result.get("screenshot")
 
 
 def _field_to_dict(field: object) -> dict[str, Any]:
@@ -163,7 +356,13 @@ def _mapped_field_to_dict(field: object) -> dict[str, Any]:
 __all__ = [
     "EXTRACT_FORM_INPUT_SCHEMA",
     "EXTRACT_FORM_OUTPUT_SCHEMA",
+    "FILL_FORM_INPUT_SCHEMA",
+    "FILL_FORM_OUTPUT_SCHEMA",
     "MAP_FIELDS_INPUT_SCHEMA",
     "MAP_FIELDS_OUTPUT_SCHEMA",
+    "SUBMIT_FORM_INPUT_SCHEMA",
+    "SUBMIT_FORM_OUTPUT_SCHEMA",
     "build_default_tool_runtime",
+    "execute_fill_form_runtime_tool",
+    "execute_submit_form_runtime_tool",
 ]

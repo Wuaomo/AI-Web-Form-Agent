@@ -676,6 +676,12 @@ Benchmarks        -> Evaluation
 
 迁移期继续使用 SQLite。
 
+这里的 SQLite 持久化首先保存的是 runtime state，不是 agent
+长期记忆。`agent_runs` / `agent_plans` 用来回答“这个 task 对应哪次
+governed run、当前计划是什么、服务重启后 Run Cockpit 能否恢复 compact
+状态”。它们不应该承担 RAG memory、用户偏好、policy evidence 复用或
+答案复用的职责。
+
 新增表建议：
 
 ```text
@@ -699,6 +705,16 @@ approval_requests.task_id -> agent_runs.legacy_task_id during migration
 ```
 
 先双写关键 runtime records，再让 UI 读取新表，最后减少旧表职责。
+
+Memory layer 应该作为后续独立迁移处理。当前 `workflow_memory_items`
+已经能保守保存 reviewed mapping / answer 复用信息，并带有敏感值跳过、
+stale/disabled 等早期治理字段；但它仍偏 workflow-specific。更合理的
+演进顺序是：先完成 AgentRun/AgentPlan 持久化，再持久化 Proposal /
+ReviewDecision，然后把 memory write 变成一种需要人工 approve/edit/reject
+的 proposal，最后把 `workflow_memory_items` 泛化为 RAG memory layer，
+统一管理 evidence、review lineage、sensitivity classification、retention
+和 deletion policy。不要在 Phase 1 里直接重做 memory layer，否则容易把
+运行恢复和长期记忆两个生命周期不同的问题混在一起。
 
 ## 19. 分阶段实施计划
 
@@ -725,8 +741,9 @@ approval_requests.task_id -> agent_runs.legacy_task_id during migration
 
 工作：
 
-- 新增 `agent_runs`、`agent_plans`、`agent_tool_calls`、`agent_tool_results` 表。
-- `POST /workflows/{task_id}/governed/start` 同步写入 run/plan/tool calls。
+- 第一刀只新增 `agent_runs`、`agent_plans` 表；`agent_tool_calls`、
+  `agent_tool_results` 放到后续持久化扩展。
+- `POST /workflows/{task_id}/governed/start` 同步写入 run/plan。
 - `GET /workflows/{task_id}/governed` 从持久化恢复 compact state。
 - 保留 LangGraph checkpointer，但不再作为唯一恢复来源。
 

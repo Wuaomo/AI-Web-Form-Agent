@@ -1,6 +1,9 @@
 """Workflow template and runtime API endpoints."""
 
+from typing import Any, Literal
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app import config
@@ -24,7 +27,16 @@ from app.services.agent_runtime import (
     resume_from_review,
     start_runtime,
 )
-from app.services.agent_runtime.schemas import RunMode
+from app.services.agent_runtime.review_queue import (
+    apply_review_decision_to_field_target,
+    persist_review_decision,
+    resolve_task_review_item_target,
+)
+from app.services.agent_runtime.schemas import ReviewDecision, RunMode
+from app.services.agent_runtime.state_store import (
+    restore_governed_runtime_state,
+    save_governed_runtime_state,
+)
 from app.workflow_constants import (
     WORKFLOW_TYPE_FORM_FILL,
     WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
@@ -33,6 +45,12 @@ from app.workflow_constants import (
 from app.workflow_templates import list_workflow_templates
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
+
+
+class GovernedReviewDecisionRequest(BaseModel):
+    decision: Literal["approved", "edited", "rejected", "needs_more_evidence"]
+    edited_value: Any = None
+    reviewer_note: str | None = None
 
 
 @router.get("/templates", response_model=list[WorkflowTemplateResponse])
@@ -339,6 +357,7 @@ async def start_governed_workflow(
         planner=planner,
         metadata={"db": db, "task_id": task.id},
     )
+    save_governed_runtime_state(db, task=task, raw_state=raw_state)
     return _to_governed_compact_state(raw_state)
 
 
@@ -357,15 +376,60 @@ def get_governed_workflow_state(
 
     raw_state = get_governed_runtime_state(f"task-{task.id}")
     if raw_state is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=(
-                f"No governed runtime state found for task {task_id}. "
-                f"Call POST /workflows/{task_id}/governed/start first."
-            ),
-        )
+        raw_state = restore_governed_runtime_state(db, task=task)
+        if raw_state is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=(
+                    f"No governed runtime state found for task {task_id}. "
+                    f"Call POST /workflows/{task_id}/governed/start first."
+                ),
+            )
 
     return _to_governed_compact_state(raw_state)
+
+
+@router.post(
+    "/{task_id}/governed/review-items/{proposal_id}/decision",
+    response_model=ReviewDecision,
+)
+def apply_governed_review_item_decision(
+    task_id: int,
+    proposal_id: str,
+    request: GovernedReviewDecisionRequest,
+    db: Session = Depends(get_db),
+) -> ReviewDecision:
+    """Persist a governed proposal review decision."""
+
+    task = _get_task_or_404(db, task_id)
+    _ensure_governed_workflow(task)
+    target = resolve_task_review_item_target(db, task=task, proposal_id=proposal_id)
+    if target is None or target.proposal is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Review item not found",
+        )
+    if request.decision == "edited" and request.edited_value is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="edited_value is required for edited decisions",
+        )
+
+    decision = ReviewDecision(
+        id=f"decision-{proposal_id}",
+        proposal_id=proposal_id,
+        decision=request.decision,
+        edited_value=request.edited_value,
+        reviewer_note=request.reviewer_note,
+    )
+    apply_review_decision_to_field_target(
+        target,
+        decision=request.decision,
+        edited_value=request.edited_value,
+    )
+    persist_review_decision(db, decision=decision)
+    db.commit()
+    return decision
 
 
 @router.get(

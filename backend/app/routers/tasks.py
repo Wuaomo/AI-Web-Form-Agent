@@ -110,7 +110,24 @@ from app.services.workflow_state_service import (
 from app.services.workflow_trace_service import safe_create_span, safe_finish_span
 from app.services.agent_step_timeline import build_agent_steps_for_task
 from app.services.agent_runtime.form_field_persistence import replace_task_form_fields
-from app.services.agent_runtime.review_queue import build_task_review_proposals
+from app.services.agent_runtime.state_store import (
+    save_fill_form_runtime_state,
+    save_submit_form_runtime_state,
+)
+from app.services.agent_runtime.tools import (
+    execute_fill_form_runtime_tool,
+    execute_submit_form_runtime_tool,
+)
+from app.services.agent_runtime.review_queue import (
+    apply_review_decision_to_field_target,
+    build_task_review_proposals,
+    load_or_create_task_review_proposals,
+    persist_review_decision,
+    persist_submit_review_proposal,
+    persist_task_review_proposals,
+    resolve_task_review_item_target,
+    split_fields_by_browser_write_review,
+)
 from app.services.agent_runtime.schemas import Proposal, ReviewDecision
 from app.workflow_templates import require_enabled_template
 from app.workflow_constants import (
@@ -430,8 +447,13 @@ def filter_fillable_fields_by_policy(
     allowed_fields: list[FormField] = []
     blocked_required_fields: list[FormField] = []
     pending_required_fields: list[FormField] = []
+    review_ready_fields, proposal_blocked_fields = split_fields_by_browser_write_review(
+        db,
+        task=task,
+        fields=fields,
+    )
 
-    for field in fields:
+    for field in review_ready_fields:
         if not field.mapped_value:
             continue
         policy = evaluate_field_action(
@@ -473,6 +495,11 @@ def filter_fillable_fields_by_policy(
                 continue
         allowed_fields.append(field)
 
+    pending_required_fields.extend(
+        field
+        for field in proposal_blocked_fields
+        if field.required and is_fillable_field(field)
+    )
     return allowed_fields, blocked_required_fields, pending_required_fields
 
 
@@ -490,11 +517,6 @@ def get_task_field_or_404(task_id: int, field_id: int, db: Session) -> FormField
             detail="Form field not found",
         )
     return field
-
-
-def _field_id_from_review_proposal_id(task_id: int, proposal_id: str) -> int | None:
-    match = re.fullmatch(rf"task-{task_id}-field-(\d+)", proposal_id)
-    return int(match.group(1)) if match else None
 
 
 def get_next_log_step(task_id: int, db: Session) -> int:
@@ -1478,11 +1500,14 @@ def list_task_review_items(
         )
     )
     checkpoints = list_checkpoints(task_id=task_id, db=db)
-    return build_task_review_proposals(
+    proposals = load_or_create_task_review_proposals(
+        db,
         task=task,
         fields=fields,
         checkpoints=checkpoints,
     )
+    db.commit()
+    return proposals
 
 
 @router.post(
@@ -1497,38 +1522,55 @@ def apply_task_review_item_decision(
 ) -> ReviewDecision:
     """Apply a generic proposal decision to the compatible mapping review state."""
 
-    get_task_or_404(task_id, db)
-    field_id = _field_id_from_review_proposal_id(task_id, proposal_id)
-    if field_id is None:
+    task = get_task_or_404(task_id, db)
+    target = resolve_task_review_item_target(db, task=task, proposal_id=proposal_id)
+    if target is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Review item not found",
         )
-    field = get_task_field_or_404(task_id, field_id, db)
+    field = target.field
 
     if request.decision == "edited":
         if request.edited_value is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="edited_value is required for edited decisions",
-            )
-        field.mapped_value = str(request.edited_value)
-        field.confidence = 1.0
-    elif request.decision == "approved":
-        field.confidence = 1.0 if field.mapped_value is not None else field.confidence
-    elif request.decision == "rejected":
-        field.mapped_profile_key = None
-        field.mapped_value = None
-        field.confidence = None
+            detail="edited_value is required for edited decisions",
+        )
+    apply_review_decision_to_field_target(
+        target,
+        decision=request.decision,
+        edited_value=request.edited_value,
+    )
 
-    db.commit()
-    return ReviewDecision(
+    if field is not None and target.proposal is None:
+        checkpoints = list_checkpoints(task_id=task_id, db=db)
+        fields = list(
+            db.scalars(
+                select(FormField)
+                .where(FormField.task_id == task_id)
+                .order_by(FormField.id)
+            )
+        )
+        persist_task_review_proposals(
+            db,
+            task=task,
+            proposals=build_task_review_proposals(
+                task=task,
+                fields=fields,
+                checkpoints=checkpoints,
+            ),
+        )
+    decision = ReviewDecision(
         id=f"decision-{proposal_id}",
         proposal_id=proposal_id,
         decision=request.decision,
         edited_value=request.edited_value,
         reviewer_note=request.reviewer_note,
     )
+    persist_review_decision(db, decision=decision)
+    db.commit()
+    return decision
 
 
 @router.put(
@@ -1970,13 +2012,11 @@ async def fill_task_form(
     try:
         db.execute(delete(FieldVerificationResult).where(FieldVerificationResult.task_id == task.id))
 
-        screenshot, verification_data = await fill_form_and_capture_screenshot(
-            task_id=task.id,
-            url=task.url,
-            profile_id=task.profile_id,
-            fields=filtered_fields,
-            stage="filled_form",
+        tool_result, screenshot, verification_data = await execute_fill_form_runtime_tool(
             db=db,
+            task=task,
+            fields=filtered_fields,
+            fill_form_handler=fill_form_and_capture_screenshot
         )
 
         required_field_ids = {f.id for f in filtered_fields if f.required and is_fillable_field(f) and f.mapped_value}
@@ -2028,6 +2068,11 @@ async def fill_task_form(
             )
         else:
             apply_workflow_status(task, WORKFLOW_STATUS_WAITING_APPROVAL, reason="fill_completed")
+            save_fill_form_runtime_state(
+                db,
+                task=task,
+                tool_result=tool_result,
+            )
             write_checkpoint(
                 task_id=task.id,
                 stage=WORKFLOW_STAGE_FILL,
@@ -2288,7 +2333,12 @@ async def confirm_task_submission(
                 proposed_action=submit_proposed_action,
             )
             apply_workflow_status(task, WORKFLOW_STATUS_WAITING_APPROVAL, reason="submit_approval_created")
-            db.commit()
+        persist_submit_review_proposal(
+            db,
+            task=task,
+            approval_request=pending_submit_request,
+        )
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
@@ -2316,13 +2366,11 @@ async def confirm_task_submission(
     db.commit()
 
     try:
-        screenshot = await submit_form_and_capture_screenshot(
-            task_id=task.id,
-            url=task.url,
-            profile_id=task.profile_id,
-            fields=mapped_fields,
-            stage="submitted_form",
+        tool_result, screenshot = await execute_submit_form_runtime_tool(
             db=db,
+            task=task,
+            fields=mapped_fields,
+            submit_form_handler=submit_form_and_capture_screenshot,
         )
         apply_workflow_status(task, WORKFLOW_STATUS_COMPLETED, reason="submit_completed")
         create_log(
@@ -2333,7 +2381,7 @@ async def confirm_task_submission(
             status="SUCCESS",
             db=db,
         )
-        db.commit()
+        save_submit_form_runtime_state(db, task=task, tool_result=tool_result)
         safe_finish_span(
             submit_span_id,
             status=SPAN_STATUS_SUCCESS,

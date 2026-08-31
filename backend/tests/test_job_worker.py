@@ -6,7 +6,15 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
-from app.models import FormField, Job, Profile, Task, utc_now
+from app.models import (
+    AgentToolCall,
+    AgentToolResult,
+    FormField,
+    Job,
+    Profile,
+    Task,
+    utc_now,
+)
 from app.job_constants import (
     JOB_TYPE_ANALYZE_FORM,
     JOB_TYPE_MAP_FIELDS,
@@ -268,3 +276,53 @@ def test_execute_fill_stage_blocks_required_policy_review(db_session):
 
     with pytest.raises(ValueError, match="Required fields require approval before filling"):
         _execute_fill_stage(db, job)
+
+
+def test_execute_fill_stage_persists_runtime_tool_call(db_session):
+    """Verify worker fill records the browser write as a runtime tool call."""
+
+    from app.services.job_worker import _execute_fill_stage
+
+    db, task_id = db_session
+    task = db.get(Task, task_id)
+    task.status = "READY_TO_FILL"
+    task.workflow_status = "READY_TO_FILL"
+    field = FormField(
+        task_id=task_id,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        required=True,
+        mapped_profile_key="email",
+        mapped_value="ada@example.com",
+        confidence=0.99,
+    )
+    job = Job(
+        task_id=task_id,
+        job_type=JOB_TYPE_FILL_FORM,
+        status=JOB_STATUS_RUNNING,
+        attempts=1,
+        max_attempts=3,
+    )
+    db.add_all([field, job])
+    db.commit()
+
+    with patch(
+        "app.services.browser_executor.fill_form_and_capture_screenshot",
+        new_callable=AsyncMock,
+    ) as fill_form:
+        fill_form.return_value = (MagicMock(id=9), [])
+        _execute_fill_stage(db, job)
+
+    call = db.get(AgentToolCall, f"task-{task_id}:fill_form")
+    assert call is not None
+    assert call.tool_name == "fill_form"
+    assert call.status == "SUCCEEDED"
+    assert call.governance_decision["decision"] == "VERIFY_REQUIRED"
+    result = db.get(AgentToolResult, f"task-{task_id}:fill_form")
+    assert result is not None
+    assert result.output_json == {
+        "filled_count": 1,
+        "screenshot_id": 9,
+        "verification_count": 0,
+    }
