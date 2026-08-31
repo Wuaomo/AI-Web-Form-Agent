@@ -397,6 +397,9 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
         get_missing_required_fields,
         missing_required_detail,
     )
+    from app.services.agent_runtime.state_store import save_governed_runtime_state
+    from app.services.agent_runtime.tool_runtime import ToolExecutionContext
+    from app.services.agent_runtime.tools import build_default_tool_runtime
     from app.services.browser_executor import fill_form_and_capture_screenshot
     from app.services.checkpoint_service import write_checkpoint
     from app.workflow_constants import WORKFLOW_STAGE_FILL, CHECKPOINT_SUCCESS, CHECKPOINT_FAILED
@@ -455,17 +458,68 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
     db.flush()
 
     try:
-        screenshot, _ = asyncio.run(
-            fill_form_and_capture_screenshot(
-                task_id=task.id,
-                url=task.url,
-                profile_id=task.profile_id,
-                fields=filtered_fields,
-                stage="filled_form",
-                db=db,
+        tool_call_id = f"task-{task.id}:fill_form"
+        fill_result: dict[str, object] = {}
+        tool_result = asyncio.run(
+            build_default_tool_runtime(
+                fill_form_handler=fill_form_and_capture_screenshot
+            ).execute(
+                tool_call_id=tool_call_id,
+                tool_name="fill_form",
+                tool_input={
+                    "task_id": task.id,
+                    "url": task.url,
+                    "profile_id": task.profile_id,
+                    "fields": filtered_fields,
+                },
+                context=ToolExecutionContext(
+                    metadata={
+                        "db": db,
+                        "task_id": task.id,
+                        "approved_tool_call_ids": [tool_call_id],
+                        "fill_form_result": fill_result,
+                    }
+                ),
             )
         )
+        if tool_result.status != "SUCCEEDED":
+            raise RuntimeError(tool_result.error or "Runtime fill_form failed")
+        screenshot = fill_result.get("screenshot")
         set_workflow_status(task, WORKFLOW_STATUS_WAITING_APPROVAL, reason="fill_completed")
+        save_governed_runtime_state(
+            db,
+            task=task,
+            raw_state={
+                "run_id": f"task-{task.id}",
+                "task_id": task.id,
+                "workflow_type": task.workflow_type,
+                "planner_mode": "deterministic",
+                "run": {
+                    "id": f"task-{task.id}",
+                    "goal": task.description or "Fill reviewed fields.",
+                    "target_url": task.url,
+                    "profile_id": task.profile_id,
+                    "status": "WAITING_APPROVAL",
+                    "mode": "deterministic",
+                },
+                "plan": {
+                    "id": f"task-{task.id}:browser-write-plan:1",
+                    "version": 1,
+                    "goal": task.description or "Fill reviewed fields.",
+                    "steps": [
+                        {
+                            "step_id": "fill_form",
+                            "tool_name": "fill_form",
+                            "reason": "Fill reviewed browser fields.",
+                            "input_json": {"task_id": task.id},
+                            "risk_level": "medium",
+                        }
+                    ],
+                    "created_by": "deterministic",
+                },
+                "tool_results": [tool_result.model_dump(mode="json")],
+            },
+        )
         write_checkpoint(
             task_id=task.id,
             stage=WORKFLOW_STAGE_FILL,
