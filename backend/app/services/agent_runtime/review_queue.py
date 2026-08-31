@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -45,6 +46,31 @@ def build_task_review_proposals(
         for proposal in _memory_write_proposals(task, field)
     ]
     return field_proposals + memory_proposals
+
+
+def load_persisted_task_review_proposals(
+    db: Session,
+    *,
+    task: Task,
+) -> list[Proposal]:
+    """Restore review proposals already persisted for the task runtime run."""
+
+    run = db.execute(
+        select(AgentRun)
+        .where(AgentRun.legacy_task_id == task.id)
+        .order_by(AgentRun.updated_at.desc(), AgentRun.created_at.desc())
+    ).scalars().first()
+    if run is None:
+        return []
+
+    rows = list(
+        db.scalars(
+            select(AgentProposal)
+            .where(AgentProposal.run_id == run.id)
+            .order_by(AgentProposal.created_at, AgentProposal.id)
+        )
+    )
+    return [_proposal_from_row(row) for row in rows]
 
 
 def persist_task_review_proposals(
@@ -113,6 +139,56 @@ def persist_review_decision(
         proposal.status = _proposal_status_for_decision(decision.decision)
         if decision.decision == "edited":
             proposal.proposed_value = decision.edited_value
+
+
+def _proposal_from_row(row: AgentProposal) -> Proposal:
+    latest_decision = _latest_decision(row.review_decisions)
+    proposed_value = row.proposed_value
+    if latest_decision is not None and latest_decision.decision == "edited":
+        proposed_value = latest_decision.edited_value
+
+    return Proposal(
+        id=row.id,
+        run_id=row.run_id,
+        proposal_type=row.proposal_type,
+        target_type=row.target_type,
+        target_ref=row.target_ref,
+        proposed_value=proposed_value,
+        rationale=row.rationale,
+        confidence=row.confidence,
+        risk_level=row.risk_level,
+        status=(
+            _proposal_status_for_decision(latest_decision.decision)
+            if latest_decision is not None
+            else row.status
+        ),
+        evidence=[
+            EvidenceItem(
+                id=evidence.id,
+                run_id=evidence.run_id,
+                proposal_id=evidence.proposal_id,
+                source_type=evidence.source_type,
+                source_id=evidence.source_id,
+                source_title=evidence.source_title,
+                section_title=evidence.section_title,
+                quote_or_summary=evidence.quote_or_summary,
+                score=evidence.score,
+                created_at=evidence.created_at,
+            )
+            for evidence in sorted(
+                row.evidence_items,
+                key=lambda item: (item.created_at, item.id),
+            )
+        ],
+    )
+
+
+def _latest_decision(
+    decisions: list[AgentReviewDecision],
+) -> AgentReviewDecision | None:
+    if not decisions:
+        return None
+    return max(decisions, key=lambda item: (item.created_at, item.id))
 
 
 def _field_proposal(
@@ -397,6 +473,7 @@ def _evidence_id(task_id: int, field_id: int, kind: str, index: int) -> str:
 
 __all__ = [
     "build_task_review_proposals",
+    "load_persisted_task_review_proposals",
     "persist_review_decision",
     "persist_task_review_proposals",
 ]

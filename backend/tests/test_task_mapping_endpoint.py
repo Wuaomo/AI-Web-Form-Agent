@@ -1,6 +1,7 @@
 """Tests for the task field-mapping endpoint mode selection."""
 
 import json
+from datetime import datetime, timedelta, timezone
 from collections.abc import Generator
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -14,7 +15,19 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app import config
-from app.models import ActionLog, ApprovalRequest, FormField, Profile, Screenshot, Task, TaskCheckpoint
+from app.models import (
+    ActionLog,
+    AgentEvidenceItem,
+    AgentProposal,
+    AgentReviewDecision,
+    AgentRun,
+    ApprovalRequest,
+    FormField,
+    Profile,
+    Screenshot,
+    Task,
+    TaskCheckpoint,
+)
 from app.routers.approvals import router as approvals_router
 from app.routers.tasks import router as tasks_router
 from app.services.field_mapper import map_fields_with_llm
@@ -321,6 +334,141 @@ def test_review_items_persist_proposals_and_evidence(
     assert evidence["section_title"] == "email"
     assert evidence["quote_or_summary"] == "Reviewed memory suggests profile.email (reviewed)."
     assert evidence["score"] == 0.84
+
+
+def test_review_items_restore_persisted_proposals_before_deriving_from_fields(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify persisted proposals are the Review Mapping source of truth."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_profile_key = "email"
+    field.mapped_value = "form-field@example.com"
+    field.confidence = 0.99
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review persisted items.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"task-{task.id}-field-{field.id}",
+        run=run,
+        proposal_type="answer",
+        target_type="form_field",
+        target_ref=str(field.id),
+        proposed_value="persisted answer",
+        rationale="Persisted proposal should win.",
+        confidence=0.42,
+        risk_level="medium",
+        status="PENDING",
+    )
+    evidence = AgentEvidenceItem(
+        id=f"persisted-evidence-{task.id}",
+        run_id=run.id,
+        proposal=proposal,
+        source_type="policy_doc",
+        source_id="policy-1",
+        source_title="Persisted policy",
+        section_title="Access",
+        quote_or_summary="Persisted evidence should win.",
+        score=0.77,
+    )
+    session.add_all([run, proposal, evidence])
+    session.commit()
+
+    response = client.get(f"/tasks/{task.id}/review-items")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["proposal_type"] == "answer"
+    assert payload[0]["proposed_value"] == "persisted answer"
+    assert payload[0]["rationale"] == "Persisted proposal should win."
+    assert payload[0]["confidence"] == 0.42
+    assert payload[0]["risk_level"] == "medium"
+    evidence_payload = payload[0]["evidence"][0]
+    assert evidence_payload["id"] == f"persisted-evidence-{task.id}"
+    assert evidence_payload["run_id"] == run.id
+    assert evidence_payload["proposal_id"] == proposal.id
+    assert evidence_payload["source_type"] == "policy_doc"
+    assert evidence_payload["source_id"] == "policy-1"
+    assert evidence_payload["source_title"] == "Persisted policy"
+    assert evidence_payload["section_title"] == "Access"
+    assert evidence_payload["quote_or_summary"] == "Persisted evidence should win."
+    assert evidence_payload["score"] == 0.77
+
+
+@pytest.mark.parametrize(
+    ("decision", "expected_status"),
+    [
+        ("edited", "EDITED"),
+        ("rejected", "REJECTED"),
+        ("needs_more_evidence", "NEEDS_MORE_EVIDENCE"),
+    ],
+)
+def test_review_items_restore_latest_persisted_decision_status(
+    test_environment: tuple[TestClient, Session],
+    decision: str,
+    expected_status: str,
+) -> None:
+    """Verify persisted review decisions drive returned proposal status."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review persisted decisions.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"task-{task.id}-field-{field.id}",
+        run=run,
+        proposal_type="field_value",
+        target_type="form_field",
+        target_ref=str(field.id),
+        proposed_value="pending@example.com",
+        rationale="Review persisted decision.",
+        confidence=0.9,
+        risk_level="low",
+        status="PENDING",
+    )
+    older = AgentReviewDecision(
+        id=f"old-decision-{task.id}",
+        proposal=proposal,
+        decision="approved",
+        created_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+    )
+    latest = AgentReviewDecision(
+        id=f"latest-decision-{task.id}",
+        proposal=proposal,
+        decision=decision,
+        created_at=datetime.now(timezone.utc),
+    )
+    if decision == "edited":
+        latest.edited_value = "edited@example.com"
+    session.add_all([run, proposal, older, latest])
+    session.commit()
+
+    response = client.get(f"/tasks/{task.id}/review-items")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload[0]["status"] == expected_status
+    if decision == "edited":
+        assert payload[0]["proposed_value"] == "edited@example.com"
 
 
 def test_review_items_include_memory_write_proposals_for_reusable_mappings(
