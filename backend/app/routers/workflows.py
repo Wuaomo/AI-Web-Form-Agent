@@ -25,6 +25,10 @@ from app.services.agent_runtime import (
     start_runtime,
 )
 from app.services.agent_runtime.schemas import RunMode
+from app.services.agent_runtime.state_store import (
+    restore_governed_runtime_state,
+    save_governed_runtime_state,
+)
 from app.workflow_constants import (
     WORKFLOW_TYPE_FORM_FILL,
     WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
@@ -339,6 +343,7 @@ async def start_governed_workflow(
         planner=planner,
         metadata={"db": db, "task_id": task.id},
     )
+    save_governed_runtime_state(db, task=task, raw_state=raw_state)
     return _to_governed_compact_state(raw_state)
 
 
@@ -357,13 +362,15 @@ def get_governed_workflow_state(
 
     raw_state = get_governed_runtime_state(f"task-{task.id}")
     if raw_state is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=(
-                f"No governed runtime state found for task {task_id}. "
-                f"Call POST /workflows/{task_id}/governed/start first."
-            ),
-        )
+        raw_state = restore_governed_runtime_state(db, task=task)
+        if raw_state is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=(
+                    f"No governed runtime state found for task {task_id}. "
+                    f"Call POST /workflows/{task_id}/governed/start first."
+                ),
+            )
 
     return _to_governed_compact_state(raw_state)
 

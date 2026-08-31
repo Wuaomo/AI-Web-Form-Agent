@@ -1,10 +1,11 @@
 """Tests for workflow runtime API (start/get/review)."""
 
+import json
 from collections.abc import Generator
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -257,6 +258,77 @@ def test_governed_start_keeps_deterministic_mode_without_openai_key() -> None:
     session.close()
 
 
+def test_governed_start_persists_agent_run_and_plan() -> None:
+    """POST /governed/start double-writes the compact AgentRun and AgentPlan."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    runtime = ToolRuntime(
+        [
+            make_runtime_tool(
+                "extract_form",
+                {"fields": [], "field_count": 0, "login_required": False},
+            ),
+            make_runtime_tool(
+                "map_fields",
+                {"fields": [], "field_count": 0, "mapped_count": 0},
+            ),
+        ]
+    )
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+
+    assert response.status_code == 200
+
+    run_row = session.execute(
+        text(
+            """
+            SELECT id, legacy_task_id, goal, target_url, profile_id,
+                   workflow_hint, status, mode, current_plan_id
+            FROM agent_runs
+            WHERE legacy_task_id = :task_id
+            """
+        ),
+        {"task_id": task.id},
+    ).mappings().one()
+    assert run_row["id"] == f"task-{task.id}"
+    assert run_row["legacy_task_id"] == task.id
+    assert run_row["goal"] == "Complete the requested browser workflow."
+    assert run_row["target_url"] == task.url
+    assert run_row["profile_id"] == profile.id
+    assert run_row["workflow_hint"] == "form_fill"
+    assert run_row["status"] == "COMPLETED"
+    assert run_row["mode"] == "deterministic"
+    assert run_row["current_plan_id"] == f"task-{task.id}:plan:1"
+
+    plan_row = session.execute(
+        text(
+            """
+            SELECT id, run_id, version, goal, steps_json, created_by
+            FROM agent_plans
+            WHERE run_id = :run_id
+            """
+        ),
+        {"run_id": f"task-{task.id}"},
+    ).mappings().one()
+    assert plan_row["id"] == f"task-{task.id}:plan:1"
+    assert plan_row["run_id"] == f"task-{task.id}"
+    assert plan_row["version"] == 1
+    assert plan_row["goal"] == "Complete the requested browser workflow."
+    assert plan_row["created_by"] == "deterministic"
+    assert [step["step_id"] for step in json.loads(plan_row["steps_json"])] == [
+        "extract_form",
+        "map_fields",
+    ]
+    session.close()
+
+
 def test_governed_get_returns_last_compact_state_after_start() -> None:
     """GET /workflows/{task_id}/governed reloads the latest generic runtime state."""
 
@@ -318,6 +390,55 @@ def test_governed_get_returns_last_compact_state_after_start() -> None:
             "verification_candidate_count": 0,
         },
     ]
+    session.close()
+
+
+def test_governed_get_restores_compact_state_from_db_when_memory_state_is_missing() -> None:
+    """GET /governed falls back to persisted AgentRun/AgentPlan compact state."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    runtime = ToolRuntime(
+        [
+            make_runtime_tool(
+                "extract_form",
+                {
+                    "fields": [],
+                    "field_count": 0,
+                    "login_required": False,
+                    "raw_output_json": "do not expose me",
+                },
+            ),
+            make_runtime_tool(
+                "map_fields",
+                {"fields": [], "field_count": 0, "mapped_count": 0},
+            ),
+        ]
+    )
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        start_response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+    assert start_response.status_code == 200
+
+    _reset_governed_runtime_for_tests()
+    response = client.get(f"/workflows/{task.id}/governed")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["task_id"] == task.id
+    assert payload["workflow_type"] == "form_fill"
+    assert payload["planner_mode"] == "deterministic"
+    assert payload["status"] == "COMPLETED"
+    assert payload["plan"]["created_by"] == "deterministic"
+    assert payload["tool_calls"] == []
+    assert payload["tool_result_count"] == 0
+    assert "raw_output_json" not in json.dumps(payload)
+    assert "do not expose me" not in json.dumps(payload)
     session.close()
 
 

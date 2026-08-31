@@ -111,6 +111,7 @@ class Task(Base):
     jobs: Mapped[list["Job"]] = relationship(back_populates="task")
     verification_results: Mapped[list["FieldVerificationResult"]] = relationship(back_populates="task")
     agent_reviews: Mapped[list["AgentReview"]] = relationship(back_populates="task")
+    agent_runs: Mapped[list["AgentRun"]] = relationship(back_populates="task")
 
     @property
     def workflow_plan(self) -> dict[str, object]:
@@ -198,6 +199,92 @@ class FormField(Base):
         """Persist structured choices as JSON."""
 
         self.field_options = json.dumps(value or [], ensure_ascii=False)
+
+
+class AgentRun(Base):
+    """Persisted compatibility record for one governed runtime run."""
+
+    __tablename__ = "agent_runs"
+
+    id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    legacy_task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), nullable=False)
+    goal: Mapped[str] = mapped_column(Text, nullable=False)
+    target_url: Mapped[Optional[str]] = mapped_column(String(2048))
+    profile_id: Mapped[Optional[int]] = mapped_column(Integer)
+    workflow_hint: Mapped[Optional[str]] = mapped_column(String(50))
+    status: Mapped[str] = mapped_column(String(50), nullable=False)
+    mode: Mapped[str] = mapped_column(String(50), nullable=False)
+    current_plan_id: Mapped[Optional[str]] = mapped_column(String(200))
+    pending_review_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    final_result_json: Mapped[Optional[str]] = mapped_column("final_result", Text)
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    task: Mapped["Task"] = relationship(back_populates="agent_runs")
+    plans: Mapped[list["AgentPlan"]] = relationship(back_populates="run")
+
+    @property
+    def final_result(self) -> dict[str, object]:
+        """Return structured final result data."""
+
+        if not self.final_result_json:
+            return {}
+        try:
+            parsed = json.loads(self.final_result_json)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    @final_result.setter
+    def final_result(self, value: dict[str, object] | None) -> None:
+        """Persist final result as stable JSON."""
+
+        self.final_result_json = json.dumps(
+            value or {},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+
+
+class AgentPlan(Base):
+    """Persisted compact plan for one governed runtime run."""
+
+    __tablename__ = "agent_plans"
+
+    id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("agent_runs.id"), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    goal: Mapped[str] = mapped_column(Text, nullable=False)
+    steps_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[str] = mapped_column(String(50), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    run: Mapped["AgentRun"] = relationship(back_populates="plans")
+
+    @property
+    def steps(self) -> list[dict[str, object]]:
+        """Return compact planned tool calls."""
+
+        try:
+            parsed = json.loads(self.steps_json)
+        except json.JSONDecodeError:
+            return []
+        return parsed if isinstance(parsed, list) else []
+
+    @steps.setter
+    def steps(self, value: list[dict[str, object]] | None) -> None:
+        """Persist plan steps as stable JSON."""
+
+        self.steps_json = json.dumps(
+            value or [],
+            ensure_ascii=False,
+            sort_keys=True,
+        )
 
 
 class ActionLog(Base):
