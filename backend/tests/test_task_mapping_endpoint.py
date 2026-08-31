@@ -655,6 +655,78 @@ def test_review_items_restore_tool_result_evidence_for_created_proposals(
     assert payload[0]["evidence"][0]["quote_or_summary"] == "Top-level evidence should persist."
 
 
+def test_review_items_replace_stale_persisted_proposal_evidence(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify refreshed tool proposals do not keep stale evidence rows."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    proposal_id = f"tool-created-{task.id}"
+
+    def raw_state(evidence_id: str, summary: str) -> dict[str, object]:
+        return {
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": "Review refreshed proposal.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": "WAITING_REVIEW",
+                "mode": "deterministic",
+            },
+            "tool_results": [
+                {
+                    "tool_call_id": f"task-{task.id}:map_fields",
+                    "status": "SUCCEEDED",
+                    "created_proposals": [
+                        {
+                            "id": proposal_id,
+                            "proposal_type": "field_value",
+                            "target_type": "form_field",
+                            "target_ref": str(field.id),
+                            "proposed_value": "tool@example.com",
+                            "rationale": "Tool-created proposal should persist.",
+                            "confidence": 0.91,
+                            "risk_level": "low",
+                            "status": "PENDING",
+                            "evidence": [
+                                {
+                                    "id": evidence_id,
+                                    "source_type": "tool_result",
+                                    "source_title": "map_fields",
+                                    "quote_or_summary": summary,
+                                    "score": 0.82,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+
+    save_governed_runtime_state(
+        session,
+        task=task,
+        raw_state=raw_state("old-evidence", "Old evidence."),
+    )
+    save_governed_runtime_state(
+        session,
+        task=task,
+        raw_state=raw_state("new-evidence", "New evidence."),
+    )
+
+    response = client.get(f"/tasks/{task.id}/review-items")
+
+    assert response.status_code == 200
+    evidence = response.json()[0]["evidence"]
+    assert [item["id"] for item in evidence] == ["new-evidence"]
+    assert evidence[0]["quote_or_summary"] == "New evidence."
+
+
 def test_review_items_restore_tool_created_governed_proposal_after_decision(
     test_environment: tuple[TestClient, Session],
 ) -> None:

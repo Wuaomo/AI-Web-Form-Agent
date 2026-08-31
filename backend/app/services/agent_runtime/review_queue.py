@@ -202,6 +202,10 @@ def persist_task_review_proposals(
         if row.status == "PENDING" or proposal.status != "PENDING":
             row.status = proposal.status
 
+        evidence_ids = {evidence.id for evidence in proposal.evidence}
+        for evidence_row in list(row.evidence_items):
+            if evidence_row.id not in evidence_ids:
+                db.delete(evidence_row)
         for evidence in proposal.evidence:
             _upsert_evidence_item(db, evidence)
     refresh_pending_review_count(db, run_id=run.id)
