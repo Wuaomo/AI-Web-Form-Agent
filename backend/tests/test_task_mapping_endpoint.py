@@ -2412,6 +2412,57 @@ def test_fill_returns_409_when_required_field_needs_policy_approval(
     assert response.json()["detail"] == "Required fields require approval before filling: Agree to terms"
 
 
+def test_fill_returns_409_when_required_proposal_is_not_approved(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify pending runtime proposals cannot reach browser fill."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_profile_key = "email"
+    field.mapped_value = "pending@example.com"
+    field.confidence = 0.99
+    task.status = "READY_TO_FILL"
+    task.workflow_status = "READY_TO_FILL"
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review before fill.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"task-{task.id}-field-{field.id}",
+        run=run,
+        proposal_type="field_value",
+        target_type="form_field",
+        target_ref=str(field.id),
+        proposed_value="pending@example.com",
+        rationale="Review before fill.",
+        confidence=0.99,
+        risk_level="low",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+
+    with patch(
+        "app.routers.tasks.fill_form_and_capture_screenshot",
+        new_callable=AsyncMock,
+    ) as fill_form:
+        response = client.post(f"/tasks/{task.id}/fill")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Required fields require approval before filling: Where can we reach you?"
+    )
+    fill_form.assert_not_awaited()
+
+
 def test_fill_can_retry_after_required_field_approval(
     test_environment: tuple[TestClient, Session],
 ) -> None:

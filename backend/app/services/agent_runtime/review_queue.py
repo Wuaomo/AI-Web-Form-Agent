@@ -194,6 +194,44 @@ def apply_review_decision_to_field_target(
         field.confidence = None
 
 
+def split_fields_by_browser_write_review(
+    db: Session,
+    *,
+    task: Task,
+    fields: list[FormField],
+) -> tuple[list[FormField], list[FormField]]:
+    """Separate fields allowed for browser write from proposal-blocked fields."""
+
+    fields_by_id = {field.id: field for field in fields}
+    blocked_field_ids = {
+        int(proposal.target_ref)
+        for proposal in db.scalars(
+            select(AgentProposal)
+            .join(AgentRun)
+            .where(
+                AgentRun.legacy_task_id == task.id,
+                AgentProposal.target_type == "form_field",
+                AgentProposal.target_ref.in_(
+                    [str(field_id) for field_id in fields_by_id]
+                ),
+                AgentProposal.status.notin_(["APPROVED", "EDITED"]),
+            )
+        )
+        if proposal.target_ref.isdigit()
+    }
+    blocked_fields = [
+        field
+        for field in fields
+        if field.id in blocked_field_ids and _is_reviewable_field(field)
+    ]
+    allowed_fields = [
+        field
+        for field in fields
+        if field.id not in blocked_field_ids
+    ]
+    return allowed_fields, blocked_fields
+
+
 def persist_task_review_proposals(
     db: Session,
     *,
@@ -641,4 +679,5 @@ __all__ = [
     "persist_task_review_proposals",
     "refresh_pending_review_count",
     "resolve_task_review_item_target",
+    "split_fields_by_browser_write_review",
 ]

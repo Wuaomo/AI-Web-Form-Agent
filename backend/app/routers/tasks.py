@@ -117,6 +117,7 @@ from app.services.agent_runtime.review_queue import (
     persist_review_decision,
     persist_task_review_proposals,
     resolve_task_review_item_target,
+    split_fields_by_browser_write_review,
 )
 from app.services.agent_runtime.schemas import Proposal, ReviewDecision
 from app.workflow_templates import require_enabled_template
@@ -437,8 +438,13 @@ def filter_fillable_fields_by_policy(
     allowed_fields: list[FormField] = []
     blocked_required_fields: list[FormField] = []
     pending_required_fields: list[FormField] = []
+    review_ready_fields, proposal_blocked_fields = split_fields_by_browser_write_review(
+        db,
+        task=task,
+        fields=fields,
+    )
 
-    for field in fields:
+    for field in review_ready_fields:
         if not field.mapped_value:
             continue
         policy = evaluate_field_action(
@@ -480,6 +486,11 @@ def filter_fillable_fields_by_policy(
                 continue
         allowed_fields.append(field)
 
+    pending_required_fields.extend(
+        field
+        for field in proposal_blocked_fields
+        if field.required and is_fillable_field(field)
+    )
     return allowed_fields, blocked_required_fields, pending_required_fields
 
 
