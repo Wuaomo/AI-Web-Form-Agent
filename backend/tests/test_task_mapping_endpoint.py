@@ -21,6 +21,8 @@ from app.models import (
     AgentProposal,
     AgentReviewDecision,
     AgentRun,
+    AgentToolCall,
+    AgentToolResult,
     ApprovalRequest,
     FormField,
     Profile,
@@ -2505,6 +2507,44 @@ def test_fill_can_retry_after_required_field_approval(
 
     assert retry_response.status_code == 200
     fill_form.assert_awaited_once()
+
+
+def test_fill_persists_runtime_tool_call_result(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify legacy fill records the browser write as a runtime tool call."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_profile_key = "email"
+    field.mapped_value = "ada@example.com"
+    field.confidence = 0.99
+    task.status = "READY_TO_FILL"
+    task.workflow_status = "READY_TO_FILL"
+    session.commit()
+
+    with patch(
+        "app.routers.tasks.fill_form_and_capture_screenshot",
+        new_callable=AsyncMock,
+    ) as fill_form:
+        fill_form.return_value = (SimpleNamespace(id=5), [])
+        response = client.post(f"/tasks/{task.id}/fill")
+
+    assert response.status_code == 200
+    call = session.get(AgentToolCall, f"task-{task.id}:fill_form")
+    assert call is not None
+    assert call.tool_name == "fill_form"
+    assert call.status == "SUCCEEDED"
+    assert call.risk_level == "medium"
+    assert call.governance_decision["decision"] == "VERIFY_REQUIRED"
+    result = session.get(AgentToolResult, f"task-{task.id}:fill_form")
+    assert result is not None
+    assert result.status == "SUCCEEDED"
+    assert result.output_json == {
+        "filled_count": 1,
+        "screenshot_id": 5,
+        "verification_count": 0,
+    }
 
 
 def test_confirm_mapping_requires_new_approval_when_memory_write_value_changes(

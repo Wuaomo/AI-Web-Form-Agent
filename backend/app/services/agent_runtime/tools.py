@@ -128,6 +128,10 @@ def build_default_tool_runtime(
             stage="filled_form",
             db=context.metadata.get("db"),
         )
+        sink = context.metadata.get("fill_form_result")
+        if isinstance(sink, dict):
+            sink["screenshot"] = screenshot
+            sink["verification_data"] = verification
         return {
             "filled_count": len(tool_input["fields"]),
             "screenshot_id": getattr(screenshot, "id", None),
