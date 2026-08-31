@@ -1253,6 +1253,70 @@ def test_save_governed_runtime_state_persists_generic_verification_json_values()
     session.close()
 
 
+def test_save_governed_runtime_state_persists_raw_verification_fallbacks() -> None:
+    """Raw generic verification rows use safe fallbacks and filter evidence."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    tool_call_id = f"task-{task.id}:verify"
+
+    save_governed_runtime_state(
+        session,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": "Verify state.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": "COMPLETED",
+                "mode": "deterministic",
+            },
+            "verification_results": [
+                {
+                    "tool_call_id": tool_call_id,
+                    "status": "VERIFIED",
+                    "screenshot_id": 17,
+                    "evidence_items": [
+                        {"source_type": "dom", "quote_or_summary": "checked"},
+                        "drop me",
+                        ["drop me too"],
+                    ],
+                },
+                {
+                    "tool_call_id": tool_call_id,
+                    "target_ref": "bad-screenshot",
+                    "status": "SKIPPED",
+                    "screenshot_id": True,
+                },
+            ],
+        },
+    )
+
+    rows = list(
+        session.query(AgentVerificationResult).order_by(AgentVerificationResult.id)
+    )
+    assert len(rows) == 2
+    assert rows[0].target_type == "field_value"
+    assert rows[0].target_ref == ""
+    assert rows[0].verification_type == "field_value"
+    assert rows[0].reason is None
+    assert rows[0].screenshot_id == 17
+    assert rows[0].evidence_items == [
+        {"source_type": "dom", "quote_or_summary": "checked"}
+    ]
+    assert rows[1].target_ref == "bad-screenshot"
+    assert rows[1].screenshot_id is None
+
+    client.close()
+    session.close()
+
+
 def test_save_governed_runtime_state_replaces_verification_results_for_same_tool_call() -> None:
     """Saving the same tool call twice replaces stale generic verification rows."""
 
