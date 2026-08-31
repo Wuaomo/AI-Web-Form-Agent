@@ -268,6 +268,33 @@ def persist_submit_review_proposal(
     )
 
 
+def sync_submit_review_proposal_decision(
+    db: Session,
+    *,
+    approval_request: ApprovalRequest,
+) -> None:
+    """Mirror final submit approval status into its runtime proposal."""
+
+    decision = {
+        "APPROVED": "approved",
+        "REJECTED": "rejected",
+    }.get(approval_request.status)
+    if approval_request.step_name != "submit_form" or decision is None:
+        return
+
+    proposal_id = f"task-{approval_request.task_id}-submit-{approval_request.id}"
+    if db.get(AgentProposal, proposal_id) is None:
+        return
+    persist_review_decision(
+        db,
+        decision=ReviewDecision(
+            id=f"decision-{proposal_id}",
+            proposal_id=proposal_id,
+            decision=decision,
+        ),
+    )
+
+
 def persist_task_review_proposals(
     db: Session,
     *,
@@ -717,4 +744,5 @@ __all__ = [
     "refresh_pending_review_count",
     "resolve_task_review_item_target",
     "split_fields_by_browser_write_review",
+    "sync_submit_review_proposal_decision",
 ]

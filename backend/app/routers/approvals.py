@@ -10,6 +10,9 @@ from app.services.approval_gate_service import (
     list_pending_approvals,
     reject_request,
 )
+from app.services.agent_runtime.review_queue import (
+    sync_submit_review_proposal_decision,
+)
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
 
@@ -38,6 +41,7 @@ def approve_approval_request(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    sync_submit_review_proposal_decision(db, approval_request=request)
     db.commit()
     db.refresh(request)
     return request
@@ -56,6 +60,7 @@ def reject_approval_request(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    sync_submit_review_proposal_decision(db, approval_request=request)
     db.commit()
     db.refresh(request)
     return request

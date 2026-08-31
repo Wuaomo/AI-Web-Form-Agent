@@ -14,6 +14,7 @@ from app.database import Base, get_db
 from app.models import (
     ActionLog,
     AgentProposal,
+    AgentReviewDecision,
     AgentRun,
     ApprovalRequest,
     FormField,
@@ -155,6 +156,46 @@ def test_confirm_submit_existing_pending_approval_persists_submit_proposal(
         session.get(AgentProposal, f"task-{task.id}-submit-{approval.id}")
         is not None
     )
+
+
+def test_approve_submit_approval_syncs_submit_proposal(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task = create_task(session, "WAITING_APPROVAL")
+    first_response = client.post(f"/tasks/{task.id}/confirm-submit")
+    approval_id = first_response.json()["detail"]["approval_id"]
+    proposal_id = f"task-{task.id}-submit-{approval_id}"
+
+    response = client.post(f"/approvals/{approval_id}/approve")
+
+    assert response.status_code == 200
+    proposal = session.get(AgentProposal, proposal_id)
+    assert proposal is not None
+    assert proposal.status == "APPROVED"
+    decision = session.get(AgentReviewDecision, f"decision-{proposal_id}")
+    assert decision is not None
+    assert decision.decision == "approved"
+
+
+def test_reject_submit_approval_syncs_submit_proposal(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task = create_task(session, "WAITING_APPROVAL")
+    first_response = client.post(f"/tasks/{task.id}/confirm-submit")
+    approval_id = first_response.json()["detail"]["approval_id"]
+    proposal_id = f"task-{task.id}-submit-{approval_id}"
+
+    response = client.post(f"/approvals/{approval_id}/reject")
+
+    assert response.status_code == 200
+    proposal = session.get(AgentProposal, proposal_id)
+    assert proposal is not None
+    assert proposal.status == "REJECTED"
+    decision = session.get(AgentReviewDecision, f"decision-{proposal_id}")
+    assert decision is not None
+    assert decision.decision == "rejected"
 
 
 def test_confirm_submit_second_request_submits_after_approval(
