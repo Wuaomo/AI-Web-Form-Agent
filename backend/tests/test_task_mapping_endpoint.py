@@ -436,7 +436,7 @@ def test_review_items_restore_persisted_proposals_before_deriving_from_fields(
 
     assert response.status_code == 200
     payload = response.json()
-    assert len(payload) == 1
+    assert len(payload) == 2
     assert payload[0]["proposal_type"] == "answer"
     assert payload[0]["proposed_value"] == "persisted answer"
     assert payload[0]["rationale"] == "Persisted proposal should win."
@@ -452,6 +452,7 @@ def test_review_items_restore_persisted_proposals_before_deriving_from_fields(
     assert evidence_payload["section_title"] == "Access"
     assert evidence_payload["quote_or_summary"] == "Persisted evidence should win."
     assert evidence_payload["score"] == 0.77
+    assert payload[1]["proposal_type"] == "memory_write"
 
 
 def test_review_items_backfill_missing_persisted_field_proposals(
@@ -506,6 +507,7 @@ def test_review_items_backfill_missing_persisted_field_proposals(
     assert [item["id"] for item in payload] == [
         proposal.id,
         f"task-{task.id}-field-{second_field.id}",
+        f"task-{task.id}-field-{field.id}-memory-mapping",
         f"task-{task.id}-field-{second_field.id}-memory-mapping",
     ]
     assert payload[0]["proposed_value"] == "persisted answer"

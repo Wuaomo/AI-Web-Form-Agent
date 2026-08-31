@@ -109,7 +109,10 @@ def load_or_create_task_review_proposals(
         proposal
         for proposal in derived
         if proposal.id not in persisted_ids
-        and proposal.target_ref not in persisted_field_refs
+        and not (
+            proposal.target_type == "form_field"
+            and proposal.target_ref in persisted_field_refs
+        )
     ]
     if missing:
         persist_task_review_proposals(db, task=task, proposals=missing)
