@@ -825,6 +825,13 @@ ReviewDecision，然后把 memory write 变成一种需要人工 approve/edit/re
 - mismatch 有 compact user-facing summary。
 - raw details 默认折叠。
 
+当前状态（2026-09-01）：Phase 5 verification 泛化薄切片已收口。
+`agent_verification_results`、fill verification candidates、
+`verify_browser_state` generic VerificationResult 持久化、Run Cockpit
+compact summary、legacy field verification 兼容路径都有回归测试覆盖。
+这不表示整体 runtime refactor 完成；Phase 6 仍需要把主要 demo 收敛到
+generic governed graph 主路径。
+
 ### Phase 6：通用 governed graph 成为主路径
 
 目标：security questionnaire、vendor onboarding、generic form fill 都走 generic graph。
