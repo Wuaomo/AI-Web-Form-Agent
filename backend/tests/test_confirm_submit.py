@@ -304,7 +304,7 @@ def test_confirm_submit_records_submit_runtime_tool_call(
     assert verification.actual == {"screenshot_id": 5, "submitted": True}
 
 
-def test_confirm_submit_resumes_governed_submit_approval_without_plan_overwrite(
+def test_confirm_submit_resumes_persisted_governed_submit_approval_without_plan_overwrite(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     client, session = test_environment
@@ -355,6 +355,7 @@ def test_confirm_submit_resumes_governed_submit_approval_without_plan_overwrite(
     save_governed_runtime_state(session, task=task, raw_state=paused_state)
     approve_response = client.post(f"/approvals/{approval_id}/approve")
     assert approve_response.status_code == 200
+    _reset_governed_runtime_for_tests()
 
     with patch(
         "app.routers.tasks.submit_form_and_capture_screenshot",
@@ -365,6 +366,7 @@ def test_confirm_submit_resumes_governed_submit_approval_without_plan_overwrite(
 
     assert response.status_code == 200
     submit_form.assert_awaited_once()
+    session.expire_all()
     run = session.get(AgentRun, f"task-{task.id}")
     assert run is not None
     assert run.status == "COMPLETED"

@@ -697,10 +697,11 @@ async def resume_governed_runtime_from_approval(
     runtime: ToolRuntime | None = None,
     planner: AgentPlanner | None = None,
     metadata: dict[str, Any] | None = None,
+    state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Resume a checkpointer-backed generic graph from an approval pause."""
 
-    state = get_governed_runtime_state(run_id)
+    state = state or get_governed_runtime_state(run_id)
     if state is None:
         raise ValueError(f"No governed runtime state found for run {run_id}.")
     if state.get("interrupt_at") != "approval":

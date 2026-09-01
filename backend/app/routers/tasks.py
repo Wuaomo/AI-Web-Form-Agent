@@ -111,6 +111,7 @@ from app.services.workflow_trace_service import safe_create_span, safe_finish_sp
 from app.services.agent_step_timeline import build_agent_steps_for_task
 from app.services.agent_runtime.form_field_persistence import replace_task_form_fields
 from app.services.agent_runtime.state_store import (
+    restore_governed_runtime_state,
     save_fill_form_runtime_state,
     save_governed_runtime_state,
     save_submit_form_runtime_state,
@@ -2265,7 +2266,10 @@ async def resume_governed_submit_if_waiting(
     """Resume a governed submit pause only from the explicit submit endpoint."""
 
     run_id = f"task-{task.id}"
-    raw_state = get_governed_runtime_state(run_id)
+    raw_state = get_governed_runtime_state(run_id) or restore_governed_runtime_state(
+        db,
+        task=task,
+    )
     current_tool = (raw_state or {}).get("current_tool_call") or {}
     if (
         (raw_state or {}).get("interrupt_at") != "approval"
@@ -2279,6 +2283,7 @@ async def resume_governed_submit_if_waiting(
             submit_form_handler=submit_form_and_capture_screenshot,
         ),
         metadata={"db": db, "task_id": task.id},
+        state=raw_state,
     )
     save_governed_runtime_state(db, task=task, raw_state=resumed)
     return resumed
@@ -2401,15 +2406,15 @@ async def confirm_task_submission(
 
     try:
         screenshot_id = None
+        legacy_tool_result = None
         governed_state = await resume_governed_submit_if_waiting(db=db, task=task)
         if governed_state is None:
-            tool_result, screenshot = await execute_submit_form_runtime_tool(
+            legacy_tool_result, screenshot = await execute_submit_form_runtime_tool(
                 db=db,
                 task=task,
                 fields=mapped_fields,
                 submit_form_handler=submit_form_and_capture_screenshot,
             )
-            save_submit_form_runtime_state(db, task=task, tool_result=tool_result)
             screenshot_id = screenshot.id
         else:
             if governed_state.get("run", {}).get("status") != "COMPLETED":
@@ -2428,6 +2433,12 @@ async def confirm_task_submission(
             status="SUCCESS",
             db=db,
         )
+        if legacy_tool_result is not None:
+            save_submit_form_runtime_state(
+                db,
+                task=task,
+                tool_result=legacy_tool_result,
+            )
         safe_finish_span(
             submit_span_id,
             status=SPAN_STATUS_SUCCESS,
