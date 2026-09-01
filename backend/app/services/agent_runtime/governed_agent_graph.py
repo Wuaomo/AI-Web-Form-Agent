@@ -208,10 +208,10 @@ def _check_governance_node(
             tool,
             tool_call.get("input_json", {}),
         )
-        if (
-            decision.decision == "REVIEW_REQUIRED"
-            and tool_call["id"] in state.get("approved_tool_call_ids", [])
-        ):
+        if decision.decision in {
+            "REVIEW_REQUIRED",
+            "APPROVAL_REQUIRED",
+        } and tool_call["id"] in state.get("approved_tool_call_ids", []):
             decision = GovernanceDecision(
                 decision="VERIFY_REQUIRED",
                 reason="Tool call was approved during human review.",
@@ -659,6 +659,48 @@ async def resume_governed_runtime_from_review(
         _get_graph().update_state(config, resume_state, as_node="decide_next_step")
         return await _get_graph().ainvoke(None, config=config)
 
+    return await _resume_paused_tool_call(
+        run_id,
+        state=state,
+        runtime=runtime,
+        planner=planner,
+        metadata=metadata,
+    )
+
+
+async def resume_governed_runtime_from_approval(
+    run_id: str,
+    *,
+    runtime: ToolRuntime | None = None,
+    planner: AgentPlanner | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Resume a checkpointer-backed generic graph from an approval pause."""
+
+    state = get_governed_runtime_state(run_id)
+    if state is None:
+        raise ValueError(f"No governed runtime state found for run {run_id}.")
+    if state.get("interrupt_at") != "approval":
+        raise ValueError(f"Governed runtime {run_id} is not waiting for approval.")
+
+    return await _resume_paused_tool_call(
+        run_id,
+        state=state,
+        runtime=runtime,
+        planner=planner,
+        metadata=metadata,
+    )
+
+
+async def _resume_paused_tool_call(
+    run_id: str,
+    *,
+    state: dict[str, Any],
+    runtime: ToolRuntime | None,
+    planner: AgentPlanner | None,
+    metadata: dict[str, Any] | None,
+) -> dict[str, Any]:
+    tool_call = state["current_tool_call"]
     approved_ids = list(state.get("approved_tool_call_ids", []))
     if tool_call["id"] not in approved_ids:
         approved_ids.append(tool_call["id"])
@@ -687,6 +729,7 @@ __all__ = [
     "_reset_governed_runtime_for_tests",
     "build_governed_agent_graph",
     "get_governed_runtime_state",
+    "resume_governed_runtime_from_approval",
     "resume_governed_runtime_from_review",
     "run_allowed_tool_once",
     "run_allowed_tools_until_pause",

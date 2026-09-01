@@ -16,6 +16,7 @@ from app.services.agent_runtime.governed_agent_graph import (
     run_allowed_tool_once,
     run_allowed_tools_until_pause,
     run_to_governance,
+    resume_governed_runtime_from_approval,
     resume_governed_runtime_from_review,
     start_governed_runtime,
 )
@@ -672,6 +673,54 @@ async def test_resume_governed_runtime_executes_approved_write_then_verifies() -
     ]
     fill_handler.assert_awaited_once()
     verify_handler.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_resume_governed_runtime_executes_approved_submit() -> None:
+    """Verify approval resume runs an explicitly approved submit tool."""
+
+    submit_handler = AsyncMock(return_value={"submitted": True})
+    runtime = ToolRuntime(
+        [
+            make_tool(
+                "submit_form",
+                mutates_browser=True,
+                risk_level="high",
+                handler=submit_handler,
+            ),
+        ]
+    )
+
+    await start_governed_runtime(
+        {
+            "run_id": "task-submit",
+            "task_id": 12,
+            "goal": "Submit after explicit approval.",
+            "target_url": "https://example.com/form",
+            "profile_id": 7,
+            "plan_steps": [
+                {
+                    "step_id": "submit",
+                    "tool_name": "submit_form",
+                    "reason": "Submit reviewed form.",
+                    "input_json": {"task_id": 12},
+                    "risk_level": "high",
+                }
+            ],
+        },
+        runtime=runtime,
+    )
+
+    state = await resume_governed_runtime_from_approval(
+        "task-submit",
+        runtime=runtime,
+    )
+
+    assert state["run"]["status"] == "COMPLETED"
+    assert state["current_tool_call"]["status"] == "SUCCEEDED"
+    assert state["tool_results"][0]["governance_decision"]["decision"] == "VERIFY_REQUIRED"
+    assert state["tool_results"][0]["output_json"] == {"submitted": True}
+    submit_handler.assert_awaited_once()
 
 
 @pytest.mark.anyio

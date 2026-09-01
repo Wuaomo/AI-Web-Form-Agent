@@ -24,6 +24,7 @@ from app.services.agent_runtime.governance import GovernanceEngine
 from app.services.agent_runtime.governed_agent_graph import (
     build_governed_agent_graph,
     get_governed_runtime_state,
+    resume_governed_runtime_from_approval,
     resume_governed_runtime_from_review,
     run_allowed_tool_once,
     run_allowed_tools_until_pause,
@@ -79,6 +80,7 @@ __all__ = [
     "register_configured_mcp_readonly_tools",
     "register_configured_openapi_readonly_tools",
     "register_external_readonly_tools",
+    "resume_governed_runtime_from_approval",
     "resume_governed_runtime_from_review",
     "resume_from_review",
     "run_allowed_tool_once",
