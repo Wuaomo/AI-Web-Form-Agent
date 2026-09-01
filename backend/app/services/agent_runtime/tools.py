@@ -400,7 +400,7 @@ def _mapped_field_to_dict(field: object) -> dict[str, Any]:
 
 def _task_from_context(context: ToolExecutionContext, task_id: int) -> Task | None:
     db = context.metadata.get("db")
-    return db.get(Task, task_id) if db else None
+    return db.get(Task, task_id) if hasattr(db, "get") else None
 
 
 def _field_verification_candidate(
