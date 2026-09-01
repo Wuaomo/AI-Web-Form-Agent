@@ -354,6 +354,44 @@ def test_run_benchmark_full_workflow_runs_without_provider(
     mocked_runner.assert_called_once()
 
 
+def test_run_benchmark_runtime_runs_without_provider(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, _ = test_environment
+    summary = BenchmarkRunSummary(
+        mode="runtime",
+        provider=None,
+        total_cases=0,
+        average_score=1.0,
+        summary_metrics={"governed_runtime_path_rate": 1.0},
+        case_results=[],
+    )
+
+    def fake_run_benchmarks(
+        *,
+        mode: str,
+        provider: str | None,
+        db: Session,
+        stress_mode: str = "standard",
+        memory_mode: str = "off",
+        baseline_run_id: int | None = None,
+    ) -> BenchmarkRunSummary:
+        assert mode == "runtime"
+        assert provider is None
+        assert memory_mode == "off"
+        assert baseline_run_id is None
+        _persist_summary(db, summary)
+        return summary
+
+    with patch("app.routers.benchmarks.run_benchmarks", side_effect=fake_run_benchmarks) as mocked_runner:
+        response = client.post("/benchmarks/run", json={"mode": "runtime"})
+
+    assert response.status_code == 201
+    assert response.json()["mode"] == "runtime"
+    assert response.json()["summary_metrics"]["governed_runtime_path_rate"] == 1.0
+    mocked_runner.assert_called_once()
+
+
 def test_run_benchmark_rejects_incompatible_baseline_before_execution(
     test_environment: tuple[TestClient, Session],
 ) -> None:

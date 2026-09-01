@@ -31,7 +31,7 @@ def normalize_benchmark_request(options: BenchmarkRunRequest) -> NormalizedBench
     stress_mode = options.stress_mode
     baseline_run_id = options.baseline_run_id
 
-    if eval_mode in {"rules", "full_workflow"}:
+    if eval_mode in {"rules", "full_workflow", "runtime"}:
         memory_mode = "off"
         provider = None
         return NormalizedBenchmarkRequest(
