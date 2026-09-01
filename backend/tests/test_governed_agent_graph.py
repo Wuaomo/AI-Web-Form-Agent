@@ -724,6 +724,46 @@ async def test_resume_governed_runtime_executes_approved_submit() -> None:
 
 
 @pytest.mark.anyio
+async def test_verify_browser_state_mismatch_fails_governed_run() -> None:
+    """Verify failed browser-state verification does not finish the run."""
+
+    verify_handler = AsyncMock(
+        return_value={
+            "verified": False,
+            "mismatches": [{"reason": "email field stayed blank"}],
+        }
+    )
+    runtime = ToolRuntime(
+        [make_tool("verify_browser_state", handler=verify_handler)]
+    )
+
+    state = await run_allowed_tools_until_pause(
+        {
+            "run_id": "task-verify-failed",
+            "task_id": 13,
+            "goal": "Verify browser state.",
+            "target_url": "https://example.com/form",
+            "profile_id": 7,
+            "plan_steps": [
+                {
+                    "step_id": "verify",
+                    "tool_name": "verify_browser_state",
+                    "reason": "Verify filled browser state.",
+                    "input_json": {"task_id": 13},
+                    "risk_level": "low",
+                }
+            ],
+        },
+        runtime=runtime,
+    )
+
+    assert state["run"]["status"] == "FAILED"
+    assert state["error"] == "email field stayed blank"
+    assert state["verification_result"]["verified"] is False
+    verify_handler.assert_awaited_once()
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "workflow_type",
     ["security_questionnaire", "vendor_onboarding"],

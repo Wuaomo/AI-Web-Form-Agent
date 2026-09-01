@@ -314,6 +314,16 @@ def _verify_result_node(
     state: GovernedAgentGraphState,
     config: RunnableConfig,
 ) -> GovernedAgentGraphState:
+    verification = state.get("verification_result") or {}
+    mismatches = verification.get("mismatches")
+    if verification.get("verified") is False or (
+        isinstance(mismatches, list) and mismatches
+    ):
+        return {
+            **state,
+            "run": {**state["run"], "status": "FAILED"},
+            "error": _verification_failure_reason(verification),
+        }
     return state
 
 
@@ -369,6 +379,8 @@ def _route_after_observe(state: GovernedAgentGraphState) -> str:
 
 
 def _route_after_verify(state: GovernedAgentGraphState) -> str:
+    if state["run"]["status"] == "FAILED":
+        return "fail"
     if state.get("current_step_index", 0) < len(state["plan"]["steps"]):
         return "prepare_tool_call"
     return "finish"
@@ -384,6 +396,16 @@ def _record_verification_result(
         **state,
         "verification_result": result.get("output_json", {}),
     }
+
+
+def _verification_failure_reason(verification: dict[str, Any]) -> str:
+    mismatches = verification.get("mismatches")
+    if isinstance(mismatches, list) and mismatches:
+        first = mismatches[0]
+        reason = first.get("reason") if isinstance(first, dict) else None
+        if reason:
+            return str(reason)
+    return "Browser state verification failed."
 
 
 def _has_pending_proposals(result: dict[str, Any]) -> bool:
@@ -516,6 +538,7 @@ def build_governed_agent_graph(*, checkpointer=None):
         {
             "prepare_tool_call": "prepare_tool_call",
             "finish": "finish",
+            "fail": "fail",
         },
     )
     workflow.add_edge("finish", END)
