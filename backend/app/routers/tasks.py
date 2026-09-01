@@ -2262,6 +2262,7 @@ async def resume_governed_submit_if_waiting(
     *,
     db: Session,
     task: Task,
+    approved_action: dict[str, object],
 ) -> dict[str, Any] | None:
     """Resume a governed submit pause only from the explicit submit endpoint."""
 
@@ -2276,6 +2277,10 @@ async def resume_governed_submit_if_waiting(
         or current_tool.get("tool_name") != "submit_form"
     ):
         return None
+    if _submit_field_snapshot(
+        current_tool.get("input_json", {}).get("fields")
+    ) != approved_action.get("fields"):
+        return None
 
     resumed = await resume_governed_runtime_from_approval(
         run_id,
@@ -2287,6 +2292,22 @@ async def resume_governed_submit_if_waiting(
     )
     save_governed_runtime_state(db, task=task, raw_state=resumed)
     return resumed
+
+
+def _submit_field_snapshot(fields: object) -> list[dict[str, object]] | None:
+    if not isinstance(fields, list):
+        return None
+    snapshot: list[dict[str, object]] = []
+    for field in fields:
+        if not isinstance(field, dict):
+            return None
+        field_id = field.get("field_id") or field.get("id")
+        if not isinstance(field_id, int) or isinstance(field_id, bool):
+            return None
+        snapshot.append(
+            {"field_id": field_id, "mapped_value": str(field.get("mapped_value"))}
+        )
+    return snapshot
 
 
 @router.post(
@@ -2407,7 +2428,11 @@ async def confirm_task_submission(
     try:
         screenshot_id = None
         legacy_tool_result = None
-        governed_state = await resume_governed_submit_if_waiting(db=db, task=task)
+        governed_state = await resume_governed_submit_if_waiting(
+            db=db,
+            task=task,
+            approved_action=submit_proposed_action,
+        )
         if governed_state is None:
             legacy_tool_result, screenshot = await execute_submit_form_runtime_tool(
                 db=db,
