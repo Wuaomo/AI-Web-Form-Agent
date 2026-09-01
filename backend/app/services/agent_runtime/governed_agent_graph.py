@@ -274,6 +274,13 @@ def _observe_result_node(
         }
 
     next_index = state.get("current_step_index", 0) + 1
+    if _is_login_required_result(state, result):
+        return {
+            **state,
+            "current_step_index": next_index,
+            "run": {**state["run"], "status": "BLOCKED"},
+            "error": "Login required before governed workflow can continue.",
+        }
     if _has_pending_proposals(result):
         return {
             **state,
@@ -348,6 +355,8 @@ def _route_after_plan(state: GovernedAgentGraphState) -> str:
 def _route_after_observe(state: GovernedAgentGraphState) -> str:
     if state["run"]["status"] == "FAILED":
         return "fail"
+    if state["run"]["status"] == "BLOCKED":
+        return "end"
     if state.get("interrupt_at") == "review":
         return "end"
     if state.get("stop_after_one_tool"):
@@ -382,6 +391,17 @@ def _has_pending_proposals(result: dict[str, Any]) -> bool:
         proposal.get("status") == "PENDING"
         for proposal in result.get("created_proposals", [])
         if isinstance(proposal, dict)
+    )
+
+
+def _is_login_required_result(
+    state: GovernedAgentGraphState,
+    result: dict[str, Any],
+) -> bool:
+    return (
+        state.get("current_tool_call", {}).get("tool_name")
+        in {"extract_form", "extract_form_fields"}
+        and result.get("output_json", {}).get("login_required") is True
     )
 
 

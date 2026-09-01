@@ -483,6 +483,39 @@ async def test_run_allowed_tools_until_pause_stops_at_review_required_step() -> 
     write_handler.assert_not_awaited()
 
 
+@pytest.mark.anyio
+async def test_run_allowed_tools_until_pause_stops_when_login_is_required() -> None:
+    """Verify generic graph does not continue past a login gate."""
+
+    extract_handler = AsyncMock(
+        return_value={"fields": [], "field_count": 0, "login_required": True}
+    )
+    map_handler = AsyncMock(return_value={"fields": [], "field_count": 0})
+    runtime = ToolRuntime(
+        [
+            make_tool("extract_form", handler=extract_handler),
+            make_tool("map_fields", risk_level="medium", handler=map_handler),
+        ]
+    )
+
+    state = await run_allowed_tools_until_pause(
+        {
+            "run_id": "task-login-required",
+            "task_id": 11,
+            "goal": "Inspect and map this form.",
+            "target_url": "https://example.com/login-first",
+            "profile_id": 7,
+        },
+        runtime=runtime,
+    )
+
+    assert state["run"]["status"] == "BLOCKED"
+    assert state["error"] == "Login required before governed workflow can continue."
+    assert state["current_step_index"] == 1
+    extract_handler.assert_awaited_once()
+    map_handler.assert_not_awaited()
+
+
 def test_get_governed_runtime_state_returns_none_before_start() -> None:
     """Verify unknown generic runtime state is reported as absent."""
 
