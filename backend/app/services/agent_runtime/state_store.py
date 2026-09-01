@@ -270,6 +270,7 @@ def restore_governed_runtime_state(
             "profile_id": run.profile_id,
             "status": run.status,
             "mode": run.mode,
+            "pending_review_count": run.pending_review_count,
             "context": {
                 "task_id": task.id,
                 "workflow_type": run.workflow_hint,

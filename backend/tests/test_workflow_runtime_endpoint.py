@@ -1038,6 +1038,51 @@ def test_save_governed_runtime_state_counts_pending_approval_gate() -> None:
     session.close()
 
 
+def test_governed_get_returns_persisted_pending_review_count() -> None:
+    """GET /governed exposes the restored generic pending review count."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    save_governed_runtime_state(
+        session,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "interrupt_at": "approval",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": "Submit reviewed form.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": "WAITING_APPROVAL",
+                "mode": "deterministic",
+            },
+            "current_tool_call": {
+                "id": f"task-{task.id}:submit",
+                "run_id": f"task-{task.id}",
+                "plan_step_id": "submit",
+                "tool_name": "submit_form",
+                "input_json": {"task_id": task.id},
+                "status": "WAITING_APPROVAL",
+                "risk_level": "high",
+                "governance_decision": {"decision": "APPROVAL_REQUIRED"},
+            },
+        },
+    )
+    _reset_governed_runtime_for_tests()
+
+    response = client.get(f"/workflows/{task.id}/governed")
+
+    assert response.status_code == 200
+    assert response.json()["pending_review_count"] == 1
+    client.close()
+    session.close()
+
+
 def test_governed_get_returns_last_compact_state_after_start() -> None:
     """GET /workflows/{task_id}/governed reloads the latest generic runtime state."""
 

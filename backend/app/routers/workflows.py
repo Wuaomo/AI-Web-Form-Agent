@@ -209,6 +209,7 @@ def _to_governed_compact_state(raw_state: dict) -> dict:
         "workflow_type": raw_state.get("workflow_type", ""),
         "status": run.get("status", "FAILED"),
         "planner_mode": run.get("mode", raw_state.get("planner_mode")),
+        "pending_review_count": _governed_pending_review_count(raw_state),
         "interrupt_at": raw_state.get("interrupt_at"),
         "plan": raw_state.get("plan", {}),
         "current_tool_call": raw_state.get("current_tool_call"),
@@ -270,6 +271,23 @@ def _compact_governed_tool_calls(raw_state: dict) -> list[dict[str, object]]:
         )
 
     return calls
+
+
+def _governed_pending_review_count(raw_state: dict) -> int:
+    raw_count = (raw_state.get("run") or {}).get("pending_review_count")
+    if isinstance(raw_count, int) and not isinstance(raw_count, bool):
+        return raw_count
+
+    proposal_count = sum(
+        1
+        for result in raw_state.get("tool_results", [])
+        if isinstance(result, dict)
+        for proposal in result.get("created_proposals", [])
+        if isinstance(proposal, dict) and proposal.get("status") == "PENDING"
+    )
+    if proposal_count:
+        return proposal_count
+    return 1 if raw_state.get("interrupt_at") in {"review", "approval"} else 0
 
 
 def _plan_step_id_from_tool_call_id(
