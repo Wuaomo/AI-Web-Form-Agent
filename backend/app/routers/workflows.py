@@ -23,6 +23,7 @@ from app.services.agent_runtime import (
     get_runtime_state,
     register_configured_mcp_readonly_tools,
     register_configured_openapi_readonly_tools,
+    resume_governed_runtime_from_review,
     start_governed_runtime,
     resume_from_review,
     start_runtime,
@@ -393,7 +394,7 @@ def get_governed_workflow_state(
     "/{task_id}/governed/review-items/{proposal_id}/decision",
     response_model=ReviewDecision,
 )
-def apply_governed_review_item_decision(
+async def apply_governed_review_item_decision(
     task_id: int,
     proposal_id: str,
     request: GovernedReviewDecisionRequest,
@@ -428,6 +429,21 @@ def apply_governed_review_item_decision(
         edited_value=request.edited_value,
     )
     persist_review_decision(db, decision=decision)
+    db.flush()
+    raw_state = get_governed_runtime_state(f"task-{task.id}")
+    if (
+        request.decision in {"approved", "edited", "rejected"}
+        and target.proposal is not None
+        and target.proposal.run.pending_review_count == 0
+        and raw_state is not None
+        and raw_state.get("interrupt_at") == "review"
+    ):
+        raw_state = await resume_governed_runtime_from_review(
+            f"task-{task.id}",
+            runtime=build_default_tool_runtime(),
+            metadata={"db": db, "task_id": task.id},
+        )
+        save_governed_runtime_state(db, task=task, raw_state=raw_state)
     db.commit()
     return decision
 

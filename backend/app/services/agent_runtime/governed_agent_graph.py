@@ -642,6 +642,23 @@ async def resume_governed_runtime_from_review(
         raise ValueError(f"Governed runtime {run_id} is not waiting for review.")
 
     tool_call = state["current_tool_call"]
+    if tool_call.get("status") == "SUCCEEDED":
+        resume_state = {
+            **state,
+            "run": {**state["run"], "status": "RUNNING"},
+            "interrupt_at": None,
+        }
+        config = {
+            "configurable": {
+                "thread_id": _thread_id(run_id),
+                "runtime": runtime or ToolRuntime(),
+                "planner": planner,
+                "metadata": metadata or {},
+            }
+        }
+        _get_graph().update_state(config, resume_state, as_node="decide_next_step")
+        return await _get_graph().ainvoke(None, config=config)
+
     approved_ids = list(state.get("approved_tool_call_ids", []))
     if tool_call["id"] not in approved_ids:
         approved_ids.append(tool_call["id"])

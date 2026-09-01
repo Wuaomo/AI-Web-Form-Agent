@@ -553,6 +553,54 @@ def test_governed_start_form_fill_pauses_with_review_proposals() -> None:
     session.close()
 
 
+def test_governed_review_decision_resumes_after_last_pending_proposal() -> None:
+    """Approving the final proposal lets the generic graph finish."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    field = FormField(
+        task_id=task.id,
+        label="Email address",
+        selector="#email",
+        field_type="email",
+        required=True,
+    )
+    session.add(field)
+    session.commit()
+
+    analysis = SimpleNamespace(fields=[], login_required=False)
+    runtime = build_default_tool_runtime(
+        extract_form_analysis_handler=AsyncMock(return_value=analysis)
+    )
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        start_response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+
+    assert start_response.status_code == 200
+    assert start_response.json()["status"] == "WAITING_REVIEW"
+
+    proposals = session.query(AgentProposal).order_by(AgentProposal.id).all()
+    assert len(proposals) == 2
+    for proposal in proposals:
+        response = client.post(
+            f"/workflows/{task.id}/governed/review-items/{proposal.id}/decision",
+            json={"decision": "approved"},
+        )
+        assert response.status_code == 200
+
+    state_response = client.get(f"/workflows/{task.id}/governed")
+    assert state_response.status_code == 200
+    payload = state_response.json()
+    assert payload["status"] == "COMPLETED"
+    assert payload["interrupt_at"] is None
+    session.close()
+
+
 def test_governed_start_vendor_onboarding_maps_custom_profile_fields() -> None:
     """POST /governed/start maps vendor profile fields through generic runtime."""
 
