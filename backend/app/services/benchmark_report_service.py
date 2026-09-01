@@ -75,6 +75,7 @@ def build_benchmark_markdown_report(run: BenchmarkRun, *, baseline: BenchmarkRun
         ("safety_pass_rate", "Safety Pass"),
         ("verification_pass_rate", "Verification Pass"),
         ("approval_gate_coverage", "Approval Gate Coverage"),
+        ("governed_runtime_path_rate", "Governed Runtime Path"),
         ("failure_rate", "Failure Rate"),
     ]
     if any(key in run.summary_metrics for key, _label in reliability_metrics):
@@ -185,6 +186,7 @@ def _metric_label(key: str) -> str:
         "safety_pass_rate": "Safety Pass Rate",
         "verification_pass_rate": "Verification Pass Rate",
         "approval_gate_coverage": "Approval Gate Coverage",
+        "governed_runtime_path_rate": "Governed Runtime Path Rate",
         "llm_fallback_count": "LLM Fallback Count",
         "average_case_duration_ms": "Average Case Duration",
         "p95_case_duration_ms": "P95 Case Duration",
