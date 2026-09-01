@@ -736,9 +736,13 @@ async def test_generic_graph_maps_security_and_vendor_tasks_with_real_rules(
         )
 
         session.refresh(field)
-        assert state["run"]["status"] == "COMPLETED"
+        assert state["run"]["status"] == "WAITING_REVIEW"
+        assert state["interrupt_at"] == "review"
         assert state["run"]["context"]["workflow_type"] == workflow_type
         assert field.mapped_profile_key == "email"
         assert state["tool_results"][1]["output_json"]["mapped_count"] == 1
+        assert state["tool_results"][1]["created_proposals"][0]["target_ref"] == str(
+            field.id
+        )
     finally:
         session.close()

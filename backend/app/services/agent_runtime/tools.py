@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
+from app.models import Task
 from app.services.agent_runtime.tool_runtime import (
     AgentTool,
     ToolExecutionContext,
@@ -16,6 +17,7 @@ from app.services.browser_executor import (
     fill_form_and_capture_screenshot,
     submit_form_and_capture_screenshot,
 )
+from app.services.agent_runtime.review_queue import build_task_review_proposals
 
 
 EXTRACT_FORM_INPUT_SCHEMA: dict[str, Any] = {
@@ -131,6 +133,12 @@ def build_default_tool_runtime(
             tool_input["task_id"],
             db=context.metadata.get("db"),
         )
+        task = _task_from_context(context, tool_input["task_id"])
+        proposals = (
+            build_task_review_proposals(task=task, fields=fields, checkpoints=[])
+            if task is not None
+            else []
+        )
         field_payload = [_mapped_field_to_dict(field) for field in fields]
         return {
             "fields": field_payload,
@@ -139,6 +147,9 @@ def build_default_tool_runtime(
                 1 for field in field_payload if field["mapped_profile_key"]
             ),
             "mode": "rules",
+            "_created_proposals": [
+                proposal.model_dump(mode="json") for proposal in proposals
+            ],
         }
 
     async def run_fill_form(
@@ -361,6 +372,11 @@ def _mapped_field_to_dict(field: object) -> dict[str, Any]:
         "mapped_value": getattr(field, "mapped_value"),
         "confidence": getattr(field, "confidence"),
     }
+
+
+def _task_from_context(context: ToolExecutionContext, task_id: int) -> Task | None:
+    db = context.metadata.get("db")
+    return db.get(Task, task_id) if db else None
 
 
 def _field_verification_candidate(

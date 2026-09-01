@@ -273,9 +273,18 @@ def _observe_result_node(
             "error": result.get("error"),
         }
 
+    next_index = state.get("current_step_index", 0) + 1
+    if _has_pending_proposals(result):
+        return {
+            **state,
+            "current_step_index": next_index,
+            "run": {**state["run"], "status": "WAITING_REVIEW"},
+            "interrupt_at": "review",
+        }
+
     return {
         **state,
-        "current_step_index": state.get("current_step_index", 0) + 1,
+        "current_step_index": next_index,
         "run": {**state["run"], "status": "RUNNING"},
     }
 
@@ -339,6 +348,8 @@ def _route_after_plan(state: GovernedAgentGraphState) -> str:
 def _route_after_observe(state: GovernedAgentGraphState) -> str:
     if state["run"]["status"] == "FAILED":
         return "fail"
+    if state.get("interrupt_at") == "review":
+        return "end"
     if state.get("stop_after_one_tool"):
         return "end"
     if state.get("current_tool_call", {}).get("tool_name") == "verify_browser_state":
@@ -364,6 +375,14 @@ def _record_verification_result(
         **state,
         "verification_result": result.get("output_json", {}),
     }
+
+
+def _has_pending_proposals(result: dict[str, Any]) -> bool:
+    return any(
+        proposal.get("status") == "PENDING"
+        for proposal in result.get("created_proposals", [])
+        if isinstance(proposal, dict)
+    )
 
 
 def _create_planning_trace_span(config: RunnableConfig, planner_context: dict[str, Any]):

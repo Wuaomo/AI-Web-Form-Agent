@@ -3,6 +3,7 @@
 import json
 from collections.abc import Generator
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI
@@ -35,6 +36,7 @@ from app.services.agent_runtime.state_store import (
     save_fill_form_runtime_state,
     save_governed_runtime_state,
 )
+from app.services.agent_runtime.tools import build_default_tool_runtime
 
 
 def _clear_runtime_state() -> None:
@@ -497,6 +499,57 @@ def test_governed_start_persists_tool_calls_and_results() -> None:
     assert result_row["status"] == "SUCCEEDED"
     assert json.loads(result_row["output_json"])["raw_output_json"] == "persist but do not expose"
     assert result_row["error"] is None
+    session.close()
+
+
+def test_governed_start_form_fill_pauses_with_review_proposals() -> None:
+    """POST /governed/start makes mapped form-fill values reviewable."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    field = FormField(
+        task_id=task.id,
+        label="Email address",
+        selector="#email",
+        field_type="email",
+        required=True,
+    )
+    session.add(field)
+    session.commit()
+
+    analysis = SimpleNamespace(fields=[], login_required=False)
+    runtime = build_default_tool_runtime(
+        extract_form_analysis_handler=AsyncMock(return_value=analysis)
+    )
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workflow_type"] == "form_fill"
+    assert payload["status"] == "WAITING_REVIEW"
+    assert payload["interrupt_at"] == "review"
+
+    session.refresh(field)
+    assert field.mapped_profile_key == "email"
+    assert field.mapped_value == "ada@example.com"
+
+    proposal = (
+        session.query(AgentProposal)
+        .filter(AgentProposal.proposal_type == "field_value")
+        .one()
+    )
+    assert proposal.run_id == f"task-{task.id}"
+    assert proposal.proposal_type == "field_value"
+    assert proposal.target_ref == str(field.id)
+    assert proposal.proposed_value == "ada@example.com"
+    assert proposal.status == "PENDING"
     session.close()
 
 
