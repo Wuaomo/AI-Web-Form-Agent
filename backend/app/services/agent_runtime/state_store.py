@@ -263,6 +263,7 @@ def restore_governed_runtime_state(
         ),
         "planner_mode": run.mode,
         "interrupt_at": _interrupt_for_status(run.status),
+        "current_step_index": _restored_current_step_index(tool_calls),
         "run": {
             "id": run.id,
             "goal": run.goal,
@@ -657,6 +658,10 @@ def _current_tool_call_payload(
         if call.result is None:
             return _tool_call_payload(call)
     return _tool_call_payload(tool_calls[-1]) if tool_calls else None
+
+
+def _restored_current_step_index(tool_calls: list[AgentToolCall]) -> int:
+    return sum(1 for call in tool_calls if call.result is not None)
 
 
 def _tool_call_payload(call: AgentToolCall) -> dict[str, Any]:

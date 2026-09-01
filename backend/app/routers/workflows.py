@@ -448,18 +448,22 @@ async def apply_governed_review_item_decision(
     )
     persist_review_decision(db, decision=decision)
     db.flush()
-    raw_state = get_governed_runtime_state(f"task-{task.id}")
+    raw_state = get_governed_runtime_state(
+        f"task-{task.id}"
+    ) or restore_governed_runtime_state(db, task=task)
     if (
         request.decision in {"approved", "edited", "rejected"}
         and target.proposal is not None
         and target.proposal.run.pending_review_count == 0
         and raw_state is not None
+        and raw_state.get("current_tool_call") is not None
         and raw_state.get("interrupt_at") == "review"
     ):
         raw_state = await resume_governed_runtime_from_review(
             f"task-{task.id}",
             runtime=build_default_tool_runtime(),
             metadata={"db": db, "task_id": task.id},
+            state=raw_state,
         )
         save_governed_runtime_state(db, task=task, raw_state=raw_state)
     db.commit()
