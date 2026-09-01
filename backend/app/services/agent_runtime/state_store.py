@@ -377,7 +377,9 @@ def _save_tool_calls_and_results(
         {
             **current,
             "run_id": run_id,
-            "governance_decision": raw_state.get("governance_decision") or {},
+            "governance_decision": raw_state.get("governance_decision")
+            or current.get("governance_decision")
+            or {},
         },
     )
 
