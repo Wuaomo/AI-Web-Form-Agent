@@ -21,6 +21,8 @@ from app.models import (
 )
 from app.services.agent_runtime.schemas import EvidenceItem, Proposal, ReviewDecision
 from app.services.workflow_memory import (
+    is_one_time_field,
+    is_sensitive_field,
     should_save_answer_memory,
     should_save_mapping_memory,
 )
@@ -713,6 +715,8 @@ def _is_reviewable_field(field: FormField) -> bool:
 
 
 def _risk_level(field: FormField) -> str:
+    if is_sensitive_field(field) or is_one_time_field(field):
+        return "blocked"
     if field.required and not field.mapped_value:
         return "medium"
     if field.confidence is not None and field.confidence < 0.7:

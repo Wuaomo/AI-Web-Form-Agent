@@ -669,6 +669,102 @@ def test_governed_start_security_questionnaire_uses_source_answer_proposals() ->
     session.close()
 
 
+def test_governed_start_security_questionnaire_marks_sensitive_fields_blocked() -> None:
+    """POST /governed/start keeps sensitive questionnaire values blocked."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    profile.custom_values = {
+        "password": "do-not-leak",
+        "otp": "123456",
+        "card_number": "4111111111111111",
+        "captcha": "abcd",
+        "consent": "true",
+    }
+    task = Task(
+        url="https://example.com/security-questionnaire",
+        profile_id=profile.id,
+        workflow_type="security_questionnaire",
+        status="READY",
+        workflow_status="READY",
+    )
+    session.add(task)
+    session.flush()
+    fields = [
+        FormField(
+            task_id=task.id,
+            label="Portal password",
+            selector="#password",
+            field_type="password",
+            required=True,
+        ),
+        FormField(
+            task_id=task.id,
+            label="One-time OTP code",
+            selector="#otp",
+            field_type="text",
+            required=True,
+        ),
+        FormField(
+            task_id=task.id,
+            label="Payment card number",
+            selector="#card",
+            field_type="text",
+            required=True,
+        ),
+        FormField(
+            task_id=task.id,
+            label="CAPTCHA response",
+            selector="#captcha",
+            field_type="text",
+            required=True,
+        ),
+        FormField(
+            task_id=task.id,
+            label="Consent to terms",
+            selector="#consent",
+            field_type="checkbox",
+            required=True,
+        ),
+    ]
+    session.add_all(fields)
+    session.commit()
+
+    analysis = SimpleNamespace(fields=[], login_required=False)
+    runtime = build_default_tool_runtime(
+        extract_form_analysis_handler=AsyncMock(return_value=analysis)
+    )
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workflow_type"] == "security_questionnaire"
+    assert payload["status"] == "WAITING_REVIEW"
+
+    proposals = (
+        session.query(AgentProposal)
+        .filter(AgentProposal.proposal_type == "answer")
+        .order_by(AgentProposal.id)
+        .all()
+    )
+    assert len(proposals) == len(fields)
+    assert {proposal.proposed_value for proposal in proposals} == {None}
+    assert {proposal.risk_level for proposal in proposals} == {"blocked"}
+    assert "do-not-leak" not in json.dumps(
+        [proposal.proposed_value for proposal in proposals]
+    )
+    for field in fields:
+        session.refresh(field)
+        assert field.mapped_value is None
+    session.close()
+
+
 def test_save_governed_runtime_state_counts_pending_tool_created_proposals() -> None:
     """Persisted AgentRun count tracks pending tool-created proposals only."""
 
