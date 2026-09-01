@@ -112,11 +112,17 @@ from app.services.agent_step_timeline import build_agent_steps_for_task
 from app.services.agent_runtime.form_field_persistence import replace_task_form_fields
 from app.services.agent_runtime.state_store import (
     save_fill_form_runtime_state,
+    save_governed_runtime_state,
     save_submit_form_runtime_state,
 )
 from app.services.agent_runtime.tools import (
+    build_default_tool_runtime,
     execute_fill_form_runtime_tool,
     execute_submit_form_runtime_tool,
+)
+from app.services.agent_runtime.governed_agent_graph import (
+    get_governed_runtime_state,
+    resume_governed_runtime_from_approval,
 )
 from app.services.agent_runtime.review_queue import (
     apply_review_decision_to_field_target,
@@ -2251,6 +2257,33 @@ async def login_and_analyze_task(
     return db.scalar(statement)
 
 
+async def resume_governed_submit_if_waiting(
+    *,
+    db: Session,
+    task: Task,
+) -> dict[str, Any] | None:
+    """Resume a governed submit pause only from the explicit submit endpoint."""
+
+    run_id = f"task-{task.id}"
+    raw_state = get_governed_runtime_state(run_id)
+    current_tool = (raw_state or {}).get("current_tool_call") or {}
+    if (
+        (raw_state or {}).get("interrupt_at") != "approval"
+        or current_tool.get("tool_name") != "submit_form"
+    ):
+        return None
+
+    resumed = await resume_governed_runtime_from_approval(
+        run_id,
+        runtime=build_default_tool_runtime(
+            submit_form_handler=submit_form_and_capture_screenshot,
+        ),
+        metadata={"db": db, "task_id": task.id},
+    )
+    save_governed_runtime_state(db, task=task, raw_state=resumed)
+    return resumed
+
+
 @router.post(
     "/{task_id}/confirm-submit",
     response_model=SubmissionConfirmationResponse,
@@ -2367,12 +2400,25 @@ async def confirm_task_submission(
     db.commit()
 
     try:
-        tool_result, screenshot = await execute_submit_form_runtime_tool(
-            db=db,
-            task=task,
-            fields=mapped_fields,
-            submit_form_handler=submit_form_and_capture_screenshot,
-        )
+        screenshot_id = None
+        governed_state = await resume_governed_submit_if_waiting(db=db, task=task)
+        if governed_state is None:
+            tool_result, screenshot = await execute_submit_form_runtime_tool(
+                db=db,
+                task=task,
+                fields=mapped_fields,
+                submit_form_handler=submit_form_and_capture_screenshot,
+            )
+            save_submit_form_runtime_state(db, task=task, tool_result=tool_result)
+            screenshot_id = screenshot.id
+        else:
+            if governed_state.get("run", {}).get("status") != "COMPLETED":
+                raise RuntimeError(governed_state.get("error") or "Governed submit failed")
+            for result in reversed(governed_state.get("tool_results", [])):
+                output = result.get("output_json") or {}
+                if result.get("tool_call_id", "").endswith(":submit_form"):
+                    screenshot_id = output.get("screenshot_id")
+                    break
         apply_workflow_status(task, WORKFLOW_STATUS_COMPLETED, reason="submit_completed")
         create_log(
             task_id=task.id,
@@ -2382,12 +2428,11 @@ async def confirm_task_submission(
             status="SUCCESS",
             db=db,
         )
-        save_submit_form_runtime_state(db, task=task, tool_result=tool_result)
         safe_finish_span(
             submit_span_id,
             status=SPAN_STATUS_SUCCESS,
             output={"final_status": task.status},
-            screenshot_id=screenshot.id,
+            screenshot_id=screenshot_id,
             latency_ms=int((time.monotonic() - submit_started_at) * 1000),
         )
     except Exception as exc:
