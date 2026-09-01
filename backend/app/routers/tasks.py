@@ -2281,6 +2281,10 @@ async def resume_governed_submit_if_waiting(
         current_tool.get("input_json", {}).get("fields")
     ) != approved_action.get("fields"):
         return None
+    if _submit_tool_field_snapshot(
+        current_tool.get("input_json", {}).get("fields")
+    ) != _current_submit_tool_field_snapshot(db, task=task):
+        return None
 
     resumed = await resume_governed_runtime_from_approval(
         run_id,
@@ -2308,6 +2312,50 @@ def _submit_field_snapshot(fields: object) -> list[dict[str, object]] | None:
             {"field_id": field_id, "mapped_value": str(field.get("mapped_value"))}
         )
     return snapshot
+
+
+def _submit_tool_field_snapshot(fields: object) -> list[dict[str, object]] | None:
+    if not isinstance(fields, list):
+        return None
+    snapshot: list[dict[str, object]] = []
+    for field in fields:
+        if not isinstance(field, dict):
+            return None
+        field_id = field.get("field_id") or field.get("id")
+        selector = field.get("selector")
+        if (
+            not isinstance(field_id, int)
+            or isinstance(field_id, bool)
+            or not isinstance(selector, str)
+        ):
+            return None
+        snapshot.append(
+            {
+                "field_id": field_id,
+                "selector": selector,
+                "mapped_value": str(field.get("mapped_value")),
+            }
+        )
+    return snapshot
+
+
+def _current_submit_tool_field_snapshot(
+    db: Session,
+    *,
+    task: Task,
+) -> list[dict[str, object]]:
+    fields = db.scalars(
+        select(FormField).where(FormField.task_id == task.id).order_by(FormField.id)
+    )
+    return [
+        {
+            "field_id": field.id,
+            "selector": field.selector,
+            "mapped_value": str(field.mapped_value),
+        }
+        for field in fields
+        if field.mapped_value
+    ]
 
 
 @router.post(
