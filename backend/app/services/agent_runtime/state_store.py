@@ -107,6 +107,8 @@ def save_governed_runtime_state(
     )
     _save_created_proposals(db, task=task, run_id=run_id, raw_state=raw_state)
     refresh_pending_review_count(db, run_id=run_id)
+    if raw_state.get("interrupt_at") == "approval" and run.pending_review_count == 0:
+        run.pending_review_count = 1
 
     db.commit()
     db.refresh(run)
