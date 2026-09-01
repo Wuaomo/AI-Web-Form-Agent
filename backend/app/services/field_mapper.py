@@ -34,6 +34,7 @@ from app.services.mapping_cache import (
     read_user_override_response,
     write_mapping_cache_response,
 )
+from app.workflow_constants import WORKFLOW_TYPE_VENDOR_ONBOARDING
 
 logger = logging.getLogger(__name__)
 
@@ -352,6 +353,20 @@ def _match_profile_key(field: FormField) -> tuple[str, float] | None:
     return best_match
 
 
+def _match_custom_profile_key(field: FormField, profile: Profile) -> tuple[str, float] | None:
+    """Return an exact custom profile key match for vendor-style fields."""
+
+    custom_keys = {
+        _normalize(key): key
+        for key, value in profile.custom_values.items()
+        if value not in (None, "")
+    }
+    for text, base_score in _source_scores(field):
+        if text in custom_keys:
+            return f"{CUSTOM_PROFILE_KEY_PREFIX}{custom_keys[text]}", base_score
+    return None
+
+
 def _split_full_name(full_name: str | None) -> tuple[str | None, str | None]:
     """Split a stored full name into simple first and last name values."""
 
@@ -404,6 +419,8 @@ def _map_fields(task_id: int, db: Session) -> list[FormField]:
             continue
 
         match = _match_profile_key(field)
+        if match is None and task.workflow_type == WORKFLOW_TYPE_VENDOR_ONBOARDING:
+            match = _match_custom_profile_key(field, task.profile)
         if match is None:
             field.mapped_profile_key = None
             field.mapped_value = None

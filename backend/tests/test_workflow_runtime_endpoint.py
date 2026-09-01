@@ -553,6 +553,65 @@ def test_governed_start_form_fill_pauses_with_review_proposals() -> None:
     session.close()
 
 
+def test_governed_start_vendor_onboarding_maps_custom_profile_fields() -> None:
+    """POST /governed/start maps vendor profile fields through generic runtime."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    profile.custom_values = {"company_name": "Lovelace Labs"}
+    task = Task(
+        url="https://example.com/vendor-onboarding",
+        profile_id=profile.id,
+        workflow_type="vendor_onboarding",
+        status="READY",
+        workflow_status="READY",
+    )
+    session.add(task)
+    session.flush()
+    field = FormField(
+        task_id=task.id,
+        label="Company Name",
+        name="company_name",
+        selector="#company-name",
+        field_type="text",
+        required=True,
+    )
+    session.add(field)
+    session.commit()
+
+    analysis = SimpleNamespace(fields=[], login_required=False)
+    runtime = build_default_tool_runtime(
+        extract_form_analysis_handler=AsyncMock(return_value=analysis)
+    )
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workflow_type"] == "vendor_onboarding"
+    assert payload["status"] == "WAITING_REVIEW"
+    assert payload["interrupt_at"] == "review"
+
+    session.refresh(field)
+    assert field.mapped_profile_key == "custom:company_name"
+    assert field.mapped_value == "Lovelace Labs"
+
+    proposal = (
+        session.query(AgentProposal)
+        .filter(AgentProposal.target_ref == str(field.id))
+        .filter(AgentProposal.proposal_type == "field_value")
+        .one()
+    )
+    assert proposal.proposed_value == "Lovelace Labs"
+    assert proposal.status == "PENDING"
+    session.close()
+
+
 def test_governed_start_security_questionnaire_uses_source_answer_proposals() -> None:
     """POST /governed/start preserves source-backed questionnaire answers."""
 
