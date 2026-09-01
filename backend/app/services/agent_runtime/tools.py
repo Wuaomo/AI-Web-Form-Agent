@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
+from types import SimpleNamespace
 from typing import Any
 
 from app.models import Task
+from app.services.policy_answer_retrieval import apply_policy_answer_suggestions
 from app.services.agent_runtime.tool_runtime import (
     AgentTool,
     ToolExecutionContext,
@@ -18,6 +20,10 @@ from app.services.browser_executor import (
     submit_form_and_capture_screenshot,
 )
 from app.services.agent_runtime.review_queue import build_task_review_proposals
+from app.workflow_constants import (
+    WORKFLOW_STAGE_MAPPING,
+    WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
+)
 
 
 EXTRACT_FORM_INPUT_SCHEMA: dict[str, Any] = {
@@ -129,13 +135,31 @@ def build_default_tool_runtime(
         context: ToolExecutionContext,
         tool_input: dict[str, Any],
     ) -> dict[str, Any]:
+        db = context.metadata.get("db")
         fields = map_fields_by_rules_handler(
             tool_input["task_id"],
-            db=context.metadata.get("db"),
+            db=db,
         )
         task = _task_from_context(context, tool_input["task_id"])
+        source_suggestions = (
+            apply_policy_answer_suggestions(fields=fields, db=db, task=task)
+            if task is not None
+            and task.workflow_type == WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE
+            else []
+        )
+        if source_suggestions and db is not None:
+            db.commit()
         proposals = (
-            build_task_review_proposals(task=task, fields=fields, checkpoints=[])
+            build_task_review_proposals(
+                task=task,
+                fields=fields,
+                checkpoints=[
+                    SimpleNamespace(
+                        stage=WORKFLOW_STAGE_MAPPING,
+                        output={"source_suggestions": source_suggestions},
+                    )
+                ],
+            )
             if task is not None
             else []
         )

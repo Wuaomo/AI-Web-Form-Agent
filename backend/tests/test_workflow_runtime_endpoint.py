@@ -553,6 +553,63 @@ def test_governed_start_form_fill_pauses_with_review_proposals() -> None:
     session.close()
 
 
+def test_governed_start_security_questionnaire_uses_source_answer_proposals() -> None:
+    """POST /governed/start preserves source-backed questionnaire answers."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = Task(
+        url="https://example.com/security-questionnaire",
+        profile_id=profile.id,
+        workflow_type="security_questionnaire",
+        status="READY",
+        workflow_status="READY",
+    )
+    session.add(task)
+    session.flush()
+    field = FormField(
+        task_id=task.id,
+        label="Do you encrypt data at rest?",
+        selector="#encrypt-at-rest",
+        field_type="text",
+        required=True,
+    )
+    session.add(field)
+    session.commit()
+
+    analysis = SimpleNamespace(fields=[], login_required=False)
+    runtime = build_default_tool_runtime(
+        extract_form_analysis_handler=AsyncMock(return_value=analysis)
+    )
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workflow_type"] == "security_questionnaire"
+    assert payload["status"] == "WAITING_REVIEW"
+
+    session.refresh(field)
+    assert field.mapped_value == "Yes."
+
+    proposal = (
+        session.query(AgentProposal)
+        .filter(AgentProposal.target_ref == str(field.id))
+        .filter(AgentProposal.proposal_type == "answer")
+        .one()
+    )
+    assert proposal.proposal_type == "answer"
+    assert proposal.proposed_value == "Yes."
+    assert proposal.evidence_items
+    assert proposal.evidence_items[0].section_title == "Encryption At Rest"
+    session.close()
+
+
 def test_save_governed_runtime_state_counts_pending_tool_created_proposals() -> None:
     """Persisted AgentRun count tracks pending tool-created proposals only."""
 
