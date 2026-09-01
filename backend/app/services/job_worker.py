@@ -534,13 +534,11 @@ def _execute_benchmark_stage(db: Session, job: Job) -> None:
     """
 
     from app.services.benchmark_runner import run_benchmarks
-    from app.models import BenchmarkRun
 
     mode = job.payload.get("mode", "rules")
     provider = job.payload.get("provider")
 
-    run = run_benchmarks(mode=mode, provider=provider)
-    db.add(run)
+    run_benchmarks(mode=mode, provider=provider, db=db)
 
 
 def _get_error_reason(job_type: str, exc: Exception) -> str:
