@@ -71,6 +71,23 @@ test("buildRunCockpitSummary maps governed runtime fields into compact labels", 
   });
 });
 
+test("buildRunCockpitSummary reads persisted generic verification status", () => {
+  const summary = buildRunCockpitSummary({
+    status: "COMPLETED",
+    planner_mode: "deterministic",
+    verification_result: {
+      status: "VERIFIED",
+      total: 2,
+      verified: 2,
+      failed: 0,
+      skipped: 0,
+      mismatches: [],
+    },
+  });
+
+  assert.equal(summary.verificationSummary, "Verified");
+});
+
 test("buildRunCockpitSummary summarizes verification mismatches and errors", () => {
   const summary = buildRunCockpitSummary({
     status: "FAILED",
@@ -147,6 +164,22 @@ test("getRunCockpitVerificationDetails summarizes verified runs", () => {
     mismatches: [],
     evidenceItems: [],
   });
+});
+
+test("getRunCockpitVerificationDetails reads persisted generic verification status", () => {
+  const details = getRunCockpitVerificationDetails({
+    verification_result: {
+      status: "PARTIAL",
+      total: 2,
+      verified: 1,
+      failed: 0,
+      skipped: 1,
+      mismatches: [],
+    },
+  });
+
+  assert.equal(details.statusLabel, "Partial");
+  assert.equal(details.mismatchCount, 0);
 });
 
 test("getRunCockpitVerificationDetails returns compact mismatches", () => {
