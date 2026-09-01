@@ -538,7 +538,14 @@ def _execute_benchmark_stage(db: Session, job: Job) -> None:
     mode = job.payload.get("mode", "rules")
     provider = job.payload.get("provider")
 
-    run_benchmarks(mode=mode, provider=provider, db=db)
+    run_benchmarks(
+        mode=mode,
+        provider=provider,
+        db=db,
+        stress_mode=job.payload.get("stress_mode", "standard"),
+        memory_mode=job.payload.get("memory_mode", "off"),
+        baseline_run_id=job.payload.get("baseline_run_id"),
+    )
 
 
 def _get_error_reason(job_type: str, exc: Exception) -> str:

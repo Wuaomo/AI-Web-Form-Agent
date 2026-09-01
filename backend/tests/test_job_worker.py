@@ -374,3 +374,56 @@ def test_execute_benchmark_stage_passes_runtime_mode_and_db(db_session):
         _execute_benchmark_stage(db, job)
 
     mocked_runner.assert_called_once()
+
+
+def test_execute_benchmark_stage_passes_queued_options(db_session):
+    """Verify queued benchmark options reach the shared runner."""
+
+    from app.services.benchmark_runner import BenchmarkRunSummary
+    from app.services.job_worker import _execute_benchmark_stage
+
+    db, task_id = db_session
+    job = Job(
+        task_id=task_id,
+        job_type=JOB_TYPE_RUN_BENCHMARK,
+        status=JOB_STATUS_RUNNING,
+        attempts=1,
+        max_attempts=3,
+    )
+    job.payload = {
+        "mode": "runtime",
+        "stress_mode": "cache_warm",
+        "memory_mode": "off",
+        "baseline_run_id": 42,
+    }
+    db.add(job)
+    db.commit()
+
+    def fake_run_benchmarks(
+        *,
+        mode: str,
+        provider: str | None,
+        db,
+        stress_mode: str = "standard",
+        memory_mode: str = "off",
+        baseline_run_id: int | None = None,
+    ) -> BenchmarkRunSummary:
+        assert mode == "runtime"
+        assert provider is None
+        assert stress_mode == "cache_warm"
+        assert memory_mode == "off"
+        assert baseline_run_id == 42
+        return BenchmarkRunSummary(
+            mode="runtime",
+            provider=None,
+            total_cases=0,
+            average_score=1.0,
+            summary_metrics={"governed_runtime_path_rate": 1.0},
+            case_results=[],
+        )
+
+    with patch(
+        "app.services.benchmark_runner.run_benchmarks",
+        side_effect=fake_run_benchmarks,
+    ):
+        _execute_benchmark_stage(db, job)
