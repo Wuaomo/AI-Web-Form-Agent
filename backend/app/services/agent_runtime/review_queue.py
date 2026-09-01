@@ -450,11 +450,17 @@ def _field_proposal(
         if task.workflow_type == WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE
         else "field_value"
     )
-    rationale = (
-        "Review the proposed answer before browser execution."
-        if proposal_type == "answer"
-        else "Review the proposed field value before browser execution."
-    )
+    risk_level = _risk_level(field)
+    if risk_level == "blocked":
+        rationale = "Blocked: sensitive or one-time value cannot be auto-filled."
+    elif proposal_type == "answer" and field.mapped_value in (None, "") and not evidence:
+        rationale = "Unsupported: no profile match, reviewed memory, or policy evidence found."
+    else:
+        rationale = (
+            "Review the proposed answer before browser execution."
+            if proposal_type == "answer"
+            else "Review the proposed field value before browser execution."
+        )
     return Proposal(
         id=_proposal_id(task.id, field.id),
         run_id=_run_id(task.id),
@@ -464,7 +470,7 @@ def _field_proposal(
         proposed_value=field.mapped_value,
         rationale=rationale,
         confidence=field.confidence,
-        risk_level=_risk_level(field),
+        risk_level=risk_level,
         evidence=evidence,
     )
 

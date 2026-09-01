@@ -765,6 +765,63 @@ def test_governed_start_security_questionnaire_marks_sensitive_fields_blocked() 
     session.close()
 
 
+def test_governed_start_security_questionnaire_marks_unsupported_no_evidence_answer() -> None:
+    """POST /governed/start does not invent unsupported questionnaire answers."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = Task(
+        url="https://example.com/security-questionnaire",
+        profile_id=profile.id,
+        workflow_type="security_questionnaire",
+        status="READY",
+        workflow_status="READY",
+    )
+    session.add(task)
+    session.flush()
+    field = FormField(
+        task_id=task.id,
+        label="Describe your quantum key escrow program",
+        name="quantum_escrow",
+        selector="#quantum-escrow",
+        field_type="textarea",
+        required=True,
+    )
+    session.add(field)
+    session.commit()
+
+    analysis = SimpleNamespace(fields=[], login_required=False)
+    runtime = build_default_tool_runtime(
+        extract_form_analysis_handler=AsyncMock(return_value=analysis)
+    )
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "WAITING_REVIEW"
+    assert payload["tool_calls"][1]["tool_name"] == "map_fields"
+    assert payload["tool_calls"][1]["proposal_count"] == 1
+
+    session.refresh(field)
+    assert field.mapped_value is None
+
+    proposal = (
+        session.query(AgentProposal)
+        .filter(AgentProposal.proposal_type == "answer")
+        .one()
+    )
+    assert proposal.proposed_value is None
+    assert proposal.evidence_items == []
+    assert "unsupported" in proposal.rationale.lower()
+    session.close()
+
+
 def test_save_governed_runtime_state_counts_pending_tool_created_proposals() -> None:
     """Persisted AgentRun count tracks pending tool-created proposals only."""
 
