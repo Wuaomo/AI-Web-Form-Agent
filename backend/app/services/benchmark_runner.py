@@ -1,5 +1,6 @@
 """Benchmark case loading, execution, and metric scoring."""
 
+import asyncio
 import json
 import time
 from dataclasses import dataclass
@@ -19,6 +20,8 @@ from app.services.browser_executor import _fill_fields
 from app.services.field_mapper import _match_profile_key, map_fields_with_llm_result
 from app.services.form_extractor import _EXTRACT_FIELDS_SCRIPT, _LOGIN_DETECTION_SCRIPT
 from app.services.policy_answer_retrieval import apply_policy_answer_suggestions
+from app.services.agent_runtime.governed_agent_graph import run_allowed_tools_until_pause
+from app.services.agent_runtime.tool_runtime import AgentTool, ToolExecutionContext, ToolRuntime
 
 BENCHMARK_DIR = BACKEND_DIR / "benchmarks"
 EXPECTED_DIR = BENCHMARK_DIR / "expected"
@@ -39,6 +42,7 @@ SUMMARY_METRIC_KEYS = (
     "safety_pass_rate",
     "verification_pass_rate",
     "approval_gate_coverage",
+    "governed_runtime_path_rate",
     "llm_fallback_count",
     "average_case_duration_ms",
     "p95_case_duration_ms",
@@ -412,6 +416,9 @@ def score_case(
             len(approval_gated),
             len(approval_expected),
         ),
+        "governed_runtime_path_rate": (
+            1.0 if actual.get("governed_runtime_path") else 0.0
+        ),
         "llm_fallback_count": int(actual.get("llm_fallback_count", 0)),
     }
     return {"metrics": metrics, "failures": failures}
@@ -637,6 +644,95 @@ def _extract_case_page_state(case: BenchmarkCase) -> tuple[list[dict[str, Any]],
     return raw_fields, login_required
 
 
+def _run_runtime_case(
+    case: BenchmarkCase,
+    raw_fields: list[dict[str, Any]],
+    login_required: bool,
+) -> dict[str, Any]:
+    async def extract_form(
+        _context: ToolExecutionContext,
+        _tool_input: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "fields": raw_fields,
+            "field_count": len(raw_fields),
+            "login_required": login_required,
+        }
+
+    async def map_fields(
+        _context: ToolExecutionContext,
+        _tool_input: dict[str, Any],
+    ) -> dict[str, Any]:
+        fields = _actual_fields_from_rules(raw_fields, expected=case.expected)
+        return {
+            "fields": fields,
+            "field_count": len(fields),
+            "mapped_count": sum(1 for field in fields if field.get("profile_key")),
+        }
+
+    runtime = ToolRuntime(
+        [
+            AgentTool(
+                name="extract_form",
+                description="Read benchmark fixture fields.",
+                input_schema={"type": "object", "properties": {}},
+                output_schema={},
+                risk_level="low",
+                mutates_browser=False,
+                mutates_external_system=False,
+                trace_phase="extraction",
+                handler=extract_form,
+            ),
+            AgentTool(
+                name="map_fields",
+                description="Map benchmark fields with local rules.",
+                input_schema={"type": "object", "properties": {}},
+                output_schema={},
+                risk_level="medium",
+                mutates_browser=False,
+                mutates_external_system=False,
+                trace_phase="mapping",
+                handler=map_fields,
+            ),
+        ]
+    )
+    state = asyncio.run(
+        run_allowed_tools_until_pause(
+            {
+                "run_id": f"benchmark-{case.case_id}",
+                "task_id": 0,
+                "goal": "Run benchmark fixture through governed runtime.",
+                "target_url": str(case.html_path),
+                "workflow_type": "benchmark",
+                "plan_steps": [
+                    {
+                        "step_id": "extract_form",
+                        "tool_name": "extract_form",
+                        "reason": "Read benchmark fixture fields.",
+                        "input_json": {},
+                    },
+                    {
+                        "step_id": "map_fields",
+                        "tool_name": "map_fields",
+                        "reason": "Map benchmark fields with local rules.",
+                        "input_json": {},
+                    },
+                ],
+            },
+            runtime=runtime,
+        )
+    )
+    output = (state.get("tool_results") or [{}])[-1].get("output_json") or {}
+    return {
+        "login_required": login_required,
+        "fields": output.get("fields", []),
+        "llm_fallback_count": 0,
+        "fill_success": state.get("run", {}).get("status") == "COMPLETED",
+        "verification_passed": state.get("run", {}).get("status") == "COMPLETED",
+        "governed_runtime_path": True,
+    }
+
+
 def _run_case(
     case: BenchmarkCase,
     *,
@@ -653,6 +749,11 @@ def _run_case(
         return _run_full_workflow_case(case)
 
     raw_fields, login_required = _extract_case_page_state(case)
+
+    if mode == "runtime":
+        actual = _run_runtime_case(case, raw_fields, login_required)
+        actual["duration_ms"] = int((time.time() - case_start) * 1000)
+        return actual
 
     llm_fallback_count = 0
     if mode in {"llm", "rag_llm"}:
@@ -801,9 +902,6 @@ def run_benchmarks(
             effective_mode = "rag_llm"
         else:
             effective_mode = "rules"
-
-    if mode == "runtime":
-        effective_mode = "rules"
 
     if stress_mode not in VALID_STRESS_MODES:
         raise ValueError(f"Unknown stress mode: {stress_mode}. Valid modes: {VALID_STRESS_MODES}")

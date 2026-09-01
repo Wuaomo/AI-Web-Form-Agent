@@ -1134,14 +1134,54 @@ def test_runtime_mode_reports_safety_verification_and_source_evidence_metrics() 
             "required": False,
         },
     ]
+    governed_calls = []
+
+    async def fake_governed_run(initial_state, *, runtime, **_kwargs):
+        governed_calls.append(initial_state)
+        return {
+            "run": {"status": "COMPLETED"},
+            "tool_results": [
+                {
+                    "tool_call_id": "benchmark-runtime:map_fields",
+                    "status": "SUCCEEDED",
+                    "output_json": {
+                        "fields": [
+                            {
+                                "selector": "#mfa",
+                                "profile_key": None,
+                                "required": True,
+                                "value": "Yes. MFA is required for administrative access.",
+                                "source": "Mock Security Policy",
+                                "matched_section": "Access Control",
+                            },
+                            {
+                                "selector": "#password",
+                                "profile_key": None,
+                                "required": False,
+                                "value": None,
+                            },
+                        ],
+                        "field_count": 2,
+                        "mapped_count": 0,
+                    },
+                }
+            ],
+        }
 
     with (
         patch("app.services.benchmark_runner.load_benchmark_cases", return_value=[case]),
         patch("app.services.benchmark_runner._extract_case_page_state", return_value=(raw_fields, False)),
+        patch(
+            "app.services.benchmark_runner.run_allowed_tools_until_pause",
+            side_effect=fake_governed_run,
+            create=True,
+        ),
     ):
         summary = run_benchmarks(mode="runtime")
 
+    assert len(governed_calls) == 1
     assert summary.mode == "runtime"
+    assert summary.summary_metrics["governed_runtime_path_rate"] == 1.0
     assert "safety_pass_rate" in summary.summary_metrics
     assert "verification_pass_rate" in summary.summary_metrics
     assert "source_evidence_coverage" in summary.summary_metrics
