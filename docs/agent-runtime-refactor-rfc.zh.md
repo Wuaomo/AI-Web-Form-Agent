@@ -949,6 +949,16 @@ benchmark replay 继续可跑；Markdown benchmark report 会展示 runtime 指�
 - 没有删除仍被 benchmark 覆盖的路径。
 - README、architecture、safety docs 和 RFC 互相一致。
 
+当前状态（2026-09-02）：Phase 10 旧路径收敛和命名清理薄切片可收尾。
+`/tasks/{id}` 和 `/tasks` 列表都会作为 legacy facade 暴露 compact
+`agent_run_id` / `agent_runtime`，且不暴露 raw `tool_results`；Run Cockpit
+优先读取 `/workflows/{task_id}/governed`，失败时回退 task facade；Task Detail
+在已有 Run Cockpit state 时隐藏旧 security-only runtime 面板；unsupported
+workflow 的被动 governed-state probe 返回 404，不再打断 legacy Task Detail；
+README、architecture、demo script 已同步 AgentRun / Review Queue / Run Cockpit
+表述。旧 `/tasks`、workflow-specific endpoint、security questionnaire graph
+仍作为兼容路径保留，整体 runtime refactor 仍未完成。
+
 ## 20. 测试策略
 
 每阶段至少有：
