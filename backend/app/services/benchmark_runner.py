@@ -23,6 +23,7 @@ from app.services.policy_answer_retrieval import apply_policy_answer_suggestions
 from app.services.agent_runtime.governed_agent_graph import run_allowed_tools_until_pause
 from app.services.agent_runtime.governance import GovernanceEngine
 from app.services.agent_runtime.tool_runtime import AgentTool, ToolExecutionContext, ToolRuntime
+from app.workflow_constants import WORKFLOW_TYPE_FORM_FILL
 
 BENCHMARK_DIR = BACKEND_DIR / "benchmarks"
 EXPECTED_DIR = BENCHMARK_DIR / "expected"
@@ -724,7 +725,7 @@ def _run_runtime_case(
                 "task_id": 0,
                 "goal": "Run benchmark fixture through governed runtime.",
                 "target_url": str(case.html_path),
-                "workflow_type": "benchmark",
+                "workflow_type": WORKFLOW_TYPE_FORM_FILL,
                 "plan_steps": [
                     {
                         "step_id": "extract_form",
