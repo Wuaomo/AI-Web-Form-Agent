@@ -97,6 +97,7 @@ test("mappingModeForWorkflow uses rules for local no-provider workflows", () => 
 
 test("form fill uses the governed demo path", () => {
   assert.equal(usesGovernedDemoPath("form_fill"), true);
+  assert.equal(usesGovernedDemoPath("vendor_onboarding"), true);
   assert.equal(usesGovernedDemoPath("web_data_extract"), false);
 });
 
