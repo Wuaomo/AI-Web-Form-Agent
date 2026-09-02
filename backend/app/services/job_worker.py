@@ -203,13 +203,17 @@ def _execute_analyze_stage(db: Session, job: Job) -> None:
         raise ValueError(f"Task {job.task_id} not found")
 
     from app.routers.tasks import (
+        analysis_from_runtime_extract_result,
         create_log,
         get_next_log_step,
         mark_login_required,
+        save_analyze_runtime_state,
         save_extracted_fields,
     )
     from app.services.form_extractor import extract_form_analysis
     from app.services.form_analysis_cache import read_form_analysis_cache, write_form_analysis_cache
+    from app.services.agent_runtime.tools import build_default_tool_runtime
+    from app.services.agent_runtime.tool_runtime import ToolExecutionContext
     from app.services.checkpoint_service import write_checkpoint
     from app.workflow_constants import WORKFLOW_STAGE_ANALYSIS, CHECKPOINT_SUCCESS, CHECKPOINT_FAILED
 
@@ -237,13 +241,32 @@ def _execute_analyze_stage(db: Session, job: Job) -> None:
     try:
         analysis = read_form_analysis_cache(db, task.url)
         cache_hit = analysis is not None
+        tool_result = None
         if analysis is None:
-            analysis = asyncio.run(extract_form_analysis(task.url, task.profile_id))
+            tool_result = asyncio.run(
+                build_default_tool_runtime(
+                    extract_form_analysis_handler=extract_form_analysis,
+                ).execute(
+                    tool_call_id=f"task-{task.id}:extract_form",
+                    tool_name="extract_form",
+                    tool_input={"url": task.url, "profile_id": task.profile_id},
+                    context=ToolExecutionContext(
+                        run_id=f"task-{task.id}",
+                        plan_step_id="extract_form",
+                        metadata={"db": db, "task_id": task.id},
+                    ),
+                )
+            )
+            if tool_result.status != "SUCCEEDED":
+                raise RuntimeError(tool_result.error or "Runtime extract_form failed")
+            analysis = analysis_from_runtime_extract_result(tool_result.output_json)
             write_form_analysis_cache(db, task.url, analysis)
         if analysis.login_required:
             mark_login_required(task, db)
         else:
             save_extracted_fields(task, analysis, db)
+        if tool_result is not None:
+            save_analyze_runtime_state(db, task=task, tool_result=tool_result)
         write_checkpoint(
             task_id=task.id,
             stage=WORKFLOW_STAGE_ANALYSIS,

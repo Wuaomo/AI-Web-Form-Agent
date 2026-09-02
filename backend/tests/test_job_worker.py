@@ -26,6 +26,7 @@ from app.job_constants import (
     JOB_STATUS_FAILED,
     JOB_STATUS_RETRY_SCHEDULED,
 )
+from app.services.form_extractor import ExtractedFormField
 
 
 @pytest.fixture
@@ -243,6 +244,52 @@ def test_run_worker_once_no_job_returns_false(db_session):
     result = run_worker_once(db=db, worker_id="worker-1")
 
     assert result is False
+
+
+def test_execute_analyze_stage_persists_runtime_tool_call(db_session):
+    """Verify worker analysis records the browser read as a runtime tool call."""
+
+    from app.services.job_worker import _execute_analyze_stage
+
+    db, task_id = db_session
+    field = ExtractedFormField(
+        element_ref="field_1",
+        form_title="Contact information",
+        section_title=None,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        placeholder=None,
+        name="email",
+        html_id="email",
+        current_value=None,
+        required=True,
+    )
+    job = Job(
+        task_id=task_id,
+        job_type=JOB_TYPE_ANALYZE_FORM,
+        status=JOB_STATUS_RUNNING,
+        attempts=1,
+        max_attempts=3,
+    )
+    db.add(job)
+    db.commit()
+
+    with patch(
+        "app.services.form_extractor.extract_form_analysis",
+        new=AsyncMock(return_value=MagicMock(fields=[field], login_required=False)),
+    ):
+        _execute_analyze_stage(db, job)
+
+    call = db.get(AgentToolCall, f"task-{task_id}:extract_form")
+    assert call is not None
+    assert call.tool_name == "extract_form"
+    assert call.status == "SUCCEEDED"
+    assert call.governance_decision["decision"] == "ALLOW"
+    result = db.get(AgentToolResult, f"task-{task_id}:extract_form")
+    assert result is not None
+    assert result.output_json["field_count"] == 1
+    assert result.output_json["login_required"] is False
 
 
 def test_execute_fill_stage_blocks_required_policy_review(db_session):
