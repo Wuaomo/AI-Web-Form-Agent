@@ -2317,9 +2317,24 @@ async def login_and_analyze_task(
         )
         db.commit()
 
-        analysis = await extract_form_analysis(task.url, task.profile_id)
+        tool_result = await build_default_tool_runtime(
+            extract_form_analysis_handler=extract_form_analysis,
+        ).execute(
+            tool_call_id=f"task-{task.id}:extract_form",
+            tool_name="extract_form",
+            tool_input={"url": task.url, "profile_id": task.profile_id},
+            context=ToolExecutionContext(
+                run_id=f"task-{task.id}",
+                plan_step_id="extract_form",
+                metadata={"db": db, "task_id": task.id},
+            ),
+        )
+        if tool_result.status != "SUCCEEDED":
+            raise RuntimeError(tool_result.error or "Runtime extract_form failed")
+        analysis = analysis_from_runtime_extract_result(tool_result.output_json)
         if analysis.login_required:
             mark_login_required(task, db)
+            save_analyze_runtime_state(db, task=task, tool_result=tool_result)
             db.commit()
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -2327,6 +2342,7 @@ async def login_and_analyze_task(
             )
 
         save_extracted_fields(task, analysis, db)
+        save_analyze_runtime_state(db, task=task, tool_result=tool_result)
         db.commit()
     except HTTPException:
         raise

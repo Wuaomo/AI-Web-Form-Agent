@@ -2295,6 +2295,58 @@ def test_login_and_analyze_retries_original_url_after_manual_login(
     ]
 
 
+def test_login_and_analyze_persists_extract_form_runtime_call(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify post-login browser analysis records a runtime tool call."""
+
+    client, session = test_environment
+    task = create_task_without_fields(session)
+    task.status = "LOGIN_REQUIRED"
+    session.commit()
+    extracted_field = ExtractedFormField(
+        element_ref="field_1",
+        form_title="Contact information",
+        section_title=None,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        placeholder=None,
+        name="email",
+        html_id="email",
+        current_value=None,
+        required=True,
+        options=[],
+    )
+
+    with (
+        patch(
+            "app.routers.tasks.prepare_login_session",
+            new=AsyncMock(return_value=("browser-session", False)),
+        ),
+        patch(
+            "app.routers.tasks.extract_form_analysis",
+            new=AsyncMock(
+                return_value=SimpleNamespace(
+                    fields=[extracted_field],
+                    login_required=False,
+                ),
+            ),
+        ),
+    ):
+        response = client.post(f"/tasks/{task.id}/login-and-analyze")
+
+    assert response.status_code == 200
+    call = session.get(AgentToolCall, f"task-{task.id}:extract_form")
+    assert call is not None
+    assert call.tool_name == "extract_form"
+    assert call.status == "SUCCEEDED"
+    result = session.get(AgentToolResult, f"task-{task.id}:extract_form")
+    assert result is not None
+    assert result.output_json["field_count"] == 1
+    assert result.output_json["login_required"] is False
+
+
 def test_analyze_persists_field_options_for_review(
     test_environment: tuple[TestClient, Session],
 ) -> None:
