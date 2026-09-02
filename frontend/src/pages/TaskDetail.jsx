@@ -65,6 +65,7 @@ import {
   getRunCockpitPlanSteps,
   getRunCockpitToolCalls,
   getRunCockpitVerificationDetails,
+  resolveRunCockpitRuntime,
   shouldShowRunCockpit,
 } from "../runCockpitPresentation";
 import { getExtractionData, getSummaryData } from "../webExtractionPresentation";
@@ -191,7 +192,7 @@ function TaskDetail() {
         setTaskPlan(planResult);
         setApprovalRequests(approvalItems);
         setAgentSteps(agentStepItems);
-        setGovernedRuntime(governedRuntimeState);
+        setGovernedRuntime(resolveRunCockpitRuntime(taskResult, governedRuntimeState));
         setSelectedLlmProvider(getSavedLlmProvider(providerItems));
 
         const runtimeState = await getWorkflowRuntimeOrNull(
@@ -236,7 +237,7 @@ function TaskDetail() {
     setTaskPlan(planResult);
     setApprovalRequests(approvalItems);
     setAgentSteps(agentStepItems);
-    setGovernedRuntime(governedRuntimeState);
+    setGovernedRuntime(resolveRunCockpitRuntime(taskResult, governedRuntimeState));
   }
 
   async function runAgentReview(role) {

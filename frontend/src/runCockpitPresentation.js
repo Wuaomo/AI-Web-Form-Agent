@@ -77,6 +77,15 @@ export function shouldShowRunCockpit(runtime) {
   );
 }
 
+export function resolveRunCockpitRuntime(task, endpointRuntime = null) {
+  if (endpointRuntime) return endpointRuntime;
+  if (!task?.agent_runtime) return null;
+  return {
+    run_id: task.agent_run_id,
+    ...task.agent_runtime,
+  };
+}
+
 export function getRunCockpitPlanSteps(runtime) {
   const steps = runtime?.plan?.steps;
   if (!Array.isArray(steps)) return [];

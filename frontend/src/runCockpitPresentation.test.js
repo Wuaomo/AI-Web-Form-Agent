@@ -6,6 +6,7 @@ import {
   getRunCockpitPlanSteps,
   getRunCockpitToolCalls,
   getRunCockpitVerificationDetails,
+  resolveRunCockpitRuntime,
   shouldShowRunCockpit,
 } from "./runCockpitPresentation.js";
 
@@ -69,6 +70,36 @@ test("buildRunCockpitSummary maps governed runtime fields into compact labels", 
     verificationSummary: "Verified",
     error: null,
   });
+});
+
+test("resolveRunCockpitRuntime falls back to task AgentRun facade state", () => {
+  const runtime = resolveRunCockpitRuntime({
+    agent_run_id: "task-7",
+    agent_runtime: {
+      status: "WAITING_REVIEW",
+      planner_mode: "deterministic",
+      pending_review_count: 2,
+    },
+  });
+
+  assert.deepEqual(runtime, {
+    run_id: "task-7",
+    status: "WAITING_REVIEW",
+    planner_mode: "deterministic",
+    pending_review_count: 2,
+  });
+});
+
+test("resolveRunCockpitRuntime prefers endpoint state over task facade state", () => {
+  const runtime = resolveRunCockpitRuntime(
+    {
+      agent_run_id: "task-7",
+      agent_runtime: { status: "WAITING_REVIEW" },
+    },
+    { status: "COMPLETED", planner_mode: "deterministic" },
+  );
+
+  assert.deepEqual(runtime, { status: "COMPLETED", planner_mode: "deterministic" });
 });
 
 test("buildRunCockpitSummary reads persisted generic verification status", () => {
