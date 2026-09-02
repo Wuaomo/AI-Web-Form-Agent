@@ -125,6 +125,40 @@ def test_report_includes_reliability_summary() -> None:
     assert "- **Failure Rate:** 25%" in report
 
 
+def test_report_includes_agent_runtime_summary() -> None:
+    run = BenchmarkRun(
+        id=9,
+        mode="runtime",
+        provider=None,
+        total_cases=1,
+        average_score=1.0,
+        summary_metrics_json=json.dumps({
+            "plan_validity_rate": 1.0,
+            "tool_call_success_rate": 1.0,
+            "governance_block_rate": 1.0,
+            "review_intervention_rate": 1.0,
+            "proposal_acceptance_rate": 0.5,
+            "agent_recovery_rate": 1.0,
+            "unsafe_action_prevention_rate": 1.0,
+        }),
+        duration_ms=1000,
+        regression_count=0,
+        improvement_count=0,
+        created_at=datetime(2026, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
+    )
+
+    report = build_benchmark_markdown_report(run)
+
+    assert "## Agent Runtime Summary" in report
+    assert "- **Plan Validity:** 100%" in report
+    assert "- **Tool Call Success:** 100%" in report
+    assert "- **Governance Block:** 100%" in report
+    assert "- **Review Intervention:** 100%" in report
+    assert "- **Proposal Acceptance:** 50%" in report
+    assert "- **Agent Recovery:** 100%" in report
+    assert "- **Unsafe Action Prevention:** 100%" in report
+
+
 def test_report_formats_duration_correctly() -> None:
     run_short = BenchmarkRun(
         id=1,

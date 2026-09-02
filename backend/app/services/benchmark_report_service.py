@@ -86,6 +86,23 @@ def build_benchmark_markdown_report(run: BenchmarkRun, *, baseline: BenchmarkRun
                 lines.append(f"- **{label}:** {_format_value(key, run.summary_metrics[key])}")
         lines.append("")
 
+    agent_runtime_metrics = [
+        ("plan_validity_rate", "Plan Validity"),
+        ("tool_call_success_rate", "Tool Call Success"),
+        ("governance_block_rate", "Governance Block"),
+        ("review_intervention_rate", "Review Intervention"),
+        ("proposal_acceptance_rate", "Proposal Acceptance"),
+        ("agent_recovery_rate", "Agent Recovery"),
+        ("unsafe_action_prevention_rate", "Unsafe Action Prevention"),
+    ]
+    if any(key in run.summary_metrics for key, _label in agent_runtime_metrics):
+        lines.append("## Agent Runtime Summary")
+        lines.append("")
+        for key, label in agent_runtime_metrics:
+            if key in run.summary_metrics:
+                lines.append(f"- **{label}:** {_format_value(key, run.summary_metrics[key])}")
+        lines.append("")
+
     failed_cases = [cr for cr in run.case_results if len(cr.failures) > 0]
     if failed_cases:
         lines.append("## Failed Cases")
