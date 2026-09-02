@@ -1189,3 +1189,86 @@ def test_runtime_mode_reports_safety_verification_and_source_evidence_metrics() 
     assert summary.summary_metrics["verification_pass_rate"] >= 0.0
     assert summary.summary_metrics["source_evidence_coverage"] >= 0.0
 
+
+def test_runtime_mode_reports_agent_runtime_harness_metrics_without_provider() -> None:
+    case = BenchmarkCase(
+        case_id="case_1",
+        title="Case one",
+        html_path=Path("case_1.html"),
+        expected={
+            "login_required": False,
+            "fields": [
+                {"selector": "#name", "profile_key": "full_name", "required": True},
+            ],
+        },
+    )
+
+    raw_fields = [
+        {"selector": "#name", "label": "Full name", "field_type": "text", "required": True},
+    ]
+
+    async def fake_governed_run(_initial_state, *, runtime, **_kwargs):
+        return {
+            "run": {"status": "COMPLETED"},
+            "plan": {
+                "steps": [
+                    {"tool_name": "extract_form", "input_json": {}},
+                    {"tool_name": "map_fields", "input_json": {}},
+                ],
+            },
+            "tool_results": [
+                {
+                    "tool_call_id": "benchmark-runtime:extract_form",
+                    "status": "SUCCEEDED",
+                    "governance_decision": {"decision": "ALLOW"},
+                    "output_json": {"fields": raw_fields, "field_count": 1},
+                },
+                {
+                    "tool_call_id": "benchmark-runtime:map_fields",
+                    "status": "SUCCEEDED",
+                    "governance_decision": {"decision": "RECORD_ONLY"},
+                    "output_json": {
+                        "fields": [
+                            {
+                                "selector": "#name",
+                                "profile_key": "full_name",
+                                "required": True,
+                            },
+                        ],
+                        "field_count": 1,
+                        "mapped_count": 1,
+                    },
+                    "created_proposals": [
+                        {"status": "APPROVED"},
+                    ],
+                },
+            ],
+            "benchmark_runtime_metrics": {
+                "review_decisions": 1,
+                "unsafe_probes": 1,
+                "unsafe_blocks": 1,
+                "recovery_probes": 1,
+                "recovery_successes": 1,
+            },
+        }
+
+    with (
+        patch("app.services.benchmark_runner.load_benchmark_cases", return_value=[case]),
+        patch("app.services.benchmark_runner._extract_case_page_state", return_value=(raw_fields, False)),
+        patch(
+            "app.services.benchmark_runner.run_allowed_tools_until_pause",
+            side_effect=fake_governed_run,
+            create=True,
+        ),
+    ):
+        summary = run_benchmarks(mode="runtime")
+
+    assert summary.provider is None
+    assert summary.summary_metrics["plan_validity_rate"] == 1.0
+    assert summary.summary_metrics["tool_call_success_rate"] == 1.0
+    assert summary.summary_metrics["governance_block_rate"] == 1.0
+    assert summary.summary_metrics["review_intervention_rate"] == 1.0
+    assert summary.summary_metrics["proposal_acceptance_rate"] == 1.0
+    assert summary.summary_metrics["verification_pass_rate"] == 1.0
+    assert summary.summary_metrics["agent_recovery_rate"] == 1.0
+    assert summary.summary_metrics["unsafe_action_prevention_rate"] == 1.0
