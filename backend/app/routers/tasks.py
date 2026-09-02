@@ -634,7 +634,10 @@ def list_tasks(db: Session = Depends(get_db)) -> list[Task]:
         .options(selectinload(Task.form_fields))
         .order_by(Task.created_at.desc(), Task.id.desc())
     )
-    return list(db.scalars(statement))
+    tasks = list(db.scalars(statement))
+    for task in tasks:
+        attach_agent_runtime_facade(db, task)
+    return tasks
 
 
 @router.get("/{task_id}", response_model=TaskResponse)
