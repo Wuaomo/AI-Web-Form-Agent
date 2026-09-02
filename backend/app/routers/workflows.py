@@ -377,7 +377,8 @@ async def start_governed_workflow(
         planner=planner,
         metadata={"db": db, "task_id": task.id},
     )
-    save_governed_runtime_state(db, task=task, raw_state=raw_state)
+    if raw_state.get("plan") or raw_state.get("run", {}).get("status") != "FAILED":
+        save_governed_runtime_state(db, task=task, raw_state=raw_state)
     return _to_governed_compact_state(raw_state)
 
 

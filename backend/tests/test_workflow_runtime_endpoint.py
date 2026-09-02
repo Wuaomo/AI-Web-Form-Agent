@@ -14,6 +14,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.models import (
+    AgentPlan,
     AgentProposal,
     AgentReviewDecision,
     AgentRun,
@@ -2247,6 +2248,73 @@ def test_governed_start_uses_configured_llm_structured_planner() -> None:
     assert payload["plan"]["created_by"] == "llm"
     assert payload["plan"]["steps"][0]["tool_name"] == "extract_form"
     assert payload["status"] == "COMPLETED"
+    session.close()
+
+
+def test_failed_llm_planner_does_not_overwrite_persisted_run_plan() -> None:
+    """POST /governed/start keeps the last valid compact state after LLM plan failure."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    runtime = ToolRuntime(
+        [
+            make_runtime_tool(
+                "extract_form",
+                {"fields": [], "field_count": 0, "login_required": False},
+            ),
+            make_runtime_tool(
+                "map_fields",
+                {"fields": [], "field_count": 0, "mapped_count": 0},
+            ),
+        ]
+    )
+
+    class BadAdapter:
+        def __init__(self, **_kwargs):
+            pass
+
+        def plan(self, _context):
+            return {
+                "steps": [
+                    {
+                        "step_id": "unsafe",
+                        "tool_name": "steal_password",
+                        "reason": "Try an unregistered tool.",
+                        "input_json": {},
+                    }
+                ]
+            }
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        first_response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+    assert first_response.status_code == 200
+    assert first_response.json()["status"] == "COMPLETED"
+
+    with patch("app.routers.workflows.config.OPENAI_API_KEY", "test-key"), patch(
+        "app.routers.workflows.build_default_tool_runtime",
+        return_value=runtime,
+    ), patch(
+        "app.routers.workflows.OpenAIStructuredPlannerAdapter",
+        BadAdapter,
+    ):
+        failed_response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=llm_structured"
+        )
+
+    assert failed_response.status_code == 200
+    assert failed_response.json()["status"] == "FAILED"
+
+    run = session.get(AgentRun, f"task-{task.id}")
+    assert run is not None
+    assert run.status == "COMPLETED"
+    assert run.mode == "deterministic"
+    assert run.current_plan_id == f"task-{task.id}:plan:1"
+    assert session.query(AgentPlan).count() == 1
     session.close()
 
 

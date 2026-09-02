@@ -628,7 +628,21 @@ async def start_governed_runtime(
             "metadata": metadata or {},
         }
     }
-    return await _get_graph().ainvoke(initial_state, config=config)
+    return await _get_graph().ainvoke(
+        {
+            **initial_state,
+            "plan": {},
+            "current_tool_call": None,
+            "governance_decision": None,
+            "tool_results": [],
+            "verification_result": {},
+            "approved_tool_call_ids": [],
+            "current_step_index": 0,
+            "interrupt_at": None,
+            "error": None,
+        },
+        config=config,
+    )
 
 
 def get_governed_runtime_state(run_id: str) -> dict[str, Any] | None:
