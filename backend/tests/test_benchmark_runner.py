@@ -1266,6 +1266,7 @@ def test_runtime_mode_reports_agent_runtime_harness_metrics_without_provider() -
     assert summary.provider is None
     assert summary.summary_metrics["plan_validity_rate"] == 1.0
     assert summary.summary_metrics["tool_call_success_rate"] == 1.0
+    assert summary.summary_metrics["internal_runtime_tool_coverage"] == 1.0
     assert summary.summary_metrics["governance_block_rate"] == 1.0
     assert summary.summary_metrics["review_intervention_rate"] == 1.0
     assert summary.summary_metrics["proposal_acceptance_rate"] == 1.0
