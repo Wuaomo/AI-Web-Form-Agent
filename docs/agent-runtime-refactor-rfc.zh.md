@@ -959,6 +959,15 @@ README、architecture、demo script 已同步 AgentRun / Review Queue / Run Cock
 表述。旧 `/tasks`、workflow-specific endpoint、security questionnaire graph
 仍作为兼容路径保留，整体 runtime refactor 仍未完成。
 
+当前补充状态（2026-09-02）：internal legacy read/write Tool Runtime
+convergence phase 已完成。legacy analyze、login-and-analyze、同步 rules
+mapping、worker rules mapping、page extraction、job-summary prerequisite
+extraction、fill、submit 和 verification 持久化路径都会记录 compact
+`AgentToolCall` / `AgentToolResult` 或 generic verification state，且 task
+facade 不暴露 raw `tool_results`。剩余 gap 进入下一 phase：generic graph
+成为主 demo 路径、Review Queue 成为 primary contract，以及第 21 节整体完成
+定义的最终验证。
+
 ## 20. 测试策略
 
 每阶段至少有：

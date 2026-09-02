@@ -33,7 +33,7 @@ React UI
 
 **Key Components:**
 
-- **Agent Runtime**: Compact AgentRun state, tool calls, governance decisions, review counts, and verification summaries exposed through Run Cockpit and legacy task facades.
+- **Agent Runtime**: Compact AgentRun state, internal legacy read/write tool calls, governance decisions, review counts, and verification summaries exposed through Run Cockpit and legacy task facades.
 - **LangGraph**: Durable, human-reviewed runtime orchestration with interrupt points before sensitive actions. The generic governed graph is the migration path; the old questionnaire graph remains for compatibility.
 - **LangChain**: Structured suggestions and retrieval for enhanced mapping and questionnaire answers. Optional - the system works without LLMs.
 - **PolicyEngine**: Safety decision owner that blocks sensitive fields, refuses unsupported answers, and enforces action controls.
