@@ -229,6 +229,9 @@ class AgentRun(Base):
     plans: Mapped[list["AgentPlan"]] = relationship(back_populates="run")
     tool_calls: Mapped[list["AgentToolCall"]] = relationship(back_populates="run")
     proposals: Mapped[list["AgentProposal"]] = relationship(back_populates="run")
+    verification_results: Mapped[list["AgentVerificationResult"]] = relationship(
+        back_populates="run"
+    )
 
     @property
     def final_result(self) -> dict[str, object]:
@@ -436,6 +439,67 @@ class AgentToolResult(Base):
         """Persist verification candidates as stable JSON."""
 
         self.verification_candidates_json = _dump_json_list(value)
+
+
+class AgentVerificationResult(Base):
+    """Persisted runtime-level verification evidence for one tool call."""
+
+    __tablename__ = "agent_verification_results"
+
+    id: Mapped[str] = mapped_column(String(220), primary_key=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("agent_runs.id"), nullable=False)
+    tool_call_id: Mapped[str] = mapped_column(
+        ForeignKey("agent_tool_calls.id"),
+        nullable=False,
+    )
+    target_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    target_ref: Mapped[str] = mapped_column(String(200), nullable=False)
+    verification_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    expected_json: Mapped[str] = mapped_column("expected", Text, nullable=False)
+    actual_json: Mapped[str] = mapped_column("actual", Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    reason: Mapped[Optional[str]] = mapped_column(String(100))
+    evidence_items_json: Mapped[str] = mapped_column(Text, nullable=False)
+    screenshot_id: Mapped[Optional[int]] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    run: Mapped["AgentRun"] = relationship(back_populates="verification_results")
+
+    @property
+    def expected(self) -> Any:
+        """Return structured expected value."""
+
+        return _json_value(self.expected_json)
+
+    @expected.setter
+    def expected(self, value: Any) -> None:
+        """Persist expected value as JSON."""
+
+        self.expected_json = _dump_json_value(value)
+
+    @property
+    def actual(self) -> Any:
+        """Return structured actual value."""
+
+        return _json_value(self.actual_json)
+
+    @actual.setter
+    def actual(self, value: Any) -> None:
+        """Persist actual value as JSON."""
+
+        self.actual_json = _dump_json_value(value)
+
+    @property
+    def evidence_items(self) -> list[dict[str, object]]:
+        """Return compact evidence items."""
+
+        return _json_list(self.evidence_items_json)
+
+    @evidence_items.setter
+    def evidence_items(self, value: list[dict[str, object]] | None) -> None:
+        """Persist compact evidence items as stable JSON."""
+
+        self.evidence_items_json = _dump_json_list(value)
 
 
 class AgentProposal(Base):

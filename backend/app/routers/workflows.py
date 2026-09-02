@@ -23,6 +23,7 @@ from app.services.agent_runtime import (
     get_runtime_state,
     register_configured_mcp_readonly_tools,
     register_configured_openapi_readonly_tools,
+    resume_governed_runtime_from_review,
     start_governed_runtime,
     resume_from_review,
     start_runtime,
@@ -89,11 +90,7 @@ def _ensure_supported_workflow(task: Task) -> None:
 
 def _ensure_governed_workflow(task: Task) -> None:
     workflow_type = task.workflow_type or WORKFLOW_TYPE_FORM_FILL
-    supported = {
-        WORKFLOW_TYPE_FORM_FILL,
-        WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
-        WORKFLOW_TYPE_VENDOR_ONBOARDING,
-    }
+    supported = _governed_workflow_types()
     if workflow_type not in supported:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -102,6 +99,14 @@ def _ensure_governed_workflow(task: Task) -> None:
                 f"the governed runtime. Supported: {sorted(supported)}"
             ),
         )
+
+
+def _governed_workflow_types() -> set[str]:
+    return {
+        WORKFLOW_TYPE_FORM_FILL,
+        WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
+        WORKFLOW_TYPE_VENDOR_ONBOARDING,
+    }
 
 
 def _to_compact_state(raw_state: dict) -> dict:
@@ -208,6 +213,8 @@ def _to_governed_compact_state(raw_state: dict) -> dict:
         "workflow_type": raw_state.get("workflow_type", ""),
         "status": run.get("status", "FAILED"),
         "planner_mode": run.get("mode", raw_state.get("planner_mode")),
+        "pending_review_count": _governed_pending_review_count(raw_state),
+        "current_step_index": raw_state.get("current_step_index", 0),
         "interrupt_at": raw_state.get("interrupt_at"),
         "plan": raw_state.get("plan", {}),
         "current_tool_call": raw_state.get("current_tool_call"),
@@ -269,6 +276,23 @@ def _compact_governed_tool_calls(raw_state: dict) -> list[dict[str, object]]:
         )
 
     return calls
+
+
+def _governed_pending_review_count(raw_state: dict) -> int:
+    raw_count = (raw_state.get("run") or {}).get("pending_review_count")
+    if isinstance(raw_count, int) and not isinstance(raw_count, bool):
+        return raw_count
+
+    proposal_count = sum(
+        1
+        for result in raw_state.get("tool_results", [])
+        if isinstance(result, dict)
+        for proposal in result.get("created_proposals", [])
+        if isinstance(proposal, dict) and proposal.get("status") == "PENDING"
+    )
+    if proposal_count:
+        return proposal_count
+    return 1 if raw_state.get("interrupt_at") in {"review", "approval"} else 0
 
 
 def _plan_step_id_from_tool_call_id(
@@ -357,7 +381,8 @@ async def start_governed_workflow(
         planner=planner,
         metadata={"db": db, "task_id": task.id},
     )
-    save_governed_runtime_state(db, task=task, raw_state=raw_state)
+    if raw_state.get("plan") or raw_state.get("run", {}).get("status") != "FAILED":
+        save_governed_runtime_state(db, task=task, raw_state=raw_state)
     return _to_governed_compact_state(raw_state)
 
 
@@ -372,7 +397,11 @@ def get_governed_workflow_state(
     """Get the latest compact state for the generic governed runtime."""
 
     task = _get_task_or_404(db, task_id)
-    _ensure_governed_workflow(task)
+    if (task.workflow_type or WORKFLOW_TYPE_FORM_FILL) not in _governed_workflow_types():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No governed runtime state found for task {task_id}.",
+        )
 
     raw_state = get_governed_runtime_state(f"task-{task.id}")
     if raw_state is None:
@@ -393,7 +422,7 @@ def get_governed_workflow_state(
     "/{task_id}/governed/review-items/{proposal_id}/decision",
     response_model=ReviewDecision,
 )
-def apply_governed_review_item_decision(
+async def apply_governed_review_item_decision(
     task_id: int,
     proposal_id: str,
     request: GovernedReviewDecisionRequest,
@@ -428,6 +457,25 @@ def apply_governed_review_item_decision(
         edited_value=request.edited_value,
     )
     persist_review_decision(db, decision=decision)
+    db.flush()
+    raw_state = get_governed_runtime_state(
+        f"task-{task.id}"
+    ) or restore_governed_runtime_state(db, task=task)
+    if (
+        request.decision in {"approved", "edited", "rejected"}
+        and target.proposal is not None
+        and target.proposal.run.pending_review_count == 0
+        and raw_state is not None
+        and raw_state.get("current_tool_call") is not None
+        and raw_state.get("interrupt_at") == "review"
+    ):
+        raw_state = await resume_governed_runtime_from_review(
+            f"task-{task.id}",
+            runtime=build_default_tool_runtime(),
+            metadata={"db": db, "task_id": task.id},
+            state=raw_state,
+        )
+        save_governed_runtime_state(db, task=task, raw_state=raw_state)
     db.commit()
     return decision
 

@@ -16,6 +16,7 @@ from app.services.agent_runtime.governed_agent_graph import (
     run_allowed_tool_once,
     run_allowed_tools_until_pause,
     run_to_governance,
+    resume_governed_runtime_from_approval,
     resume_governed_runtime_from_review,
     start_governed_runtime,
 )
@@ -175,6 +176,57 @@ def test_run_to_governance_uses_llm_structured_planner_without_bypassing_review(
     assert state["run"]["status"] == "WAITING_REVIEW"
     assert state["current_tool_call"]["tool_name"] == "fill_browser_fields"
     assert state["governance_decision"]["decision"] == "REVIEW_REQUIRED"
+    handler.assert_not_awaited()
+
+
+def test_llm_structured_planner_cannot_downgrade_submit_tool_risk() -> None:
+    """Verify registered tool metadata wins over model-provided risk labels."""
+
+    handler = AsyncMock(return_value={"submitted": True})
+    runtime = ToolRuntime(
+        [
+            make_tool(
+                "submit_form",
+                mutates_browser=True,
+                risk_level="high",
+                handler=handler,
+            )
+        ]
+    )
+    planner = AgentPlanner(
+        runtime=runtime,
+        structured_adapter=FakeStructuredPlannerAdapter(
+            {
+                "steps": [
+                    {
+                        "step_id": "submit",
+                        "tool_name": "submit_form",
+                        "reason": "Submit after explicit approval.",
+                        "input_json": {"task_id": 14},
+                        "risk_level": "low",
+                    }
+                ]
+            }
+        ),
+    )
+
+    state = run_to_governance(
+        {
+            "run_id": "task-llm-submit-risk",
+            "task_id": 14,
+            "goal": "Submit the reviewed form.",
+            "target_url": "https://example.com/form",
+            "profile_id": 7,
+            "planner_mode": "llm_structured",
+        },
+        runtime=runtime,
+        planner=planner,
+    )
+
+    assert state["run"]["status"] == "WAITING_APPROVAL"
+    assert state["current_tool_call"]["risk_level"] == "high"
+    assert state["governance_decision"]["decision"] == "APPROVAL_REQUIRED"
+    assert state["governance_decision"]["risk_level"] == "high"
     handler.assert_not_awaited()
 
 
@@ -483,6 +535,39 @@ async def test_run_allowed_tools_until_pause_stops_at_review_required_step() -> 
     write_handler.assert_not_awaited()
 
 
+@pytest.mark.anyio
+async def test_run_allowed_tools_until_pause_stops_when_login_is_required() -> None:
+    """Verify generic graph does not continue past a login gate."""
+
+    extract_handler = AsyncMock(
+        return_value={"fields": [], "field_count": 0, "login_required": True}
+    )
+    map_handler = AsyncMock(return_value={"fields": [], "field_count": 0})
+    runtime = ToolRuntime(
+        [
+            make_tool("extract_form", handler=extract_handler),
+            make_tool("map_fields", risk_level="medium", handler=map_handler),
+        ]
+    )
+
+    state = await run_allowed_tools_until_pause(
+        {
+            "run_id": "task-login-required",
+            "task_id": 11,
+            "goal": "Inspect and map this form.",
+            "target_url": "https://example.com/login-first",
+            "profile_id": 7,
+        },
+        runtime=runtime,
+    )
+
+    assert state["run"]["status"] == "BLOCKED"
+    assert state["error"] == "Login required before governed workflow can continue."
+    assert state["current_step_index"] == 1
+    extract_handler.assert_awaited_once()
+    map_handler.assert_not_awaited()
+
+
 def test_get_governed_runtime_state_returns_none_before_start() -> None:
     """Verify unknown generic runtime state is reported as absent."""
 
@@ -642,6 +727,94 @@ async def test_resume_governed_runtime_executes_approved_write_then_verifies() -
 
 
 @pytest.mark.anyio
+async def test_resume_governed_runtime_executes_approved_submit() -> None:
+    """Verify approval resume runs an explicitly approved submit tool."""
+
+    submit_handler = AsyncMock(return_value={"submitted": True})
+    runtime = ToolRuntime(
+        [
+            make_tool(
+                "submit_form",
+                mutates_browser=True,
+                risk_level="high",
+                handler=submit_handler,
+            ),
+        ]
+    )
+
+    await start_governed_runtime(
+        {
+            "run_id": "task-submit",
+            "task_id": 12,
+            "goal": "Submit after explicit approval.",
+            "target_url": "https://example.com/form",
+            "profile_id": 7,
+            "plan_steps": [
+                {
+                    "step_id": "submit",
+                    "tool_name": "submit_form",
+                    "reason": "Submit reviewed form.",
+                    "input_json": {"task_id": 12},
+                    "risk_level": "high",
+                }
+            ],
+        },
+        runtime=runtime,
+    )
+
+    state = await resume_governed_runtime_from_approval(
+        "task-submit",
+        runtime=runtime,
+    )
+
+    assert state["run"]["status"] == "COMPLETED"
+    assert state["current_tool_call"]["status"] == "SUCCEEDED"
+    assert state["tool_results"][0]["governance_decision"]["decision"] == "VERIFY_REQUIRED"
+    assert state["tool_results"][0]["output_json"] == {"submitted": True}
+    submit_handler.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_verify_browser_state_mismatch_fails_governed_run() -> None:
+    """Verify failed browser-state verification does not finish the run."""
+
+    verify_handler = AsyncMock(
+        return_value={
+            "verified": False,
+            "mismatches": [{"reason": "email field stayed blank"}],
+        }
+    )
+    runtime = ToolRuntime(
+        [make_tool("verify_browser_state", handler=verify_handler)]
+    )
+
+    state = await run_allowed_tools_until_pause(
+        {
+            "run_id": "task-verify-failed",
+            "task_id": 13,
+            "goal": "Verify browser state.",
+            "target_url": "https://example.com/form",
+            "profile_id": 7,
+            "plan_steps": [
+                {
+                    "step_id": "verify",
+                    "tool_name": "verify_browser_state",
+                    "reason": "Verify filled browser state.",
+                    "input_json": {"task_id": 13},
+                    "risk_level": "low",
+                }
+            ],
+        },
+        runtime=runtime,
+    )
+
+    assert state["run"]["status"] == "FAILED"
+    assert state["error"] == "email field stayed blank"
+    assert state["verification_result"]["verified"] is False
+    verify_handler.assert_awaited_once()
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "workflow_type",
     ["security_questionnaire", "vendor_onboarding"],
@@ -736,9 +909,13 @@ async def test_generic_graph_maps_security_and_vendor_tasks_with_real_rules(
         )
 
         session.refresh(field)
-        assert state["run"]["status"] == "COMPLETED"
+        assert state["run"]["status"] == "WAITING_REVIEW"
+        assert state["interrupt_at"] == "review"
         assert state["run"]["context"]["workflow_type"] == workflow_type
         assert field.mapped_profile_key == "email"
         assert state["tool_results"][1]["output_json"]["mapped_count"] == 1
+        assert state["tool_results"][1]["created_proposals"][0]["target_ref"] == str(
+            field.id
+        )
     finally:
         session.close()

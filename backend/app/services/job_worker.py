@@ -203,13 +203,17 @@ def _execute_analyze_stage(db: Session, job: Job) -> None:
         raise ValueError(f"Task {job.task_id} not found")
 
     from app.routers.tasks import (
+        analysis_from_runtime_extract_result,
         create_log,
         get_next_log_step,
         mark_login_required,
+        save_analyze_runtime_state,
         save_extracted_fields,
     )
     from app.services.form_extractor import extract_form_analysis
     from app.services.form_analysis_cache import read_form_analysis_cache, write_form_analysis_cache
+    from app.services.agent_runtime.tools import build_default_tool_runtime
+    from app.services.agent_runtime.tool_runtime import ToolExecutionContext
     from app.services.checkpoint_service import write_checkpoint
     from app.workflow_constants import WORKFLOW_STAGE_ANALYSIS, CHECKPOINT_SUCCESS, CHECKPOINT_FAILED
 
@@ -237,13 +241,32 @@ def _execute_analyze_stage(db: Session, job: Job) -> None:
     try:
         analysis = read_form_analysis_cache(db, task.url)
         cache_hit = analysis is not None
+        tool_result = None
         if analysis is None:
-            analysis = asyncio.run(extract_form_analysis(task.url, task.profile_id))
+            tool_result = asyncio.run(
+                build_default_tool_runtime(
+                    extract_form_analysis_handler=extract_form_analysis,
+                ).execute(
+                    tool_call_id=f"task-{task.id}:extract_form",
+                    tool_name="extract_form",
+                    tool_input={"url": task.url, "profile_id": task.profile_id},
+                    context=ToolExecutionContext(
+                        run_id=f"task-{task.id}",
+                        plan_step_id="extract_form",
+                        metadata={"db": db, "task_id": task.id},
+                    ),
+                )
+            )
+            if tool_result.status != "SUCCEEDED":
+                raise RuntimeError(tool_result.error or "Runtime extract_form failed")
+            analysis = analysis_from_runtime_extract_result(tool_result.output_json)
             write_form_analysis_cache(db, task.url, analysis)
         if analysis.login_required:
             mark_login_required(task, db)
         else:
             save_extracted_fields(task, analysis, db)
+        if tool_result is not None:
+            save_analyze_runtime_state(db, task=task, tool_result=tool_result)
         write_checkpoint(
             task_id=task.id,
             stage=WORKFLOW_STAGE_ANALYSIS,
@@ -302,7 +325,10 @@ def _execute_map_stage(db: Session, job: Job) -> None:
     if task is None:
         raise ValueError(f"Task {job.task_id} not found")
 
+    from app.routers.tasks import save_map_fields_runtime_state
     from app.services.field_mapper import map_fields_by_rules, map_fields_with_llm
+    from app.services.agent_runtime.tool_runtime import ToolExecutionContext
+    from app.services.agent_runtime.tools import build_default_tool_runtime
     from app.services.checkpoint_service import write_checkpoint
     from app.services.llm_provider_config import is_provider_configured, resolve_llm_provider
     from app.workflow_constants import WORKFLOW_STAGE_MAPPING, CHECKPOINT_SUCCESS, CHECKPOINT_FAILED
@@ -324,25 +350,57 @@ def _execute_map_stage(db: Session, job: Job) -> None:
             if not is_provider_configured(selected_provider):
                 raise ValueError(f"LLM provider {selected_provider} is not configured")
             fields = map_fields_with_llm(job.task_id, db, provider=selected_provider)
+            field_count = len(fields)
+            mapped_count = sum(1 for f in fields if f.mapped_profile_key)
+            source_suggestions = []
+            tool_result = None
         else:
-            fields = map_fields_by_rules(job.task_id, db)
+            import asyncio
+
+            tool_result = asyncio.run(
+                build_default_tool_runtime(
+                    map_fields_by_rules_handler=map_fields_by_rules,
+                ).execute(
+                    tool_call_id=f"task-{task.id}:map_fields",
+                    tool_name="map_fields",
+                    tool_input={"task_id": task.id},
+                    context=ToolExecutionContext(
+                        run_id=f"task-{task.id}",
+                        plan_step_id="map_fields",
+                        metadata={"db": db, "task_id": task.id},
+                    ),
+                )
+            )
+            if tool_result.status != "SUCCEEDED":
+                raise RuntimeError(tool_result.error or "Runtime map_fields failed")
+            field_count = tool_result.output_json["field_count"]
+            mapped_count = tool_result.output_json["mapped_count"]
+            source_suggestions = tool_result.output_json.get("source_suggestions") or []
 
         set_workflow_status(task, WORKFLOW_STATUS_MAPPING_READY, reason="mapping_completed")
-        mapped_count = sum(1 for f in fields if f.mapped_profile_key)
         usage_fields = _trace_usage_fields(job.task_id, db) if mode == "llm" else {}
+        checkpoint_output = {
+            "field_count": field_count,
+            "mapped_count": mapped_count,
+            "mode": mode,
+        }
+        if source_suggestions:
+            checkpoint_output["source_suggestions"] = source_suggestions
         write_checkpoint(
             task_id=job.task_id,
             stage=WORKFLOW_STAGE_MAPPING,
             status=CHECKPOINT_SUCCESS,
             input_hash=f"{job.task_id}:{mode}:{provider or 'default'}",
-            output={"field_count": len(fields), "mapped_count": mapped_count, "mode": mode},
+            output=checkpoint_output,
             db=db,
         )
+        if tool_result is not None:
+            save_map_fields_runtime_state(db, task=task, tool_result=tool_result)
         safe_finish_span(
             map_span_id,
             status=SPAN_STATUS_SUCCESS,
             output={
-                "field_count": len(fields),
+                "field_count": field_count,
                 "mapped_count": mapped_count,
                 "mode": mode,
                 "provider": selected_provider if mode == "llm" else None,
@@ -457,7 +515,7 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
     db.flush()
 
     try:
-        tool_result, screenshot, _ = asyncio.run(
+        tool_result, screenshot, verification_data = asyncio.run(
             execute_fill_form_runtime_tool(
                 db=db,
                 task=task,
@@ -470,6 +528,7 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
             db,
             task=task,
             tool_result=tool_result,
+            verification_data=verification_data,
         )
         write_checkpoint(
             task_id=task.id,
@@ -533,13 +592,18 @@ def _execute_benchmark_stage(db: Session, job: Job) -> None:
     """
 
     from app.services.benchmark_runner import run_benchmarks
-    from app.models import BenchmarkRun
 
     mode = job.payload.get("mode", "rules")
     provider = job.payload.get("provider")
 
-    run = run_benchmarks(mode=mode, provider=provider)
-    db.add(run)
+    run_benchmarks(
+        mode=mode,
+        provider=provider,
+        db=db,
+        stress_mode=job.payload.get("stress_mode", "standard"),
+        memory_mode=job.payload.get("memory_mode", "off"),
+        baseline_run_id=job.payload.get("baseline_run_id"),
+    )
 
 
 def _get_error_reason(job_type: str, exc: Exception) -> str:

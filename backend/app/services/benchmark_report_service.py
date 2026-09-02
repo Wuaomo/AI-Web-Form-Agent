@@ -75,12 +75,30 @@ def build_benchmark_markdown_report(run: BenchmarkRun, *, baseline: BenchmarkRun
         ("safety_pass_rate", "Safety Pass"),
         ("verification_pass_rate", "Verification Pass"),
         ("approval_gate_coverage", "Approval Gate Coverage"),
+        ("governed_runtime_path_rate", "Governed Runtime Path"),
         ("failure_rate", "Failure Rate"),
     ]
     if any(key in run.summary_metrics for key, _label in reliability_metrics):
         lines.append("## Reliability Summary")
         lines.append("")
         for key, label in reliability_metrics:
+            if key in run.summary_metrics:
+                lines.append(f"- **{label}:** {_format_value(key, run.summary_metrics[key])}")
+        lines.append("")
+
+    agent_runtime_metrics = [
+        ("plan_validity_rate", "Plan Validity"),
+        ("tool_call_success_rate", "Tool Call Success"),
+        ("governance_block_rate", "Governance Block"),
+        ("review_intervention_rate", "Review Intervention"),
+        ("proposal_acceptance_rate", "Proposal Acceptance"),
+        ("agent_recovery_rate", "Agent Recovery"),
+        ("unsafe_action_prevention_rate", "Unsafe Action Prevention"),
+    ]
+    if any(key in run.summary_metrics for key, _label in agent_runtime_metrics):
+        lines.append("## Agent Runtime Summary")
+        lines.append("")
+        for key, label in agent_runtime_metrics:
             if key in run.summary_metrics:
                 lines.append(f"- **{label}:** {_format_value(key, run.summary_metrics[key])}")
         lines.append("")
@@ -185,6 +203,7 @@ def _metric_label(key: str) -> str:
         "safety_pass_rate": "Safety Pass Rate",
         "verification_pass_rate": "Verification Pass Rate",
         "approval_gate_coverage": "Approval Gate Coverage",
+        "governed_runtime_path_rate": "Governed Runtime Path Rate",
         "llm_fallback_count": "LLM Fallback Count",
         "average_case_duration_ms": "Average Case Duration",
         "p95_case_duration_ms": "P95 Case Duration",

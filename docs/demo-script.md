@@ -29,9 +29,9 @@ http://localhost:5173
 3. Open Workflows and show Security Questionnaire as the first available template.
 4. Create a run with **Security Questionnaire** selected and click "Use Docker demo form".
 5. Select the `Demo Applicant` profile and click "Create run".
-6. On the Task Detail page, show the "Agent workflow" panel at the bottom of the run section.
-7. Click "Start agent workflow" - the workflow will analyze the page, extract questions, retrieve policy sources, and suggest answers.
-8. When the workflow pauses at "Review pending", click "Review suggestions" to go to Review Mapping.
+6. On the Task Detail page, show the Run Cockpit panel in the run section.
+7. Click "Start governed runtime" - the runtime will build a compact AgentRun state with plan, tool, governance, and verification evidence.
+8. Continue to Review Mapping when the run needs review.
 9. In Review Mapping, show:
    - Source evidence from `mock-security-policy.md` (document name, matched section).
    - Confidence scores for each suggestion.
@@ -40,7 +40,7 @@ http://localhost:5173
 10. Approve all suggestions or selectively approve/reject individual fields.
 11. Click "Submit review" - the workflow resumes, fills only approved values, and verifies them.
 12. Return to Task Detail and show:
-    - Updated workflow state showing "Verifying result" or "Completed".
+    - Updated Run Cockpit state showing verification or completion.
     - Action logs, screenshot evidence, and verification status.
 13. Stop at final submit approval and explain that the app does not submit without explicit user decision.
 14. Open Evaluation and show how local benchmark runs compare rules/memory/LLM/runtime modes, tracking:
@@ -69,8 +69,8 @@ http://localhost:5173
 ## Reviewer Talking Points
 
 - The default demo uses local data and does not require LLM API keys.
-- The Security Questionnaire Assistant is the primary demo, showing source-backed answers from local policy documents via a LangGraph workflow.
-- The workflow orchestration includes interrupt points before sensitive actions (review, submit).
+- The Security Questionnaire Assistant is the primary demo, showing source-backed answers from local policy documents through the governed runtime path.
+- Runtime orchestration includes interrupt points before sensitive actions (review, submit).
 - Answers are always suggestions with evidence - human review is required before execution.
 - Optional providers can improve semantic mapping, but the rule-based path keeps the demo deterministic.
 - The app treats browser automation as a reviewed workflow, not an invisible bot.

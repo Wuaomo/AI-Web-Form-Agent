@@ -6,6 +6,8 @@ import {
   getRunCockpitPlanSteps,
   getRunCockpitToolCalls,
   getRunCockpitVerificationDetails,
+  resolveRunCockpitRuntime,
+  shouldShowLegacyWorkflowRuntimePanel,
   shouldShowRunCockpit,
 } from "./runCockpitPresentation.js";
 
@@ -69,6 +71,77 @@ test("buildRunCockpitSummary maps governed runtime fields into compact labels", 
     verificationSummary: "Verified",
     error: null,
   });
+});
+
+test("resolveRunCockpitRuntime falls back to task AgentRun facade state", () => {
+  const runtime = resolveRunCockpitRuntime({
+    agent_run_id: "task-7",
+    agent_runtime: {
+      status: "WAITING_REVIEW",
+      planner_mode: "deterministic",
+      pending_review_count: 2,
+    },
+  });
+
+  assert.deepEqual(runtime, {
+    run_id: "task-7",
+    status: "WAITING_REVIEW",
+    planner_mode: "deterministic",
+    pending_review_count: 2,
+  });
+});
+
+test("resolveRunCockpitRuntime prefers endpoint state over task facade state", () => {
+  const runtime = resolveRunCockpitRuntime(
+    {
+      agent_run_id: "task-7",
+      agent_runtime: { status: "WAITING_REVIEW" },
+    },
+    { status: "COMPLETED", planner_mode: "deterministic" },
+  );
+
+  assert.deepEqual(runtime, { status: "COMPLETED", planner_mode: "deterministic" });
+});
+
+test("shouldShowLegacyWorkflowRuntimePanel hides legacy panel when Run Cockpit has runtime state", () => {
+  assert.equal(
+    shouldShowLegacyWorkflowRuntimePanel(
+      { workflow_type: "security_questionnaire" },
+      { planner_mode: "deterministic" },
+    ),
+    false,
+  );
+  assert.equal(
+    shouldShowLegacyWorkflowRuntimePanel(
+      { workflow_type: "security_questionnaire" },
+      null,
+    ),
+    true,
+  );
+  assert.equal(
+    shouldShowLegacyWorkflowRuntimePanel(
+      { workflow_type: "vendor_onboarding" },
+      null,
+    ),
+    false,
+  );
+});
+
+test("buildRunCockpitSummary reads persisted generic verification status", () => {
+  const summary = buildRunCockpitSummary({
+    status: "COMPLETED",
+    planner_mode: "deterministic",
+    verification_result: {
+      status: "VERIFIED",
+      total: 2,
+      verified: 2,
+      failed: 0,
+      skipped: 0,
+      mismatches: [],
+    },
+  });
+
+  assert.equal(summary.verificationSummary, "Verified");
 });
 
 test("buildRunCockpitSummary summarizes verification mismatches and errors", () => {
@@ -147,6 +220,22 @@ test("getRunCockpitVerificationDetails summarizes verified runs", () => {
     mismatches: [],
     evidenceItems: [],
   });
+});
+
+test("getRunCockpitVerificationDetails reads persisted generic verification status", () => {
+  const details = getRunCockpitVerificationDetails({
+    verification_result: {
+      status: "PARTIAL",
+      total: 2,
+      verified: 1,
+      failed: 0,
+      skipped: 1,
+      mismatches: [],
+    },
+  });
+
+  assert.equal(details.statusLabel, "Partial");
+  assert.equal(details.mismatchCount, 0);
 });
 
 test("getRunCockpitVerificationDetails returns compact mismatches", () => {

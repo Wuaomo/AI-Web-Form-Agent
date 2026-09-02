@@ -1,5 +1,6 @@
 """Integration tests for the task submission confirmation endpoint."""
 
+import asyncio
 from collections.abc import Generator
 from unittest.mock import AsyncMock, patch
 
@@ -19,6 +20,7 @@ from app.models import (
     AgentRun,
     AgentToolCall,
     AgentToolResult,
+    AgentVerificationResult,
     ApprovalRequest,
     FormField,
     Profile,
@@ -27,7 +29,15 @@ from app.models import (
 from app.routers.approvals import router as approvals_router
 from app.routers.tasks import router as tasks_router
 from app.services.agent_runtime.schemas import GovernanceDecision, ToolResult
-from app.services.agent_runtime.state_store import save_fill_form_runtime_state
+from app.services.agent_runtime.governed_agent_graph import (
+    _reset_governed_runtime_for_tests,
+    start_governed_runtime,
+)
+from app.services.agent_runtime.state_store import (
+    save_fill_form_runtime_state,
+    save_governed_runtime_state,
+)
+from app.services.agent_runtime.tools import build_default_tool_runtime
 
 
 @pytest.fixture
@@ -280,6 +290,265 @@ def test_confirm_submit_records_submit_runtime_tool_call(
         "field_count": 1,
         "screenshot_id": 5,
     }
+
+    verification = session.get(
+        AgentVerificationResult,
+        f"task-{task.id}:submit_form:verification:0",
+    )
+    assert verification is not None
+    assert verification.tool_call_id == f"task-{task.id}:submit_form"
+    assert verification.target_type == "form_submit"
+    assert verification.target_ref == "submit_form"
+    assert verification.verification_type == "page_state"
+    assert verification.status == "VERIFIED"
+    assert verification.actual == {"screenshot_id": 5, "submitted": True}
+
+
+def test_confirm_submit_resumes_persisted_governed_submit_approval_without_plan_overwrite(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    _reset_governed_runtime_for_tests()
+    task = create_task(session, "WAITING_APPROVAL")
+    field = session.scalar(select(FormField).where(FormField.task_id == task.id))
+    fields = [
+        {
+            "id": field.id,
+            "selector": field.selector,
+            "mapped_value": field.mapped_value,
+        }
+    ]
+
+    first_response = client.post(f"/tasks/{task.id}/confirm-submit")
+    approval_id = first_response.json()["detail"]["approval_id"]
+
+    paused_state = asyncio.run(
+        start_governed_runtime(
+            {
+                "run_id": f"task-{task.id}",
+                "task_id": task.id,
+                "goal": "Submit through governed graph.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "plan_steps": [
+                    {
+                        "step_id": "submit_form",
+                        "tool_name": "submit_form",
+                        "reason": "Submit reviewed form after explicit approval.",
+                        "input_json": {
+                            "task_id": task.id,
+                            "url": task.url,
+                            "profile_id": task.profile_id,
+                            "fields": fields,
+                        },
+                        "risk_level": "high",
+                    }
+                ],
+            },
+            runtime=build_default_tool_runtime(
+                submit_form_handler=AsyncMock(
+                    return_value=type("Screenshot", (), {"id": 8})()
+                )
+            ),
+        )
+    )
+    save_governed_runtime_state(session, task=task, raw_state=paused_state)
+    approve_response = client.post(f"/approvals/{approval_id}/approve")
+    assert approve_response.status_code == 200
+    _reset_governed_runtime_for_tests()
+
+    with patch(
+        "app.routers.tasks.submit_form_and_capture_screenshot",
+        new_callable=AsyncMock,
+    ) as submit_form:
+        submit_form.return_value = type("Screenshot", (), {"id": 9})()
+        response = client.post(f"/tasks/{task.id}/confirm-submit")
+
+    assert response.status_code == 200
+    submit_form.assert_awaited_once()
+    session.expire_all()
+    run = session.get(AgentRun, f"task-{task.id}")
+    assert run is not None
+    assert run.status == "COMPLETED"
+    assert run.current_plan_id == f"task-{task.id}:plan:1"
+
+
+def test_confirm_submit_skips_persisted_governed_submit_when_snapshot_differs(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    _reset_governed_runtime_for_tests()
+    task = create_task(session, "WAITING_APPROVAL")
+    field = session.scalar(select(FormField).where(FormField.task_id == task.id))
+
+    first_response = client.post(f"/tasks/{task.id}/confirm-submit")
+    approval_id = first_response.json()["detail"]["approval_id"]
+    approve_response = client.post(f"/approvals/{approval_id}/approve")
+    assert approve_response.status_code == 200
+
+    stale_fields = [
+        {
+            "id": field.id,
+            "selector": field.selector,
+            "mapped_value": "stale@example.com",
+        }
+    ]
+    save_governed_runtime_state(
+        session,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "interrupt_at": "approval",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": "Submit through governed graph.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": "WAITING_APPROVAL",
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:plan:1",
+                "version": 1,
+                "goal": "Submit through governed graph.",
+                "steps": [
+                    {
+                        "step_id": "submit_form",
+                        "tool_name": "submit_form",
+                        "reason": "Submit reviewed form after explicit approval.",
+                        "input_json": {
+                            "task_id": task.id,
+                            "url": task.url,
+                            "profile_id": task.profile_id,
+                            "fields": stale_fields,
+                        },
+                        "risk_level": "high",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "current_tool_call": {
+                "id": f"task-{task.id}:submit_form",
+                "run_id": f"task-{task.id}",
+                "plan_step_id": "submit_form",
+                "tool_name": "submit_form",
+                "input_json": {
+                    "task_id": task.id,
+                    "url": task.url,
+                    "profile_id": task.profile_id,
+                    "fields": stale_fields,
+                },
+                "status": "WAITING_APPROVAL",
+                "risk_level": "high",
+                "governance_decision": {"decision": "APPROVAL_REQUIRED"},
+            },
+        },
+    )
+    _reset_governed_runtime_for_tests()
+
+    with patch(
+        "app.routers.tasks.submit_form_and_capture_screenshot",
+        new_callable=AsyncMock,
+    ) as submit_form:
+        submit_form.return_value = type("Screenshot", (), {"id": 9})()
+        response = client.post(f"/tasks/{task.id}/confirm-submit")
+
+    assert response.status_code == 200
+    submitted_fields = submit_form.await_args.kwargs["fields"]
+    assert submitted_fields[0].mapped_value == "user@example.com"
+
+
+def test_confirm_submit_skips_persisted_governed_submit_when_selector_differs(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    _reset_governed_runtime_for_tests()
+    task = create_task(session, "WAITING_APPROVAL")
+    field = session.scalar(select(FormField).where(FormField.task_id == task.id))
+
+    first_response = client.post(f"/tasks/{task.id}/confirm-submit")
+    approval_id = first_response.json()["detail"]["approval_id"]
+    approve_response = client.post(f"/approvals/{approval_id}/approve")
+    assert approve_response.status_code == 200
+
+    stale_fields = [
+        {
+            "id": field.id,
+            "selector": "#stale-email",
+            "mapped_value": field.mapped_value,
+        }
+    ]
+    field.selector = "#email"
+    session.commit()
+    save_governed_runtime_state(
+        session,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "interrupt_at": "approval",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": "Submit through governed graph.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": "WAITING_APPROVAL",
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:plan:1",
+                "version": 1,
+                "goal": "Submit through governed graph.",
+                "steps": [
+                    {
+                        "step_id": "submit_form",
+                        "tool_name": "submit_form",
+                        "reason": "Submit reviewed form after explicit approval.",
+                        "input_json": {
+                            "task_id": task.id,
+                            "url": task.url,
+                            "profile_id": task.profile_id,
+                            "fields": stale_fields,
+                        },
+                        "risk_level": "high",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "current_tool_call": {
+                "id": f"task-{task.id}:submit_form",
+                "run_id": f"task-{task.id}",
+                "plan_step_id": "submit_form",
+                "tool_name": "submit_form",
+                "input_json": {
+                    "task_id": task.id,
+                    "url": task.url,
+                    "profile_id": task.profile_id,
+                    "fields": stale_fields,
+                },
+                "status": "WAITING_APPROVAL",
+                "risk_level": "high",
+                "governance_decision": {"decision": "APPROVAL_REQUIRED"},
+            },
+        },
+    )
+    _reset_governed_runtime_for_tests()
+
+    with patch(
+        "app.routers.tasks.submit_form_and_capture_screenshot",
+        new_callable=AsyncMock,
+    ) as submit_form:
+        submit_form.return_value = type("Screenshot", (), {"id": 9})()
+        response = client.post(f"/tasks/{task.id}/confirm-submit")
+
+    assert response.status_code == 200
+    submitted_fields = submit_form.await_args.kwargs["fields"]
+    assert submitted_fields[0].selector == "#email"
 
 
 def test_confirm_submit_keeps_fill_and_submit_runtime_plan_steps(

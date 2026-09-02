@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
+from types import SimpleNamespace
 from typing import Any
 
+from app.models import Task
+from app.services.policy_answer_retrieval import apply_policy_answer_suggestions
 from app.services.agent_runtime.tool_runtime import (
     AgentTool,
     ToolExecutionContext,
@@ -12,9 +15,15 @@ from app.services.agent_runtime.tool_runtime import (
 )
 from app.services.field_mapper import map_fields_by_rules
 from app.services.form_extractor import extract_form_analysis
+from app.services.page_extractor import extract_page
 from app.services.browser_executor import (
     fill_form_and_capture_screenshot,
     submit_form_and_capture_screenshot,
+)
+from app.services.agent_runtime.review_queue import build_task_review_proposals
+from app.workflow_constants import (
+    WORKFLOW_STAGE_MAPPING,
+    WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
 )
 
 
@@ -53,6 +62,40 @@ MAP_FIELDS_OUTPUT_SCHEMA: dict[str, Any] = {
         "field_count": {"type": "integer"},
         "mapped_count": {"type": "integer"},
         "mode": {"type": "string"},
+        "source_suggestions": {"type": "array"},
+    },
+}
+
+EXTRACT_PAGE_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["url", "profile_id"],
+    "properties": {
+        "url": {"type": "string"},
+        "profile_id": {"type": "integer"},
+    },
+}
+
+EXTRACT_PAGE_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": [
+        "title",
+        "heading_count",
+        "link_count",
+        "table_count",
+        "form_count",
+    ],
+    "properties": {
+        "title": {"type": "string"},
+        "heading_count": {"type": "integer"},
+        "headings": {"type": "array"},
+        "text_block_count": {"type": "integer"},
+        "main_text_blocks": {"type": "array"},
+        "link_count": {"type": "integer"},
+        "links": {"type": "array"},
+        "table_count": {"type": "integer"},
+        "tables": {"type": "array"},
+        "form_count": {"type": "integer"},
+        "forms": {"type": "array"},
     },
 }
 
@@ -103,6 +146,7 @@ def build_default_tool_runtime(
     *,
     extract_form_analysis_handler=extract_form_analysis,
     map_fields_by_rules_handler=map_fields_by_rules,
+    extract_page_handler=extract_page,
     fill_form_handler=fill_form_and_capture_screenshot,
     submit_form_handler=submit_form_and_capture_screenshot,
 ) -> ToolRuntime:
@@ -123,22 +167,59 @@ def build_default_tool_runtime(
             "login_required": analysis.login_required,
         }
 
+    async def run_extract_page(
+        _context: ToolExecutionContext,
+        tool_input: dict[str, Any],
+    ) -> dict[str, Any]:
+        result = await extract_page_handler(tool_input["url"], tool_input["profile_id"])
+        return _page_extraction_to_dict(result)
+
     async def run_map_fields(
         context: ToolExecutionContext,
         tool_input: dict[str, Any],
     ) -> dict[str, Any]:
+        db = context.metadata.get("db")
         fields = map_fields_by_rules_handler(
             tool_input["task_id"],
-            db=context.metadata.get("db"),
+            db=db,
+        )
+        task = _task_from_context(context, tool_input["task_id"])
+        source_suggestions = (
+            apply_policy_answer_suggestions(fields=fields, db=db, task=task)
+            if task is not None
+            and task.workflow_type == WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE
+            else []
+        )
+        if source_suggestions and db is not None:
+            db.commit()
+        proposals = (
+            build_task_review_proposals(
+                task=task,
+                fields=fields,
+                checkpoints=[
+                    SimpleNamespace(
+                        stage=WORKFLOW_STAGE_MAPPING,
+                        output={"source_suggestions": source_suggestions},
+                    )
+                ],
+            )
+            if task is not None
+            else []
         )
         field_payload = [_mapped_field_to_dict(field) for field in fields]
         return {
             "fields": field_payload,
             "field_count": len(field_payload),
             "mapped_count": sum(
-                1 for field in field_payload if field["mapped_profile_key"]
+                1
+                for field in field_payload
+                if field["mapped_profile_key"] or field["mapped_value"]
             ),
             "mode": "rules",
+            "source_suggestions": source_suggestions,
+            "_created_proposals": [
+                proposal.model_dump(mode="json") for proposal in proposals
+            ],
         }
 
     async def run_fill_form(
@@ -157,11 +238,21 @@ def build_default_tool_runtime(
         if isinstance(sink, dict):
             sink["screenshot"] = screenshot
             sink["verification_data"] = verification
-        return {
+        screenshot_id = _int_id(screenshot)
+        output = {
             "filled_count": len(tool_input["fields"]),
-            "screenshot_id": getattr(screenshot, "id", None),
+            "screenshot_id": screenshot_id,
             "verification_count": len(verification),
+            "_verification_candidates": [
+                _field_verification_candidate(
+                    item,
+                    run_id=str(context.run_id or f"task-{tool_input['task_id']}"),
+                    screenshot_id=screenshot_id,
+                )
+                for item in verification
+            ],
         }
+        return output
 
     async def run_submit_form(
         context: ToolExecutionContext,
@@ -181,7 +272,7 @@ def build_default_tool_runtime(
         return {
             "submitted": True,
             "field_count": len(tool_input["fields"]),
-            "screenshot_id": getattr(screenshot, "id", None),
+            "screenshot_id": _int_id(screenshot),
         }
 
     runtime = ToolRuntime()
@@ -197,6 +288,20 @@ def build_default_tool_runtime(
                 mutates_external_system=False,
                 trace_phase="extraction",
                 handler=run_extract_form,
+            )
+        )
+    for name in ("extract_page", "extract_page_structure"):
+        runtime.register(
+            AgentTool(
+                name=name,
+                description="Extract structured page content.",
+                input_schema=EXTRACT_PAGE_INPUT_SCHEMA,
+                output_schema=EXTRACT_PAGE_OUTPUT_SCHEMA,
+                risk_level="low",
+                mutates_browser=False,
+                mutates_external_system=False,
+                trace_phase="extraction",
+                handler=run_extract_page,
             )
         )
     for name in ("map_fields", "generate_field_mappings"):
@@ -353,9 +458,70 @@ def _mapped_field_to_dict(field: object) -> dict[str, Any]:
     }
 
 
+def _page_extraction_to_dict(result: object) -> dict[str, Any]:
+    headings = getattr(result, "headings")
+    links = getattr(result, "links")
+    tables = getattr(result, "tables")
+    forms = getattr(result, "forms")
+    text_blocks = getattr(result, "main_text_blocks")
+    return {
+        "title": getattr(result, "title"),
+        "heading_count": len(headings),
+        "headings": [{"level": h.level, "text": h.text} for h in headings],
+        "text_block_count": len(text_blocks),
+        "main_text_blocks": text_blocks,
+        "link_count": len(links),
+        "links": [{"text": link.text, "href": link.href} for link in links],
+        "table_count": len(tables),
+        "tables": [
+            {"headers": table.headers, "row_count": len(table.rows)}
+            for table in tables
+        ],
+        "form_count": len(forms),
+        "forms": [
+            {
+                "action": form.action,
+                "method": form.method,
+                "field_count": form.field_count,
+            }
+            for form in forms
+        ],
+    }
+
+
+def _task_from_context(context: ToolExecutionContext, task_id: int) -> Task | None:
+    db = context.metadata.get("db")
+    return db.get(Task, task_id) if hasattr(db, "get") else None
+
+
+def _field_verification_candidate(
+    item: object,
+    *,
+    run_id: str,
+    screenshot_id: int | None,
+) -> dict[str, Any]:
+    field_id = getattr(item, "field_id", None)
+    selector = str(getattr(item, "selector", ""))
+    return {
+        "run_id": run_id,
+        "target_ref": str(field_id) if field_id is not None else selector,
+        "verification_type": "field_value",
+        "expected": getattr(item, "expected_value", None),
+        "evidence_required": ["dom_value"],
+        "screenshot_id": screenshot_id,
+    }
+
+
+def _int_id(item: object) -> int | None:
+    value = getattr(item, "id", None)
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
 __all__ = [
     "EXTRACT_FORM_INPUT_SCHEMA",
     "EXTRACT_FORM_OUTPUT_SCHEMA",
+    "EXTRACT_PAGE_INPUT_SCHEMA",
+    "EXTRACT_PAGE_OUTPUT_SCHEMA",
     "FILL_FORM_INPUT_SCHEMA",
     "FILL_FORM_OUTPUT_SCHEMA",
     "MAP_FIELDS_INPUT_SCHEMA",

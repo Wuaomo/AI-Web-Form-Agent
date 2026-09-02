@@ -14,6 +14,7 @@ STRUCTURED_PLANNER_SCHEMA: dict[str, Any] = {
     "properties": {
         "steps": {
             "type": "array",
+            "minItems": 1,
             "items": {
                 "type": "object",
                 "properties": {

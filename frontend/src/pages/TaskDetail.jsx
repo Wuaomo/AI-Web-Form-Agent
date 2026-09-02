@@ -65,6 +65,8 @@ import {
   getRunCockpitPlanSteps,
   getRunCockpitToolCalls,
   getRunCockpitVerificationDetails,
+  resolveRunCockpitRuntime,
+  shouldShowLegacyWorkflowRuntimePanel,
   shouldShowRunCockpit,
 } from "../runCockpitPresentation";
 import { getExtractionData, getSummaryData } from "../webExtractionPresentation";
@@ -191,7 +193,7 @@ function TaskDetail() {
         setTaskPlan(planResult);
         setApprovalRequests(approvalItems);
         setAgentSteps(agentStepItems);
-        setGovernedRuntime(governedRuntimeState);
+        setGovernedRuntime(resolveRunCockpitRuntime(taskResult, governedRuntimeState));
         setSelectedLlmProvider(getSavedLlmProvider(providerItems));
 
         const runtimeState = await getWorkflowRuntimeOrNull(
@@ -236,7 +238,7 @@ function TaskDetail() {
     setTaskPlan(planResult);
     setApprovalRequests(approvalItems);
     setAgentSteps(agentStepItems);
-    setGovernedRuntime(governedRuntimeState);
+    setGovernedRuntime(resolveRunCockpitRuntime(taskResult, governedRuntimeState));
   }
 
   async function runAgentReview(role) {
@@ -1029,7 +1031,7 @@ function TaskDetail() {
 
             {renderRunCockpit()}
 
-            {task.workflow_type === "security_questionnaire" && (
+            {shouldShowLegacyWorkflowRuntimePanel(task, governedRuntime) && (
               <div className="runtime-status-panel">
                 <div className="runtime-status-header">
                   <p className="eyebrow">Agent workflow</p>

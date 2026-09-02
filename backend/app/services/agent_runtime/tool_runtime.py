@@ -8,7 +8,14 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.services.agent_runtime.governance import GovernanceEngine
-from app.services.agent_runtime.schemas import GovernanceDecision, RiskLevel, ToolResult
+from app.services.agent_runtime.schemas import (
+    EvidenceItem,
+    GovernanceDecision,
+    Proposal,
+    RiskLevel,
+    ToolResult,
+    VerificationCandidate,
+)
 from app.services.workflow_trace_service import create_span, finish_span
 from app.workflow_constants import SPAN_STATUS_FAILED, SPAN_STATUS_SUCCESS
 
@@ -68,6 +75,8 @@ class ToolRuntime:
             {
                 "name": tool.name,
                 "description": tool.description,
+                "source": _tool_source(tool.name),
+                "read_only": not tool.mutates_browser and not tool.mutates_external_system,
                 "risk_level": tool.risk_level,
                 "mutates_browser": tool.mutates_browser,
                 "mutates_external_system": tool.mutates_external_system,
@@ -169,6 +178,9 @@ class ToolRuntime:
                 governance_decision=governance_decision,
             )
 
+        created_proposals = _pop_created_proposals(output)
+        evidence_items = _pop_evidence_items(output)
+        verification_candidates = _pop_verification_candidates(output)
         _finish_trace_span(
             execution_context,
             span,
@@ -181,6 +193,9 @@ class ToolRuntime:
             status="SUCCEEDED",
             governance_decision=governance_decision,
             output_json=output,
+            evidence_items=evidence_items,
+            created_proposals=created_proposals,
+            verification_candidates=verification_candidates,
         )
 
 
@@ -245,6 +260,8 @@ def _create_trace_span(
             name=tool.name,
             input={"tool_call_id": tool_call_id, **tool_input},
             metadata={
+                "source": _tool_source(tool.name),
+                "read_only": not tool.mutates_browser and not tool.mutates_external_system,
                 "risk_level": tool.risk_level,
                 "mutates_browser": tool.mutates_browser,
                 "mutates_external_system": tool.mutates_external_system,
@@ -300,6 +317,35 @@ def _summarize_output(output: dict[str, Any]) -> dict[str, Any]:
         for key, value in output.items()
         if isinstance(value, str | int | float | bool) or value is None
     }
+
+
+def _tool_source(tool_name: str) -> str:
+    return tool_name.split(".", 1)[0] if tool_name.startswith(("mcp.", "openapi.")) else "internal"
+
+
+def _pop_verification_candidates(output: dict[str, Any]) -> list[VerificationCandidate]:
+    raw = output.pop("_verification_candidates", [])
+    if not isinstance(raw, list):
+        return []
+    return [
+        VerificationCandidate.model_validate(item)
+        for item in raw
+        if isinstance(item, dict)
+    ]
+
+
+def _pop_evidence_items(output: dict[str, Any]) -> list[EvidenceItem]:
+    raw = output.pop("_evidence_items", [])
+    if not isinstance(raw, list):
+        return []
+    return [EvidenceItem.model_validate(item) for item in raw if isinstance(item, dict)]
+
+
+def _pop_created_proposals(output: dict[str, Any]) -> list[Proposal]:
+    raw = output.pop("_created_proposals", [])
+    if not isinstance(raw, list):
+        return []
+    return [Proposal.model_validate(item) for item in raw if isinstance(item, dict)]
 
 
 __all__ = [

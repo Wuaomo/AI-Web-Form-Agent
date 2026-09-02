@@ -135,10 +135,22 @@ Completed or mostly completed:
 - Phase 8 reliability benchmark baseline: local full-workflow evaluation runs
   without LLM API keys and reports workflow success, safety pass, verification
   pass, and failure-rate metrics.
+- Phase 9 runtime evaluation baseline: `runtime` benchmark mode runs without
+  LLM API keys, stays on the deterministic governed runtime path, reports plan
+  validity, tool success, governance/review, verification, recovery, and unsafe
+  prevention metrics, and the Markdown report highlights those runtime metrics.
+- Internal legacy read/write Tool Runtime convergence: legacy analyze,
+  login-and-analyze, synchronous rules mapping, worker rules mapping, page
+  extraction, job-summary prerequisite extraction, fill, submit, and verification
+  persistence now record compact AgentToolCall/AgentToolResult state. This is a
+  compatibility-layer convergence phase, not the overall runtime refactor finish.
 
 Still missing from the revised direction:
 
 - broader memory governance beyond confirmed form-field mappings;
+- generic graph as the primary path for the main demos;
+- Review Queue as the primary contract beyond field-mapping compatibility;
+- final section 21 validation across every runtime object and demo;
 - portfolio screenshots/GIF assets that show the questionnaire workflow.
 
 ## Post-Portfolio Extensions

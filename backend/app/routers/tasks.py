@@ -1,5 +1,6 @@
 """Task-related API endpoints."""
 
+import asyncio
 import logging
 import re
 import time
@@ -66,7 +67,7 @@ from app.services.field_mapper import (
     map_fields_by_rules,
     map_fields_with_llm_result,
 )
-from app.services.form_extractor import ExtractedFormAnalysis, extract_form_analysis
+from app.services.form_extractor import ExtractedFormAnalysis, ExtractedFormField, extract_form_analysis
 from app.services.page_extractor import extract_page
 from app.services.research_summary import generate_research_summary
 from app.services.form_analysis_cache import (
@@ -111,12 +112,20 @@ from app.services.workflow_trace_service import safe_create_span, safe_finish_sp
 from app.services.agent_step_timeline import build_agent_steps_for_task
 from app.services.agent_runtime.form_field_persistence import replace_task_form_fields
 from app.services.agent_runtime.state_store import (
+    restore_governed_runtime_state,
     save_fill_form_runtime_state,
+    save_governed_runtime_state,
     save_submit_form_runtime_state,
 )
 from app.services.agent_runtime.tools import (
+    build_default_tool_runtime,
     execute_fill_form_runtime_tool,
     execute_submit_form_runtime_tool,
+)
+from app.services.agent_runtime.tool_runtime import ToolExecutionContext
+from app.services.agent_runtime.governed_agent_graph import (
+    get_governed_runtime_state,
+    resume_governed_runtime_from_approval,
 )
 from app.services.agent_runtime.review_queue import (
     apply_review_decision_to_field_target,
@@ -569,6 +578,162 @@ def save_extracted_fields(
     )
 
 
+def analysis_from_runtime_extract_result(output: dict[str, Any]) -> ExtractedFormAnalysis:
+    """Return typed analysis from the extract_form runtime output."""
+
+    return ExtractedFormAnalysis(
+        fields=[
+            ExtractedFormField(**field)
+            for field in output.get("fields", [])
+            if isinstance(field, dict)
+        ],
+        login_required=bool(output.get("login_required")),
+    )
+
+
+def save_analyze_runtime_state(db: Session, *, task: Task, tool_result: Any) -> None:
+    """Persist compact runtime state for a legacy analyze browser read."""
+
+    save_governed_runtime_state(
+        db,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": task.description or "Analyze browser form.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": task.status,
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:analysis-plan:1",
+                "version": 1,
+                "goal": task.description or "Analyze browser form.",
+                "steps": [
+                    {
+                        "step_id": "extract_form",
+                        "tool_name": "extract_form",
+                        "reason": "Extract browser form fields.",
+                        "input_json": {
+                            "url": task.url,
+                            "profile_id": task.profile_id,
+                        },
+                        "risk_level": "low",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "tool_results": [tool_result.model_dump(mode="json")],
+        },
+    )
+
+
+def save_map_fields_runtime_state(db: Session, *, task: Task, tool_result: Any) -> None:
+    """Persist compact runtime state for a legacy rules mapping step."""
+
+    save_governed_runtime_state(
+        db,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": task.description or "Map browser form fields.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": task.status,
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:mapping-plan:1",
+                "version": 1,
+                "goal": task.description or "Map browser form fields.",
+                "steps": [
+                    {
+                        "step_id": "map_fields",
+                        "tool_name": "map_fields",
+                        "reason": "Map extracted fields to profile values.",
+                        "input_json": {"task_id": task.id},
+                        "risk_level": "medium",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "tool_results": [tool_result.model_dump(mode="json")],
+        },
+    )
+
+
+def save_extract_page_runtime_state(db: Session, *, task: Task, tool_result: Any) -> None:
+    """Persist compact runtime state for a legacy page extraction read."""
+
+    save_governed_runtime_state(
+        db,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": task.description or "Extract page content.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": task.status,
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:page-extraction-plan:1",
+                "version": 1,
+                "goal": task.description or "Extract page content.",
+                "steps": [
+                    {
+                        "step_id": "extract_page",
+                        "tool_name": "extract_page",
+                        "reason": "Extract structured page content.",
+                        "input_json": {
+                            "url": task.url,
+                            "profile_id": task.profile_id,
+                        },
+                        "risk_level": "low",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "tool_results": [tool_result.model_dump(mode="json")],
+        },
+    )
+
+
+async def execute_extract_page_runtime(db: Session, task: Task) -> Any:
+    """Run the read-only extract_page runtime tool for one legacy task."""
+
+    tool_result = await build_default_tool_runtime(
+        extract_page_handler=extract_page,
+    ).execute(
+        tool_call_id=f"task-{task.id}:extract_page",
+        tool_name="extract_page",
+        tool_input={"url": task.url, "profile_id": task.profile_id},
+        context=ToolExecutionContext(
+            run_id=f"task-{task.id}",
+            plan_step_id="extract_page",
+            metadata={"db": db, "task_id": task.id},
+        ),
+    )
+    if tool_result.status != "SUCCEEDED":
+        raise RuntimeError(tool_result.error or "Runtime extract_page failed")
+    return tool_result
+
+
 @router.post(
     "",
     response_model=TaskResponse,
@@ -627,7 +792,10 @@ def list_tasks(db: Session = Depends(get_db)) -> list[Task]:
         .options(selectinload(Task.form_fields))
         .order_by(Task.created_at.desc(), Task.id.desc())
     )
-    return list(db.scalars(statement))
+    tasks = list(db.scalars(statement))
+    for task in tasks:
+        attach_agent_runtime_facade(db, task)
+    return tasks
 
 
 @router.get("/{task_id}", response_model=TaskResponse)
@@ -645,7 +813,29 @@ def get_task(task_id: int, db: Session = Depends(get_db)) -> Task:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Task not found",
         )
+    attach_agent_runtime_facade(db, task)
     return task
+
+
+def attach_agent_runtime_facade(db: Session, task: Task) -> None:
+    """Attach compact AgentRun state to the legacy task response."""
+
+    raw_state = restore_governed_runtime_state(db, task=task)
+    if raw_state is None:
+        return
+
+    run = raw_state.get("run") or {}
+    task.agent_run_id = str(run.get("id") or raw_state.get("run_id") or "")
+    task.agent_runtime = {
+        "status": run.get("status"),
+        "planner_mode": run.get("mode") or raw_state.get("planner_mode"),
+        "pending_review_count": run.get("pending_review_count") or 0,
+        "current_step_index": raw_state.get("current_step_index", 0),
+        "interrupt_at": raw_state.get("interrupt_at"),
+        "tool_result_count": len(raw_state.get("tool_results") or []),
+        "verification_result": raw_state.get("verification_result") or {},
+        "error": raw_state.get("error"),
+    }
 
 
 @router.get("/{task_id}/plan", response_model=WorkflowPlanResponse)
@@ -829,13 +1019,30 @@ async def analyze_task(
     try:
         analysis = read_form_analysis_cache(db, task.url)
         cache_hit = analysis is not None
+        tool_result = None
         if analysis is None:
-            analysis = await extract_form_analysis(task.url, task.profile_id)
+            tool_result = await build_default_tool_runtime(
+                extract_form_analysis_handler=extract_form_analysis,
+            ).execute(
+                tool_call_id=f"task-{task.id}:extract_form",
+                tool_name="extract_form",
+                tool_input={"url": task.url, "profile_id": task.profile_id},
+                context=ToolExecutionContext(
+                    run_id=f"task-{task.id}",
+                    plan_step_id="extract_form",
+                    metadata={"db": db, "task_id": task.id},
+                ),
+            )
+            if tool_result.status != "SUCCEEDED":
+                raise RuntimeError(tool_result.error or "Runtime extract_form failed")
+            analysis = analysis_from_runtime_extract_result(tool_result.output_json)
             write_form_analysis_cache(db, task.url, analysis)
         if analysis.login_required:
             mark_login_required(task, db)
         else:
             save_extracted_fields(task, analysis, db)
+        if tool_result is not None:
+            save_analyze_runtime_state(db, task=task, tool_result=tool_result)
         write_checkpoint(
             task_id=task.id,
             stage=WORKFLOW_STAGE_ANALYSIS,
@@ -1029,7 +1236,7 @@ async def extract_task_page(
     db.commit()
 
     try:
-        result = await extract_page(task.url, task.profile_id)
+        tool_result = await execute_extract_page_runtime(db, task)
 
         await open_url_and_capture_screenshot(
             task_id=task.id,
@@ -1039,25 +1246,7 @@ async def extract_task_page(
             db=db,
         )
 
-        extraction_output = {
-            "title": result.title,
-            "heading_count": len(result.headings),
-            "headings": [{"level": h.level, "text": h.text} for h in result.headings],
-            "text_block_count": len(result.main_text_blocks),
-            "main_text_blocks": result.main_text_blocks,
-            "link_count": len(result.links),
-            "links": [{"text": l.text, "href": l.href} for l in result.links],
-            "table_count": len(result.tables),
-            "tables": [
-                {"headers": t.headers, "row_count": len(t.rows)}
-                for t in result.tables
-            ],
-            "form_count": len(result.forms),
-            "forms": [
-                {"action": f.action, "method": f.method, "field_count": f.field_count}
-                for f in result.forms
-            ],
-        }
+        extraction_output = tool_result.output_json
 
         write_checkpoint(
             task_id=task.id,
@@ -1069,11 +1258,18 @@ async def extract_task_page(
         )
 
         apply_workflow_status(task, WORKFLOW_STATUS_COMPLETED, reason="extraction_completed")
+        save_extract_page_runtime_state(db, task=task, tool_result=tool_result)
         create_log(
             task_id=task.id,
             step=get_next_log_step(task.id, db),
             action="extract_page",
-            message=f"Extracted page data: {len(result.headings)} headings, {len(result.links)} links, {len(result.tables)} tables, {len(result.forms)} forms",
+            message=(
+                "Extracted page data: "
+                f"{extraction_output['heading_count']} headings, "
+                f"{extraction_output['link_count']} links, "
+                f"{extraction_output['table_count']} tables, "
+                f"{extraction_output['form_count']} forms"
+            ),
             status="SUCCESS",
             db=db,
         )
@@ -1082,10 +1278,10 @@ async def extract_task_page(
             extract_span_id,
             status=SPAN_STATUS_SUCCESS,
             output={
-                "heading_count": len(result.headings),
-                "link_count": len(result.links),
-                "table_count": len(result.tables),
-                "form_count": len(result.forms),
+                "heading_count": extraction_output["heading_count"],
+                "link_count": extraction_output["link_count"],
+                "table_count": extraction_output["table_count"],
+                "form_count": extraction_output["form_count"],
             },
             latency_ms=int((time.monotonic() - span_started_at) * 1000),
         )
@@ -1172,6 +1368,7 @@ async def generate_job_summary(
     db.commit()
 
     try:
+        extract_tool_result = None
         extraction_checkpoints = list_checkpoints(task_id=task.id, db=db)
         extraction_data = None
         for cp in extraction_checkpoints:
@@ -1190,7 +1387,7 @@ async def generate_job_summary(
             )
             db.commit()
 
-            result = await extract_page(task.url, task.profile_id)
+            extract_tool_result = await execute_extract_page_runtime(db, task)
 
             await open_url_and_capture_screenshot(
                 task_id=task.id,
@@ -1200,25 +1397,7 @@ async def generate_job_summary(
                 db=db,
             )
 
-            extraction_data = {
-                "title": result.title,
-                "heading_count": len(result.headings),
-                "headings": [{"level": h.level, "text": h.text} for h in result.headings],
-                "text_block_count": len(result.main_text_blocks),
-                "main_text_blocks": result.main_text_blocks,
-                "link_count": len(result.links),
-                "links": [{"text": l.text, "href": l.href} for l in result.links],
-                "table_count": len(result.tables),
-                "tables": [
-                    {"headers": t.headers, "row_count": len(t.rows)}
-                    for t in result.tables
-                ],
-                "form_count": len(result.forms),
-                "forms": [
-                    {"action": f.action, "method": f.method, "field_count": f.field_count}
-                    for f in result.forms
-                ],
-            }
+            extraction_data = extract_tool_result.output_json
 
             write_checkpoint(
                 task_id=task.id,
@@ -1248,6 +1427,8 @@ async def generate_job_summary(
         )
 
         apply_workflow_status(task, WORKFLOW_STATUS_COMPLETED, reason="summary_completed")
+        if extract_tool_result is not None:
+            save_extract_page_runtime_state(db, task=task, tool_result=extract_tool_result)
         create_log(
             task_id=task.id,
             step=get_next_log_step(task.id, db),
@@ -1354,6 +1535,9 @@ def map_task_fields(
     )
     map_started_at = time.monotonic()
     selected_provider = provider
+    source_suggestions: list[dict[str, object]] = []
+    retrieval_suggestions: list[dict[str, object]] = []
+    tool_result = None
 
     try:
         if mode == "llm":
@@ -1377,11 +1561,32 @@ def map_task_fields(
             fields = mapping_result.fields
             retrieval_suggestions = mapping_result.retrieval_suggestions
         else:
-            fields = map_fields_by_rules(task_id, db)
-            retrieval_suggestions = []
+            tool_result = asyncio.run(
+                build_default_tool_runtime(
+                    map_fields_by_rules_handler=map_fields_by_rules,
+                ).execute(
+                    tool_call_id=f"task-{task.id}:map_fields",
+                    tool_name="map_fields",
+                    tool_input={"task_id": task.id},
+                    context=ToolExecutionContext(
+                        run_id=f"task-{task.id}",
+                        plan_step_id="map_fields",
+                        metadata={"db": db, "task_id": task.id},
+                    ),
+                )
+            )
+            if tool_result.status != "SUCCEEDED":
+                raise RuntimeError(tool_result.error or "Runtime map_fields failed")
+            fields = list(
+                db.scalars(
+                    select(FormField)
+                    .where(FormField.task_id == task_id)
+                    .order_by(FormField.id)
+                )
+            )
+            source_suggestions = tool_result.output_json.get("source_suggestions") or []
 
-        source_suggestions: list[dict[str, object]] = []
-        if task.workflow_type == WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE:
+        if mode == "llm" and task.workflow_type == WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE:
             source_suggestions = apply_policy_answer_suggestions(
                 fields=fields,
                 db=db,
@@ -1408,6 +1613,8 @@ def map_task_fields(
             output=checkpoint_output,
             db=db,
         )
+        if mode == "rules":
+            save_map_fields_runtime_state(db, task=task, tool_result=tool_result)
         db.commit()
         safe_finish_span(
             map_span_id,
@@ -2072,6 +2279,7 @@ async def fill_task_form(
                 db,
                 task=task,
                 tool_result=tool_result,
+                verification_data=verification_data,
             )
             write_checkpoint(
                 task_id=task.id,
@@ -2211,9 +2419,24 @@ async def login_and_analyze_task(
         )
         db.commit()
 
-        analysis = await extract_form_analysis(task.url, task.profile_id)
+        tool_result = await build_default_tool_runtime(
+            extract_form_analysis_handler=extract_form_analysis,
+        ).execute(
+            tool_call_id=f"task-{task.id}:extract_form",
+            tool_name="extract_form",
+            tool_input={"url": task.url, "profile_id": task.profile_id},
+            context=ToolExecutionContext(
+                run_id=f"task-{task.id}",
+                plan_step_id="extract_form",
+                metadata={"db": db, "task_id": task.id},
+            ),
+        )
+        if tool_result.status != "SUCCEEDED":
+            raise RuntimeError(tool_result.error or "Runtime extract_form failed")
+        analysis = analysis_from_runtime_extract_result(tool_result.output_json)
         if analysis.login_required:
             mark_login_required(task, db)
+            save_analyze_runtime_state(db, task=task, tool_result=tool_result)
             db.commit()
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -2221,6 +2444,7 @@ async def login_and_analyze_task(
             )
 
         save_extracted_fields(task, analysis, db)
+        save_analyze_runtime_state(db, task=task, tool_result=tool_result)
         db.commit()
     except HTTPException:
         raise
@@ -2248,6 +2472,106 @@ async def login_and_analyze_task(
         .where(Task.id == task.id)
     )
     return db.scalar(statement)
+
+
+async def resume_governed_submit_if_waiting(
+    *,
+    db: Session,
+    task: Task,
+    approved_action: dict[str, object],
+) -> dict[str, Any] | None:
+    """Resume a governed submit pause only from the explicit submit endpoint."""
+
+    run_id = f"task-{task.id}"
+    raw_state = get_governed_runtime_state(run_id) or restore_governed_runtime_state(
+        db,
+        task=task,
+    )
+    current_tool = (raw_state or {}).get("current_tool_call") or {}
+    if (
+        (raw_state or {}).get("interrupt_at") != "approval"
+        or current_tool.get("tool_name") != "submit_form"
+    ):
+        return None
+    if _submit_field_snapshot(
+        current_tool.get("input_json", {}).get("fields")
+    ) != approved_action.get("fields"):
+        return None
+    if _submit_tool_field_snapshot(
+        current_tool.get("input_json", {}).get("fields")
+    ) != _current_submit_tool_field_snapshot(db, task=task):
+        return None
+
+    resumed = await resume_governed_runtime_from_approval(
+        run_id,
+        runtime=build_default_tool_runtime(
+            submit_form_handler=submit_form_and_capture_screenshot,
+        ),
+        metadata={"db": db, "task_id": task.id},
+        state=raw_state,
+    )
+    save_governed_runtime_state(db, task=task, raw_state=resumed)
+    return resumed
+
+
+def _submit_field_snapshot(fields: object) -> list[dict[str, object]] | None:
+    if not isinstance(fields, list):
+        return None
+    snapshot: list[dict[str, object]] = []
+    for field in fields:
+        if not isinstance(field, dict):
+            return None
+        field_id = field.get("field_id") or field.get("id")
+        if not isinstance(field_id, int) or isinstance(field_id, bool):
+            return None
+        snapshot.append(
+            {"field_id": field_id, "mapped_value": str(field.get("mapped_value"))}
+        )
+    return snapshot
+
+
+def _submit_tool_field_snapshot(fields: object) -> list[dict[str, object]] | None:
+    if not isinstance(fields, list):
+        return None
+    snapshot: list[dict[str, object]] = []
+    for field in fields:
+        if not isinstance(field, dict):
+            return None
+        field_id = field.get("field_id") or field.get("id")
+        selector = field.get("selector")
+        if (
+            not isinstance(field_id, int)
+            or isinstance(field_id, bool)
+            or not isinstance(selector, str)
+        ):
+            return None
+        snapshot.append(
+            {
+                "field_id": field_id,
+                "selector": selector,
+                "mapped_value": str(field.get("mapped_value")),
+            }
+        )
+    return snapshot
+
+
+def _current_submit_tool_field_snapshot(
+    db: Session,
+    *,
+    task: Task,
+) -> list[dict[str, object]]:
+    fields = db.scalars(
+        select(FormField).where(FormField.task_id == task.id).order_by(FormField.id)
+    )
+    return [
+        {
+            "field_id": field.id,
+            "selector": field.selector,
+            "mapped_value": str(field.mapped_value),
+        }
+        for field in fields
+        if field.mapped_value
+    ]
 
 
 @router.post(
@@ -2366,12 +2690,29 @@ async def confirm_task_submission(
     db.commit()
 
     try:
-        tool_result, screenshot = await execute_submit_form_runtime_tool(
+        screenshot_id = None
+        legacy_tool_result = None
+        governed_state = await resume_governed_submit_if_waiting(
             db=db,
             task=task,
-            fields=mapped_fields,
-            submit_form_handler=submit_form_and_capture_screenshot,
+            approved_action=submit_proposed_action,
         )
+        if governed_state is None:
+            legacy_tool_result, screenshot = await execute_submit_form_runtime_tool(
+                db=db,
+                task=task,
+                fields=mapped_fields,
+                submit_form_handler=submit_form_and_capture_screenshot,
+            )
+            screenshot_id = screenshot.id
+        else:
+            if governed_state.get("run", {}).get("status") != "COMPLETED":
+                raise RuntimeError(governed_state.get("error") or "Governed submit failed")
+            for result in reversed(governed_state.get("tool_results", [])):
+                output = result.get("output_json") or {}
+                if result.get("tool_call_id", "").endswith(":submit_form"):
+                    screenshot_id = output.get("screenshot_id")
+                    break
         apply_workflow_status(task, WORKFLOW_STATUS_COMPLETED, reason="submit_completed")
         create_log(
             task_id=task.id,
@@ -2381,12 +2722,17 @@ async def confirm_task_submission(
             status="SUCCESS",
             db=db,
         )
-        save_submit_form_runtime_state(db, task=task, tool_result=tool_result)
+        if legacy_tool_result is not None:
+            save_submit_form_runtime_state(
+                db,
+                task=task,
+                tool_result=legacy_tool_result,
+            )
         safe_finish_span(
             submit_span_id,
             status=SPAN_STATUS_SUCCESS,
             output={"final_status": task.status},
-            screenshot_id=screenshot.id,
+            screenshot_id=screenshot_id,
             latency_ms=int((time.monotonic() - submit_started_at) * 1000),
         )
     except Exception as exc:

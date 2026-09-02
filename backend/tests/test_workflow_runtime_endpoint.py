@@ -2,6 +2,8 @@
 
 import json
 from collections.abc import Generator
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI
@@ -12,9 +14,11 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.models import (
+    AgentPlan,
     AgentProposal,
     AgentReviewDecision,
     AgentRun,
+    AgentVerificationResult,
     FormField,
     Profile,
     Task,
@@ -28,7 +32,12 @@ from app.services.agent_runtime.governed_agent_graph import (
     _reset_governed_runtime_for_tests,
 )
 from app.services.agent_runtime.tool_runtime import AgentTool, ToolExecutionContext, ToolRuntime
-from app.services.agent_runtime.state_store import save_governed_runtime_state
+from app.services.agent_runtime.schemas import GovernanceDecision, ToolResult
+from app.services.agent_runtime.state_store import (
+    save_fill_form_runtime_state,
+    save_governed_runtime_state,
+)
+from app.services.agent_runtime.tools import build_default_tool_runtime
 
 
 def _clear_runtime_state() -> None:
@@ -110,6 +119,19 @@ def create_form_fill_task(session: Session, profile: Profile) -> Task:
         url="https://example.com/form",
         profile_id=profile.id,
         workflow_type="form_fill",
+        status="READY",
+        workflow_status="READY",
+    )
+    session.add(task)
+    session.commit()
+    return task
+
+
+def create_web_data_extract_task(session: Session, profile: Profile) -> Task:
+    task = Task(
+        url="https://example.com/page",
+        profile_id=profile.id,
+        workflow_type="web_data_extract",
         status="READY",
         workflow_status="READY",
     )
@@ -494,6 +516,423 @@ def test_governed_start_persists_tool_calls_and_results() -> None:
     session.close()
 
 
+def test_governed_start_form_fill_pauses_with_review_proposals() -> None:
+    """POST /governed/start makes mapped form-fill values reviewable."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    field = FormField(
+        task_id=task.id,
+        label="Email address",
+        selector="#email",
+        field_type="email",
+        required=True,
+    )
+    session.add(field)
+    session.commit()
+
+    analysis = SimpleNamespace(fields=[], login_required=False)
+    runtime = build_default_tool_runtime(
+        extract_form_analysis_handler=AsyncMock(return_value=analysis)
+    )
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workflow_type"] == "form_fill"
+    assert payload["status"] == "WAITING_REVIEW"
+    assert payload["interrupt_at"] == "review"
+
+    session.refresh(field)
+    assert field.mapped_profile_key == "email"
+    assert field.mapped_value == "ada@example.com"
+
+    proposal = (
+        session.query(AgentProposal)
+        .filter(AgentProposal.proposal_type == "field_value")
+        .one()
+    )
+    assert proposal.run_id == f"task-{task.id}"
+    assert proposal.proposal_type == "field_value"
+    assert proposal.target_ref == str(field.id)
+    assert proposal.proposed_value == "ada@example.com"
+    assert proposal.status == "PENDING"
+    session.close()
+
+
+def test_governed_review_decision_resumes_after_last_pending_proposal() -> None:
+    """Approving the final proposal lets the generic graph finish."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    field = FormField(
+        task_id=task.id,
+        label="Email address",
+        selector="#email",
+        field_type="email",
+        required=True,
+    )
+    session.add(field)
+    session.commit()
+
+    analysis = SimpleNamespace(fields=[], login_required=False)
+    runtime = build_default_tool_runtime(
+        extract_form_analysis_handler=AsyncMock(return_value=analysis)
+    )
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        start_response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+
+    assert start_response.status_code == 200
+    assert start_response.json()["status"] == "WAITING_REVIEW"
+
+    proposals = session.query(AgentProposal).order_by(AgentProposal.id).all()
+    assert len(proposals) == 2
+    for proposal in proposals:
+        response = client.post(
+            f"/workflows/{task.id}/governed/review-items/{proposal.id}/decision",
+            json={"decision": "approved"},
+        )
+        assert response.status_code == 200
+
+    state_response = client.get(f"/workflows/{task.id}/governed")
+    assert state_response.status_code == 200
+    payload = state_response.json()
+    assert payload["status"] == "COMPLETED"
+    assert payload["interrupt_at"] is None
+    session.close()
+
+
+def test_governed_review_decision_resumes_persisted_state_after_memory_reset() -> None:
+    """Approving the final proposal resumes from persisted compact state."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    field = FormField(
+        task_id=task.id,
+        label="Email address",
+        selector="#email",
+        field_type="email",
+        required=True,
+    )
+    session.add(field)
+    session.commit()
+
+    analysis = SimpleNamespace(fields=[], login_required=False)
+    runtime = build_default_tool_runtime(
+        extract_form_analysis_handler=AsyncMock(return_value=analysis)
+    )
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        start_response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+
+    assert start_response.status_code == 200
+    assert start_response.json()["status"] == "WAITING_REVIEW"
+    _reset_governed_runtime_for_tests()
+
+    proposals = session.query(AgentProposal).order_by(AgentProposal.id).all()
+    assert len(proposals) == 2
+    for proposal in proposals:
+        response = client.post(
+            f"/workflows/{task.id}/governed/review-items/{proposal.id}/decision",
+            json={"decision": "approved"},
+        )
+        assert response.status_code == 200
+
+    state_response = client.get(f"/workflows/{task.id}/governed")
+    assert state_response.status_code == 200
+    payload = state_response.json()
+    assert payload["status"] == "COMPLETED"
+    assert payload["interrupt_at"] is None
+    session.close()
+
+
+def test_governed_start_vendor_onboarding_maps_custom_profile_fields() -> None:
+    """POST /governed/start maps vendor profile fields through generic runtime."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    profile.custom_values = {"company_name": "Lovelace Labs"}
+    task = Task(
+        url="https://example.com/vendor-onboarding",
+        profile_id=profile.id,
+        workflow_type="vendor_onboarding",
+        status="READY",
+        workflow_status="READY",
+    )
+    session.add(task)
+    session.flush()
+    field = FormField(
+        task_id=task.id,
+        label="Company Name",
+        name="company_name",
+        selector="#company-name",
+        field_type="text",
+        required=True,
+    )
+    session.add(field)
+    session.commit()
+
+    analysis = SimpleNamespace(fields=[], login_required=False)
+    runtime = build_default_tool_runtime(
+        extract_form_analysis_handler=AsyncMock(return_value=analysis)
+    )
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workflow_type"] == "vendor_onboarding"
+    assert payload["status"] == "WAITING_REVIEW"
+    assert payload["interrupt_at"] == "review"
+
+    session.refresh(field)
+    assert field.mapped_profile_key == "custom:company_name"
+    assert field.mapped_value == "Lovelace Labs"
+
+    proposal = (
+        session.query(AgentProposal)
+        .filter(AgentProposal.target_ref == str(field.id))
+        .filter(AgentProposal.proposal_type == "field_value")
+        .one()
+    )
+    assert proposal.proposed_value == "Lovelace Labs"
+    assert proposal.status == "PENDING"
+    session.close()
+
+
+def test_governed_start_security_questionnaire_uses_source_answer_proposals() -> None:
+    """POST /governed/start preserves source-backed questionnaire answers."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = Task(
+        url="https://example.com/security-questionnaire",
+        profile_id=profile.id,
+        workflow_type="security_questionnaire",
+        status="READY",
+        workflow_status="READY",
+    )
+    session.add(task)
+    session.flush()
+    field = FormField(
+        task_id=task.id,
+        label="Do you encrypt data at rest?",
+        selector="#encrypt-at-rest",
+        field_type="text",
+        required=True,
+    )
+    session.add(field)
+    session.commit()
+
+    analysis = SimpleNamespace(fields=[], login_required=False)
+    runtime = build_default_tool_runtime(
+        extract_form_analysis_handler=AsyncMock(return_value=analysis)
+    )
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workflow_type"] == "security_questionnaire"
+    assert payload["status"] == "WAITING_REVIEW"
+
+    session.refresh(field)
+    assert field.mapped_value == "Yes."
+
+    proposal = (
+        session.query(AgentProposal)
+        .filter(AgentProposal.target_ref == str(field.id))
+        .filter(AgentProposal.proposal_type == "answer")
+        .one()
+    )
+    assert proposal.proposal_type == "answer"
+    assert proposal.proposed_value == "Yes."
+    assert proposal.evidence_items
+    assert proposal.evidence_items[0].section_title == "Encryption At Rest"
+    session.close()
+
+
+def test_governed_start_security_questionnaire_marks_sensitive_fields_blocked() -> None:
+    """POST /governed/start keeps sensitive questionnaire values blocked."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    profile.custom_values = {
+        "password": "do-not-leak",
+        "otp": "123456",
+        "card_number": "4111111111111111",
+        "captcha": "abcd",
+        "consent": "true",
+    }
+    task = Task(
+        url="https://example.com/security-questionnaire",
+        profile_id=profile.id,
+        workflow_type="security_questionnaire",
+        status="READY",
+        workflow_status="READY",
+    )
+    session.add(task)
+    session.flush()
+    fields = [
+        FormField(
+            task_id=task.id,
+            label="Portal password",
+            selector="#password",
+            field_type="password",
+            required=True,
+        ),
+        FormField(
+            task_id=task.id,
+            label="One-time OTP code",
+            selector="#otp",
+            field_type="text",
+            required=True,
+        ),
+        FormField(
+            task_id=task.id,
+            label="Payment card number",
+            selector="#card",
+            field_type="text",
+            required=True,
+        ),
+        FormField(
+            task_id=task.id,
+            label="CAPTCHA response",
+            selector="#captcha",
+            field_type="text",
+            required=True,
+        ),
+        FormField(
+            task_id=task.id,
+            label="Consent to terms",
+            selector="#consent",
+            field_type="checkbox",
+            required=True,
+        ),
+    ]
+    session.add_all(fields)
+    session.commit()
+
+    analysis = SimpleNamespace(fields=[], login_required=False)
+    runtime = build_default_tool_runtime(
+        extract_form_analysis_handler=AsyncMock(return_value=analysis)
+    )
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workflow_type"] == "security_questionnaire"
+    assert payload["status"] == "WAITING_REVIEW"
+
+    proposals = (
+        session.query(AgentProposal)
+        .filter(AgentProposal.proposal_type == "answer")
+        .order_by(AgentProposal.id)
+        .all()
+    )
+    assert len(proposals) == len(fields)
+    assert {proposal.proposed_value for proposal in proposals} == {None}
+    assert {proposal.risk_level for proposal in proposals} == {"blocked"}
+    assert "do-not-leak" not in json.dumps(
+        [proposal.proposed_value for proposal in proposals]
+    )
+    for field in fields:
+        session.refresh(field)
+        assert field.mapped_value is None
+    session.close()
+
+
+def test_governed_start_security_questionnaire_marks_unsupported_no_evidence_answer() -> None:
+    """POST /governed/start does not invent unsupported questionnaire answers."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = Task(
+        url="https://example.com/security-questionnaire",
+        profile_id=profile.id,
+        workflow_type="security_questionnaire",
+        status="READY",
+        workflow_status="READY",
+    )
+    session.add(task)
+    session.flush()
+    field = FormField(
+        task_id=task.id,
+        label="Describe your quantum key escrow program",
+        name="quantum_escrow",
+        selector="#quantum-escrow",
+        field_type="textarea",
+        required=True,
+    )
+    session.add(field)
+    session.commit()
+
+    analysis = SimpleNamespace(fields=[], login_required=False)
+    runtime = build_default_tool_runtime(
+        extract_form_analysis_handler=AsyncMock(return_value=analysis)
+    )
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "WAITING_REVIEW"
+    assert payload["tool_calls"][1]["tool_name"] == "map_fields"
+    assert payload["tool_calls"][1]["proposal_count"] == 1
+
+    session.refresh(field)
+    assert field.mapped_value is None
+
+    proposal = (
+        session.query(AgentProposal)
+        .filter(AgentProposal.proposal_type == "answer")
+        .one()
+    )
+    assert proposal.proposed_value is None
+    assert proposal.evidence_items == []
+    assert "unsupported" in proposal.rationale.lower()
+    session.close()
+
+
 def test_save_governed_runtime_state_counts_pending_tool_created_proposals() -> None:
     """Persisted AgentRun count tracks pending tool-created proposals only."""
 
@@ -599,6 +1038,247 @@ def test_save_governed_runtime_state_preserves_existing_pending_proposal_count()
 
     session.refresh(run)
     assert run.pending_review_count == 1
+    client.close()
+    session.close()
+
+
+def test_save_governed_runtime_state_counts_pending_approval_gate() -> None:
+    """Persisted AgentRun count tracks an approval pause without proposals."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+
+    save_governed_runtime_state(
+        session,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "interrupt_at": "approval",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": "Submit reviewed form.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": "WAITING_APPROVAL",
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:plan:1",
+                "version": 1,
+                "goal": "Submit reviewed form.",
+                "steps": [
+                    {
+                        "step_id": "submit",
+                        "tool_name": "submit_form",
+                        "reason": "Submit after approval.",
+                        "input_json": {"task_id": task.id},
+                        "risk_level": "high",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "current_tool_call": {
+                "id": f"task-{task.id}:submit",
+                "run_id": f"task-{task.id}",
+                "plan_step_id": "submit",
+                "tool_name": "submit_form",
+                "input_json": {"task_id": task.id},
+                "status": "WAITING_APPROVAL",
+                "risk_level": "high",
+                "governance_decision": {"decision": "APPROVAL_REQUIRED"},
+            },
+        },
+    )
+
+    run = session.get(AgentRun, f"task-{task.id}")
+    assert run is not None
+    assert run.pending_review_count == 1
+    client.close()
+    session.close()
+
+
+def test_governed_get_restores_current_tool_call_embedded_governance() -> None:
+    """GET /governed keeps governance stored on the paused tool call."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    save_governed_runtime_state(
+        session,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "interrupt_at": "approval",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": "Submit reviewed form.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": "WAITING_APPROVAL",
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:plan:1",
+                "version": 1,
+                "goal": "Submit reviewed form.",
+                "steps": [
+                    {
+                        "step_id": "submit",
+                        "tool_name": "submit_form",
+                        "reason": "Submit after approval.",
+                        "input_json": {"task_id": task.id},
+                        "risk_level": "high",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "current_tool_call": {
+                "id": f"task-{task.id}:submit",
+                "run_id": f"task-{task.id}",
+                "plan_step_id": "submit",
+                "tool_name": "submit_form",
+                "input_json": {"task_id": task.id},
+                "status": "WAITING_APPROVAL",
+                "risk_level": "high",
+                "governance_decision": {"decision": "APPROVAL_REQUIRED"},
+            },
+        },
+    )
+
+    _reset_governed_runtime_for_tests()
+    response = client.get(f"/workflows/{task.id}/governed")
+
+    assert response.status_code == 200
+    payload = response.json()
+    current_governance = payload["current_tool_call"]["governance_decision"]
+    assert current_governance["decision"] == "APPROVAL_REQUIRED"
+    assert payload["tool_calls"][0]["governance_decision"] == "APPROVAL_REQUIRED"
+    client.close()
+    session.close()
+
+
+def test_governed_get_returns_persisted_pending_review_count() -> None:
+    """GET /governed exposes the restored generic pending review count."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    save_governed_runtime_state(
+        session,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "interrupt_at": "approval",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": "Submit reviewed form.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": "WAITING_APPROVAL",
+                "mode": "deterministic",
+            },
+            "current_tool_call": {
+                "id": f"task-{task.id}:submit",
+                "run_id": f"task-{task.id}",
+                "plan_step_id": "submit",
+                "tool_name": "submit_form",
+                "input_json": {"task_id": task.id},
+                "status": "WAITING_APPROVAL",
+                "risk_level": "high",
+                "governance_decision": {"decision": "APPROVAL_REQUIRED"},
+            },
+        },
+    )
+    _reset_governed_runtime_for_tests()
+
+    response = client.get(f"/workflows/{task.id}/governed")
+
+    assert response.status_code == 200
+    assert response.json()["pending_review_count"] == 1
+    client.close()
+    session.close()
+
+
+def test_governed_get_returns_persisted_current_step_index() -> None:
+    """GET /governed exposes the restored generic resume step index."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    save_governed_runtime_state(
+        session,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "interrupt_at": "approval",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": "Submit reviewed form.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": "WAITING_APPROVAL",
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:plan:1",
+                "version": 1,
+                "goal": "Submit reviewed form.",
+                "steps": [
+                    {
+                        "step_id": "fill_form",
+                        "tool_name": "fill_form",
+                        "reason": "Fill reviewed fields.",
+                        "input_json": {"task_id": task.id},
+                        "risk_level": "medium",
+                    },
+                    {
+                        "step_id": "submit",
+                        "tool_name": "submit_form",
+                        "reason": "Submit after approval.",
+                        "input_json": {"task_id": task.id},
+                        "risk_level": "high",
+                    },
+                ],
+                "created_by": "deterministic",
+            },
+            "tool_results": [
+                {
+                    "tool_call_id": f"task-{task.id}:fill_form",
+                    "status": "SUCCEEDED",
+                    "output_json": {"filled_count": 1},
+                }
+            ],
+            "current_tool_call": {
+                "id": f"task-{task.id}:submit",
+                "run_id": f"task-{task.id}",
+                "plan_step_id": "submit",
+                "tool_name": "submit_form",
+                "input_json": {"task_id": task.id},
+                "status": "WAITING_APPROVAL",
+                "risk_level": "high",
+                "governance_decision": {"decision": "APPROVAL_REQUIRED"},
+            },
+        },
+    )
+    _reset_governed_runtime_for_tests()
+
+    response = client.get(f"/workflows/{task.id}/governed")
+
+    assert response.status_code == 200
+    assert response.json()["current_step_index"] == 1
     client.close()
     session.close()
 
@@ -823,12 +1503,701 @@ def test_governed_get_restores_paused_tool_call_governance_from_db() -> None:
     session.close()
 
 
+def test_governed_get_restores_generic_verification_summary_from_db() -> None:
+    """GET /governed returns compact generic verification summary after restore."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+
+    save_governed_runtime_state(
+        session,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": "Fill fields.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": "WAITING_APPROVAL",
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:plan:1",
+                "version": 1,
+                "goal": "Fill fields.",
+                "steps": [
+                    {
+                        "step_id": "fill_form",
+                        "tool_name": "fill_form",
+                        "reason": "Fill fields.",
+                        "input_json": {"task_id": task.id},
+                        "risk_level": "medium",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "tool_results": [
+                {
+                    "tool_call_id": f"task-{task.id}:fill_form",
+                    "status": "SUCCEEDED",
+                    "governance_decision": {
+                        "decision": "VERIFY_REQUIRED",
+                        "reason": "Approved write requires verification.",
+                        "risk_level": "medium",
+                        "requires_verification": True,
+                    },
+                    "output_json": {
+                        "verification_results": [
+                            {
+                                "target_type": "field_value",
+                                "target_ref": "email",
+                                "verification_type": "field_value",
+                                "expected": "ada@example.com",
+                                "actual": "ada@example.com",
+                                "status": "VERIFIED",
+                            },
+                            {
+                                "target_type": "field_value",
+                                "target_ref": "name",
+                                "verification_type": "field_value",
+                                "expected": "Ada",
+                                "actual": "Grace",
+                                "status": "FAILED",
+                                "reason": "VALUE_MISMATCH",
+                            },
+                        ]
+                    },
+                }
+            ],
+        },
+    )
+    assert session.query(AgentVerificationResult).count() == 2
+
+    _reset_governed_runtime_for_tests()
+    response = client.get(f"/workflows/{task.id}/governed")
+
+    assert response.status_code == 200
+    assert response.json()["verification_result"] == {
+        "status": "FAILED",
+        "total": 2,
+        "verified": 1,
+        "failed": 1,
+        "skipped": 0,
+        "mismatches": [
+            {
+                "target_type": "field_value",
+                "target_ref": "name",
+                "verification_type": "field_value",
+                "reason": "VALUE_MISMATCH",
+            }
+        ],
+    }
+    session.close()
+
+
+def test_governed_get_restores_skipped_generic_verification_summary_from_db() -> None:
+    """Skipped generic verification does not restore as verified."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+
+    save_governed_runtime_state(
+        session,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": "Verify state.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": "COMPLETED",
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:plan:1",
+                "version": 1,
+                "goal": "Verify state.",
+                "steps": [
+                    {
+                        "step_id": "verify",
+                        "tool_name": "verify_browser_state",
+                        "reason": "Verify browser state.",
+                        "input_json": {"task_id": task.id},
+                        "risk_level": "low",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "verification_results": [
+                {
+                    "tool_call_id": f"task-{task.id}:verify",
+                    "target_type": "page_state",
+                    "target_ref": "browser_state",
+                    "verification_type": "page_state",
+                    "status": "SKIPPED",
+                    "reason": "NOT_AVAILABLE",
+                }
+            ],
+        },
+    )
+
+    _reset_governed_runtime_for_tests()
+    response = client.get(f"/workflows/{task.id}/governed")
+
+    assert response.status_code == 200
+    assert response.json()["verification_result"] == {
+        "status": "SKIPPED",
+        "total": 1,
+        "verified": 0,
+        "failed": 0,
+        "skipped": 1,
+        "mismatches": [],
+    }
+    session.close()
+
+
+def test_governed_get_restores_mixed_skipped_generic_verification_as_partial() -> None:
+    """Mixed verified and skipped generic verification restores as partial."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+
+    save_governed_runtime_state(
+        session,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": "Verify state.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": "COMPLETED",
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:plan:1",
+                "version": 1,
+                "goal": "Verify state.",
+                "steps": [
+                    {
+                        "step_id": "verify",
+                        "tool_name": "verify_browser_state",
+                        "reason": "Verify browser state.",
+                        "input_json": {"task_id": task.id},
+                        "risk_level": "low",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "verification_results": [
+                {
+                    "tool_call_id": f"task-{task.id}:verify",
+                    "target_type": "page_state",
+                    "target_ref": "browser_state",
+                    "verification_type": "page_state",
+                    "status": "VERIFIED",
+                },
+                {
+                    "tool_call_id": f"task-{task.id}:verify",
+                    "target_type": "page_state",
+                    "target_ref": "optional_banner",
+                    "verification_type": "page_state",
+                    "status": "SKIPPED",
+                    "reason": "NOT_AVAILABLE",
+                },
+            ],
+        },
+    )
+
+    _reset_governed_runtime_for_tests()
+    response = client.get(f"/workflows/{task.id}/governed")
+
+    assert response.status_code == 200
+    assert response.json()["verification_result"]["status"] == "PARTIAL"
+    assert response.json()["verification_result"]["verified"] == 1
+    assert response.json()["verification_result"]["skipped"] == 1
+    session.close()
+
+
+def test_save_governed_runtime_state_persists_verify_browser_state_result() -> None:
+    """verify_browser_state tool results become generic verification rows."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+
+    save_governed_runtime_state(
+        session,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": "Verify state.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": "COMPLETED",
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:plan:1",
+                "version": 1,
+                "goal": "Verify state.",
+                "steps": [
+                    {
+                        "step_id": "verify",
+                        "tool_name": "verify_browser_state",
+                        "reason": "Verify browser state.",
+                        "input_json": {"task_id": task.id},
+                        "risk_level": "low",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "tool_results": [
+                {
+                    "tool_call_id": f"task-{task.id}:verify",
+                    "status": "SUCCEEDED",
+                    "output_json": {
+                        "verified": False,
+                        "mismatches": [
+                            {
+                                "target_ref": "email",
+                                "reason": "VALUE_MISMATCH",
+                            }
+                        ],
+                    },
+                }
+            ],
+        },
+    )
+
+    verification = session.get(
+        AgentVerificationResult,
+        f"task-{task.id}:verify:verification:0",
+    )
+    assert verification is not None
+    assert verification.tool_call_id == f"task-{task.id}:verify"
+    assert verification.target_type == "page_state"
+    assert verification.target_ref == "browser_state"
+    assert verification.verification_type == "page_state"
+    assert verification.status == "FAILED"
+    assert verification.reason == "VALUE_MISMATCH"
+    assert verification.expected == {"verified": True}
+    assert verification.actual == {
+        "verified": False,
+        "mismatches": [
+            {
+                "target_ref": "email",
+                "reason": "VALUE_MISMATCH",
+            }
+        ],
+    }
+    client.close()
+    session.close()
+
+
+def test_save_governed_runtime_state_discards_invalid_browser_state_screenshot_id() -> None:
+    """Derived browser state verification only persists integer screenshot ids."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+
+    save_governed_runtime_state(
+        session,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": "Verify state.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": "COMPLETED",
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:plan:1",
+                "version": 1,
+                "goal": "Verify state.",
+                "steps": [
+                    {
+                        "step_id": "verify",
+                        "tool_name": "verify_browser_state",
+                        "reason": "Verify browser state.",
+                        "input_json": {"task_id": task.id},
+                        "risk_level": "low",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "tool_results": [
+                {
+                    "tool_call_id": f"task-{task.id}:verify",
+                    "status": "SUCCEEDED",
+                    "output_json": {
+                        "verified": True,
+                        "screenshot_id": True,
+                    },
+                }
+            ],
+        },
+    )
+
+    verification = session.get(
+        AgentVerificationResult,
+        f"task-{task.id}:verify:verification:0",
+    )
+    assert verification is not None
+    assert verification.screenshot_id is None
+
+    client.close()
+    session.close()
+
+
+def test_save_governed_runtime_state_persists_generic_verification_json_values() -> None:
+    """Generic verification rows preserve JSON values and compact evidence."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    tool_call_id = f"task-{task.id}:verify"
+
+    save_governed_runtime_state(
+        session,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": "Verify state.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": "COMPLETED",
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:plan:1",
+                "version": 1,
+                "goal": "Verify state.",
+                "steps": [
+                    {
+                        "step_id": "verify",
+                        "tool_name": "verify_browser_state",
+                        "reason": "Verify browser state.",
+                        "input_json": {"task_id": task.id},
+                        "risk_level": "low",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "tool_results": [
+                {
+                    "tool_call_id": tool_call_id,
+                    "status": "SUCCEEDED",
+                    "output_json": {
+                        "verification_results": [
+                            {
+                                "target_type": "page_state",
+                                "target_ref": "dict",
+                                "verification_type": "page_state",
+                                "expected": {"ready": True},
+                                "actual": {"ready": True},
+                                "status": "VERIFIED",
+                                "evidence_items": [
+                                    {
+                                        "source_type": "dom",
+                                        "quote_or_summary": "ready marker found",
+                                    }
+                                ],
+                            },
+                            {
+                                "target_type": "page_state",
+                                "target_ref": "list",
+                                "verification_type": "page_state",
+                                "expected": ["email", "name"],
+                                "actual": ["email", "name"],
+                                "status": "VERIFIED",
+                            },
+                            {
+                                "target_type": "page_state",
+                                "target_ref": "scalar",
+                                "verification_type": "page_state",
+                                "expected": "loaded",
+                                "actual": 200,
+                                "status": "VERIFIED",
+                            },
+                            {
+                                "target_type": "page_state",
+                                "target_ref": "null",
+                                "verification_type": "page_state",
+                                "expected": None,
+                                "actual": None,
+                                "status": "SKIPPED",
+                                "reason": "NOT_AVAILABLE",
+                            },
+                        ]
+                    },
+                }
+            ],
+        },
+    )
+
+    rows = {
+        row.target_ref: row
+        for row in session.query(AgentVerificationResult).order_by(
+            AgentVerificationResult.id
+        )
+    }
+    assert rows["dict"].expected == {"ready": True}
+    assert rows["dict"].actual == {"ready": True}
+    assert rows["dict"].evidence_items == [
+        {
+            "source_type": "dom",
+            "quote_or_summary": "ready marker found",
+        }
+    ]
+    assert rows["list"].expected == ["email", "name"]
+    assert rows["list"].actual == ["email", "name"]
+    assert rows["scalar"].expected == "loaded"
+    assert rows["scalar"].actual == 200
+    assert rows["null"].expected is None
+    assert rows["null"].actual is None
+    assert rows["null"].status == "SKIPPED"
+
+    client.close()
+    session.close()
+
+
+def test_save_governed_runtime_state_persists_raw_verification_fallbacks() -> None:
+    """Raw generic verification rows use safe fallbacks and filter evidence."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    tool_call_id = f"task-{task.id}:verify"
+
+    save_governed_runtime_state(
+        session,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": "Verify state.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": "COMPLETED",
+                "mode": "deterministic",
+            },
+            "verification_results": [
+                {
+                    "tool_call_id": tool_call_id,
+                    "status": "VERIFIED",
+                    "screenshot_id": 17,
+                    "evidence_items": [
+                        {"source_type": "dom", "quote_or_summary": "checked"},
+                        "drop me",
+                        ["drop me too"],
+                    ],
+                },
+                {
+                    "tool_call_id": tool_call_id,
+                    "target_ref": "bad-screenshot",
+                    "status": "SKIPPED",
+                    "screenshot_id": True,
+                },
+            ],
+        },
+    )
+
+    rows = list(
+        session.query(AgentVerificationResult).order_by(AgentVerificationResult.id)
+    )
+    assert len(rows) == 2
+    assert rows[0].target_type == "field_value"
+    assert rows[0].target_ref == ""
+    assert rows[0].verification_type == "field_value"
+    assert rows[0].reason is None
+    assert rows[0].screenshot_id == 17
+    assert rows[0].evidence_items == [
+        {"source_type": "dom", "quote_or_summary": "checked"}
+    ]
+    assert rows[1].target_ref == "bad-screenshot"
+    assert rows[1].screenshot_id is None
+
+    client.close()
+    session.close()
+
+
+def test_save_fill_form_runtime_state_uses_selector_when_field_id_missing() -> None:
+    """Legacy fill verification falls back to selector as generic target ref."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+
+    save_fill_form_runtime_state(
+        session,
+        task=task,
+        tool_result=ToolResult(
+            tool_call_id=f"task-{task.id}:fill_form",
+            status="SUCCEEDED",
+            governance_decision=GovernanceDecision(
+                decision="VERIFY_REQUIRED",
+                reason="Approved browser write requires verification after execution.",
+                risk_level="medium",
+            ),
+            output_json={
+                "filled_count": 1,
+                "screenshot_id": 23,
+                "verification_count": 1,
+            },
+        ),
+        verification_data=[
+            SimpleNamespace(
+                field_id=None,
+                selector="#email",
+                expected_value="ada@example.com",
+                actual_value="ada@example.com",
+                status="VERIFIED",
+                reason=None,
+            )
+        ],
+    )
+
+    verification = session.get(
+        AgentVerificationResult,
+        f"task-{task.id}:fill_form:verification:0",
+    )
+    assert verification is not None
+    assert verification.target_ref == "#email"
+    assert verification.expected == "ada@example.com"
+    assert verification.actual == "ada@example.com"
+    assert verification.screenshot_id == 23
+
+    client.close()
+    session.close()
+
+
+def test_save_governed_runtime_state_replaces_verification_results_for_same_tool_call() -> None:
+    """Saving the same tool call twice replaces stale generic verification rows."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    tool_call_id = f"task-{task.id}:fill_form"
+
+    def save_verification(target_refs: list[str]) -> None:
+        save_governed_runtime_state(
+            session,
+            task=task,
+            raw_state={
+                "run_id": f"task-{task.id}",
+                "task_id": task.id,
+                "workflow_type": task.workflow_type,
+                "planner_mode": "deterministic",
+                "run": {
+                    "id": f"task-{task.id}",
+                    "goal": "Fill fields.",
+                    "target_url": task.url,
+                    "profile_id": task.profile_id,
+                    "status": "WAITING_APPROVAL",
+                    "mode": "deterministic",
+                },
+                "plan": {
+                    "id": f"task-{task.id}:plan:1",
+                    "version": 1,
+                    "goal": "Fill fields.",
+                    "steps": [
+                        {
+                            "step_id": "fill_form",
+                            "tool_name": "fill_form",
+                            "reason": "Fill fields.",
+                            "input_json": {"task_id": task.id},
+                            "risk_level": "medium",
+                        }
+                    ],
+                    "created_by": "deterministic",
+                },
+                "tool_results": [
+                    {
+                        "tool_call_id": tool_call_id,
+                        "status": "SUCCEEDED",
+                        "output_json": {
+                            "verification_results": [
+                                {
+                                    "target_type": "field_value",
+                                    "target_ref": target_ref,
+                                    "verification_type": "field_value",
+                                    "status": "VERIFIED",
+                                }
+                                for target_ref in target_refs
+                            ]
+                        },
+                    }
+                ],
+            },
+        )
+
+    save_verification(["stale_email", "stale_name"])
+    save_verification(["fresh_email"])
+
+    verification_results = list(session.query(AgentVerificationResult).all())
+    assert len(verification_results) == 1
+    assert verification_results[0].tool_call_id == tool_call_id
+    assert verification_results[0].target_ref == "fresh_email"
+    client.close()
+    session.close()
+
+
 def test_governed_get_returns_404_when_no_runtime_state() -> None:
     """GET /workflows/{task_id}/governed returns 404 before a governed run starts."""
 
     client, session = build_environment()
     profile = create_profile(session)
     task = create_form_fill_task(session, profile)
+
+    response = client.get(f"/workflows/{task.id}/governed")
+
+    assert response.status_code == 404
+    session.close()
+
+
+def test_governed_get_returns_404_for_unsupported_workflow_probe() -> None:
+    """GET /governed stays safe as a passive Task Detail runtime probe."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_web_data_extract_task(session, profile)
 
     response = client.get(f"/workflows/{task.id}/governed")
 
@@ -905,6 +2274,73 @@ def test_governed_start_uses_configured_llm_structured_planner() -> None:
     assert payload["plan"]["created_by"] == "llm"
     assert payload["plan"]["steps"][0]["tool_name"] == "extract_form"
     assert payload["status"] == "COMPLETED"
+    session.close()
+
+
+def test_failed_llm_planner_does_not_overwrite_persisted_run_plan() -> None:
+    """POST /governed/start keeps the last valid compact state after LLM plan failure."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    runtime = ToolRuntime(
+        [
+            make_runtime_tool(
+                "extract_form",
+                {"fields": [], "field_count": 0, "login_required": False},
+            ),
+            make_runtime_tool(
+                "map_fields",
+                {"fields": [], "field_count": 0, "mapped_count": 0},
+            ),
+        ]
+    )
+
+    class BadAdapter:
+        def __init__(self, **_kwargs):
+            pass
+
+        def plan(self, _context):
+            return {
+                "steps": [
+                    {
+                        "step_id": "unsafe",
+                        "tool_name": "steal_password",
+                        "reason": "Try an unregistered tool.",
+                        "input_json": {},
+                    }
+                ]
+            }
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        first_response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+    assert first_response.status_code == 200
+    assert first_response.json()["status"] == "COMPLETED"
+
+    with patch("app.routers.workflows.config.OPENAI_API_KEY", "test-key"), patch(
+        "app.routers.workflows.build_default_tool_runtime",
+        return_value=runtime,
+    ), patch(
+        "app.routers.workflows.OpenAIStructuredPlannerAdapter",
+        BadAdapter,
+    ):
+        failed_response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=llm_structured"
+        )
+
+    assert failed_response.status_code == 200
+    assert failed_response.json()["status"] == "FAILED"
+
+    run = session.get(AgentRun, f"task-{task.id}")
+    assert run is not None
+    assert run.status == "COMPLETED"
+    assert run.mode == "deterministic"
+    assert run.current_plan_id == f"task-{task.id}:plan:1"
+    assert session.query(AgentPlan).count() == 1
     session.close()
 
 

@@ -158,6 +158,22 @@ def create_task_without_fields(session: Session) -> Task:
     return task
 
 
+def create_web_data_task(session: Session) -> Task:
+    """Create a web data extraction task for endpoint tests."""
+
+    profile = Profile(profile_name="Web data profile")
+    task = Task(
+        url="https://example.com/page",
+        profile=profile,
+        status="CREATED",
+        workflow_status="CREATED",
+        workflow_type="web_data_extract",
+    )
+    session.add(task)
+    session.commit()
+    return task
+
+
 def test_create_task_response_includes_workflow_fields(
     test_environment: tuple[TestClient, Session],
 ) -> None:
@@ -221,6 +237,121 @@ def test_create_task_rejects_unsupported_workflow_type(
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Workflow template not found: unknown_type"
+
+
+def test_get_task_includes_compact_agent_runtime_state(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify legacy task details expose the current AgentRun facade state."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    save_two_pending_tool_created_proposals(session, task, field)
+
+    response = client.get(f"/tasks/{task.id}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["agent_run_id"] == f"task-{task.id}"
+    assert payload["agent_runtime"]["status"] == "WAITING_REVIEW"
+    assert payload["agent_runtime"]["pending_review_count"] == 2
+    assert payload["agent_runtime"]["tool_result_count"] == 1
+    assert "tool_results" not in payload["agent_runtime"]
+
+
+def test_list_tasks_includes_compact_agent_runtime_state(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify legacy task lists expose the current AgentRun facade state."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    save_two_pending_tool_created_proposals(session, task, field)
+
+    response = client.get("/tasks")
+
+    assert response.status_code == 200
+    payload = response.json()[0]
+    assert payload["id"] == task.id
+    assert payload["agent_run_id"] == f"task-{task.id}"
+    assert payload["agent_runtime"]["status"] == "WAITING_REVIEW"
+    assert payload["agent_runtime"]["pending_review_count"] == 2
+    assert payload["agent_runtime"]["tool_result_count"] == 1
+    assert "tool_results" not in payload["agent_runtime"]
+
+
+def test_extract_page_persists_runtime_call_without_raw_task_facade_output(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify legacy page extraction records runtime without raw UI facade output."""
+
+    client, session = test_environment
+    task = create_web_data_task(session)
+    page_result = SimpleNamespace(
+        title="Research page",
+        headings=[SimpleNamespace(level=1, text="Overview")],
+        main_text_blocks=["Long research paragraph for checkpoint output."],
+        links=[SimpleNamespace(text="Docs", href="https://example.com/docs")],
+        tables=[SimpleNamespace(headers=["Name"], rows=[["Ada"]])],
+        forms=[SimpleNamespace(action="/signup", method="POST", field_count=2)],
+    )
+
+    with (
+        patch("app.routers.tasks.extract_page", new=AsyncMock(return_value=page_result)),
+        patch(
+            "app.routers.tasks.open_url_and_capture_screenshot",
+            new=AsyncMock(return_value=None),
+        ),
+    ):
+        response = client.post(f"/tasks/{task.id}/extract-page")
+
+    assert response.status_code == 200
+    call = session.get(AgentToolCall, f"task-{task.id}:extract_page")
+    assert call is not None
+    assert call.tool_name == "extract_page"
+    result = session.get(AgentToolResult, f"task-{task.id}:extract_page")
+    assert result is not None
+    assert result.output_json["heading_count"] == 1
+
+    task_response = client.get(f"/tasks/{task.id}")
+    payload = task_response.json()
+    assert payload["agent_runtime"]["tool_result_count"] == 1
+    assert "tool_results" not in payload["agent_runtime"]
+    assert "main_text_blocks" not in payload["agent_runtime"]
+
+
+def test_job_summary_page_extraction_persists_runtime_call(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify job-summary prerequisite page extraction records runtime."""
+
+    client, session = test_environment
+    task = create_web_data_task(session)
+    page_result = SimpleNamespace(
+        title="Research page",
+        headings=[SimpleNamespace(level=1, text="Overview")],
+        main_text_blocks=["This page describes a role with security ownership."],
+        links=[],
+        tables=[],
+        forms=[],
+    )
+
+    with (
+        patch("app.routers.tasks.extract_page", new=AsyncMock(return_value=page_result)),
+        patch(
+            "app.routers.tasks.open_url_and_capture_screenshot",
+            new=AsyncMock(return_value=None),
+        ),
+    ):
+        response = client.post(f"/tasks/{task.id}/job-summary")
+
+    assert response.status_code == 200
+    call = session.get(AgentToolCall, f"task-{task.id}:extract_page")
+    assert call is not None
+    assert call.tool_name == "extract_page"
+    result = session.get(AgentToolResult, f"task-{task.id}:extract_page")
+    assert result is not None
+    assert result.output_json["text_block_count"] == 1
 
 
 def test_review_items_returns_field_value_proposals(
@@ -1626,6 +1757,32 @@ def test_map_fields_supports_developer_rule_mode(
     llm.assert_not_called()
 
 
+def test_rules_mapping_persists_map_fields_runtime_call(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify legacy rules mapping records the internal read/write as runtime."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_profile_key = "email"
+    field.mapped_value = "ada@example.com"
+    field.confidence = 1.0
+    session.commit()
+
+    with patch("app.routers.tasks.map_fields_by_rules", return_value=[field]):
+        response = client.post(f"/tasks/{task.id}/map-fields?mode=rules")
+
+    assert response.status_code == 200
+    call = session.get(AgentToolCall, f"task-{task.id}:map_fields")
+    assert call is not None
+    assert call.tool_name == "map_fields"
+    assert call.status == "SUCCEEDED"
+    result = session.get(AgentToolResult, f"task-{task.id}:map_fields")
+    assert result is not None
+    assert result.output_json["field_count"] == 1
+    assert result.output_json["mapped_count"] == 1
+
+
 def test_confirm_mapping_rejects_missing_required_values(
     test_environment: tuple[TestClient, Session],
 ) -> None:
@@ -2003,6 +2160,50 @@ def test_analyze_reuses_cached_form_analysis_for_same_url(
     assert second_response.json()["form_fields"][0]["selector"] == "#email"
 
 
+def test_analyze_persists_extract_form_runtime_call(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify legacy analysis records the browser read as a runtime tool call."""
+
+    client, session = test_environment
+    task = create_task_without_fields(session)
+    extracted_field = ExtractedFormField(
+        element_ref="field_1",
+        form_title="Contact information",
+        section_title=None,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        placeholder=None,
+        name="email",
+        html_id="email",
+        current_value=None,
+        required=True,
+    )
+
+    with patch(
+        "app.routers.tasks.extract_form_analysis",
+        new=AsyncMock(
+            return_value=SimpleNamespace(
+                fields=[extracted_field],
+                login_required=False,
+            ),
+        ),
+    ):
+        response = client.post(f"/tasks/{task.id}/analyze")
+
+    assert response.status_code == 200
+    call = session.get(AgentToolCall, f"task-{task.id}:extract_form")
+    assert call is not None
+    assert call.tool_name == "extract_form"
+    assert call.status == "SUCCEEDED"
+    assert call.governance_decision["decision"] == "ALLOW"
+    result = session.get(AgentToolResult, f"task-{task.id}:extract_form")
+    assert result is not None
+    assert result.output_json["field_count"] == 1
+    assert result.output_json["login_required"] is False
+
+
 def test_analyze_supports_security_questionnaire_workflow(
     test_environment: tuple[TestClient, Session],
 ) -> None:
@@ -2208,6 +2409,58 @@ def test_login_and_analyze_retries_original_url_after_manual_login(
         "resume_after_login",
         "extract_fields",
     ]
+
+
+def test_login_and_analyze_persists_extract_form_runtime_call(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify post-login browser analysis records a runtime tool call."""
+
+    client, session = test_environment
+    task = create_task_without_fields(session)
+    task.status = "LOGIN_REQUIRED"
+    session.commit()
+    extracted_field = ExtractedFormField(
+        element_ref="field_1",
+        form_title="Contact information",
+        section_title=None,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        placeholder=None,
+        name="email",
+        html_id="email",
+        current_value=None,
+        required=True,
+        options=[],
+    )
+
+    with (
+        patch(
+            "app.routers.tasks.prepare_login_session",
+            new=AsyncMock(return_value=("browser-session", False)),
+        ),
+        patch(
+            "app.routers.tasks.extract_form_analysis",
+            new=AsyncMock(
+                return_value=SimpleNamespace(
+                    fields=[extracted_field],
+                    login_required=False,
+                ),
+            ),
+        ),
+    ):
+        response = client.post(f"/tasks/{task.id}/login-and-analyze")
+
+    assert response.status_code == 200
+    call = session.get(AgentToolCall, f"task-{task.id}:extract_form")
+    assert call is not None
+    assert call.tool_name == "extract_form"
+    assert call.status == "SUCCEEDED"
+    result = session.get(AgentToolResult, f"task-{task.id}:extract_form")
+    assert result is not None
+    assert result.output_json["field_count"] == 1
+    assert result.output_json["login_required"] is False
 
 
 def test_analyze_persists_field_options_for_review(

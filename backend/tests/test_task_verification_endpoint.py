@@ -11,7 +11,13 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
-from app.models import FormField, Profile, Task, FieldVerificationResult
+from app.models import (
+    AgentVerificationResult,
+    FormField,
+    Profile,
+    Task,
+    FieldVerificationResult,
+)
 from app.routers.tasks import router as tasks_router
 
 
@@ -167,7 +173,7 @@ def test_fill_creates_verified_results(
         mock_fill.return_value = (AsyncMock(), mock_verification_data)
         response = client.post(f"/tasks/{task.id}/fill")
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
     data = response.json()
     assert data["status"] == "WAITING_APPROVAL"
 
@@ -188,6 +194,21 @@ def test_fill_creates_verified_results(
     assert verification_results[1].field_id == fields[1].id
     assert verification_results[1].selector == "#name"
     assert verification_results[1].status == VERIFICATION_STATUS_VERIFIED
+
+    runtime_results = list(
+        session.scalars(
+            select(AgentVerificationResult)
+            .where(AgentVerificationResult.run_id == f"task-{task.id}")
+            .order_by(AgentVerificationResult.id)
+        )
+    )
+    assert len(runtime_results) == 2
+    assert runtime_results[0].tool_call_id == f"task-{task.id}:fill_form"
+    assert runtime_results[0].target_type == "field_value"
+    assert runtime_results[0].target_ref == str(fields[0].id)
+    assert runtime_results[0].verification_type == "field_value"
+    assert runtime_results[0].status == VERIFICATION_STATUS_VERIFIED
+    assert runtime_results[0].actual == "test@example.com"
 
 
 def test_fill_creates_failed_result_for_missing_selector(

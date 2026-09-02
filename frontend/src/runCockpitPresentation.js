@@ -59,6 +59,14 @@ function formatEvidenceItem(evidence) {
     : `${source}${section}`;
 }
 
+function verificationStatusLabel(verification, mismatchCount) {
+  if (verification?.verified === true) return "Verified";
+  if (mismatchCount === 1) return "1 mismatch";
+  if (mismatchCount > 1) return `${mismatchCount} mismatches`;
+  if (verification?.status) return humanizeLabel(verification.status);
+  return "Not verified";
+}
+
 export function shouldShowRunCockpit(runtime) {
   return Boolean(
     runtime &&
@@ -67,6 +75,19 @@ export function shouldShowRunCockpit(runtime) {
         runtime.current_tool_call ||
         runtime.governance_decision),
   );
+}
+
+export function shouldShowLegacyWorkflowRuntimePanel(task, runtime) {
+  return task?.workflow_type === "security_questionnaire" && !shouldShowRunCockpit(runtime);
+}
+
+export function resolveRunCockpitRuntime(task, endpointRuntime = null) {
+  if (endpointRuntime) return endpointRuntime;
+  if (!task?.agent_runtime) return null;
+  return {
+    run_id: task.agent_run_id,
+    ...task.agent_runtime,
+  };
 }
 
 export function getRunCockpitPlanSteps(runtime) {
@@ -112,14 +133,7 @@ export function getRunCockpitVerificationDetails(runtime) {
   const mismatchCount = mismatches.length;
 
   return {
-    statusLabel:
-      verification?.verified === true
-        ? "Verified"
-        : mismatchCount === 1
-          ? "1 mismatch"
-          : mismatchCount > 1
-            ? `${mismatchCount} mismatches`
-            : "Not verified",
+    statusLabel: verificationStatusLabel(verification, mismatchCount),
     mismatchCount,
     mismatches: mismatches.slice(0, 3).map(formatMismatch),
     evidenceItems: evidence.slice(0, 3).map(formatEvidenceItem).filter(Boolean),
@@ -145,14 +159,7 @@ export function buildRunCockpitSummary(runtime) {
       : "Not evaluated",
     governanceReason: governance?.reason || "",
     toolResultCount: Number(runtime?.tool_result_count || 0),
-    verificationSummary:
-      verification.verified === true
-        ? "Verified"
-        : mismatches === 1
-          ? "1 mismatch"
-          : mismatches > 1
-            ? `${mismatches} mismatches`
-            : "Not verified",
+    verificationSummary: verificationStatusLabel(verification, mismatches),
     error: runtime?.error || null,
   };
 }

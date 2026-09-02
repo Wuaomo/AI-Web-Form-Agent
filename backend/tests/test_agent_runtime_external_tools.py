@@ -122,10 +122,46 @@ async def test_readonly_mcp_tool_executes_through_runtime_governance_and_trace()
         assert spans[0].phase == "external_tool"
         assert spans[0].name == "mcp.kb.search_documents"
         assert spans[0].status == "SUCCESS"
+        assert spans[0].span_metadata["source"] == "mcp"
+        assert spans[0].span_metadata["read_only"] is True
         assert spans[0].span_metadata["mutates_external_system"] is False
         assert spans[0].span_metadata["governance_decision"]["decision"] == "ALLOW"
     finally:
         session.close()
+
+
+@pytest.mark.anyio
+async def test_external_readonly_output_becomes_compact_tool_evidence() -> None:
+    """Verify external read results expose compact evidence without UI raw output coupling."""
+
+    executor = FakeExternalExecutor(
+        {"documents": [{"title": "SOC2 policy", "body": "long raw text"}], "count": 1}
+    )
+    runtime = ToolRuntime()
+    register_external_readonly_tools(
+        runtime,
+        [mcp_search_spec()],
+        allowlist={"mcp.kb.search_documents"},
+        executor=executor,
+    )
+
+    result = await runtime.execute(
+        tool_call_id="task-7:search_policy",
+        tool_name="mcp.kb.search_documents",
+        tool_input={"query": "encryption"},
+        context=ToolExecutionContext(run_id="task-7"),
+    )
+
+    assert result.status == "SUCCEEDED"
+    assert result.evidence_items
+    assert result.evidence_items[0].run_id == "task-7"
+    assert result.evidence_items[0].source_type == "tool_result"
+    assert result.evidence_items[0].source_id == "mcp.kb.search_documents"
+    assert result.evidence_items[0].quote_or_summary == "count=1"
+    assert result.output_json == {
+        "documents": [{"title": "SOC2 policy", "body": "long raw text"}],
+        "count": 1,
+    }
 
 
 @pytest.mark.anyio
@@ -369,6 +405,8 @@ def test_runtime_tool_metadata_includes_allowlisted_external_tools() -> None:
         {
             "name": "mcp.kb.search_documents",
             "description": "Search reviewed knowledge documents.",
+            "source": "mcp",
+            "read_only": True,
             "risk_level": "low",
             "mutates_browser": False,
             "mutates_external_system": False,

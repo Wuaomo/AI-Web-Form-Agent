@@ -825,6 +825,13 @@ ReviewDecision，然后把 memory write 变成一种需要人工 approve/edit/re
 - mismatch 有 compact user-facing summary。
 - raw details 默认折叠。
 
+当前状态（2026-09-01）：Phase 5 verification 泛化薄切片已收口。
+`agent_verification_results`、fill verification candidates、
+`verify_browser_state` generic VerificationResult 持久化、Run Cockpit
+compact summary、legacy field verification 兼容路径都有回归测试覆盖。
+这不表示整体 runtime refactor 完成；Phase 6 仍需要把主要 demo 收敛到
+generic governed graph 主路径。
+
 ### Phase 6：通用 governed graph 成为主路径
 
 目标：security questionnaire、vendor onboarding、generic form fill 都走 generic graph。
@@ -859,6 +866,15 @@ ReviewDecision，然后把 memory write 变成一种需要人工 approve/edit/re
 - LLM planner 不能调用未注册工具。
 - LLM planner 不能跳过 review/governance。
 
+当前状态（2026-09-02）：Phase 7 LLM planner 接入薄切片可收尾。
+`llm_structured` 只生成 schema-valid `AgentPlan`，并且 unknown tool、
+invalid args、malformed/missing planner output 都会被拒绝；registered
+tool metadata 会传给 planner，实际执行仍只走 Tool Runtime 和 Governance。
+浏览器写入仍暂停在 review，submit 仍暂停在 explicit approval；失败的 LLM
+planner 不会覆盖已有持久化 compact run/plan；no-key deterministic path 和
+runtime benchmark path 仍走本地 deterministic governed runtime。整体 runtime
+refactor 仍未完成，旧 `/tasks` 和 workflow-specific 兼容路径仍保留。
+
 ### Phase 8：只读外部工具成熟
 
 目标：MCP / OpenAPI read-only tools 可以进入 planner 和 Tool Runtime。
@@ -875,6 +891,14 @@ ReviewDecision，然后把 memory write 变成一种需要人工 approve/edit/re
 - 未 allowlist 的外部工具不可用。
 - write tools 默认拒绝注册或 blocked。
 - 外部 raw output 不进入主 UI。
+
+当前状态（2026-09-02）：Phase 8 只读外部工具薄切片可收尾。
+MCP / OpenAPI read-only tools 通过 allowlist 注册到同一个 Tool Runtime；
+未 allowlist 的工具不可用，write-capable external tools 会拒绝注册。
+planner-visible metadata 和 trace metadata 都标明 source、read_only、risk
+和 mutation flags；外部工具执行仍经过 Governance，并把 read output 提炼成
+compact `EvidenceItem`，主 UI 只拿 compact tool-call/evidence 摘要。
+外部写工具仍未接入，整体 runtime refactor 仍未完成。
 
 ### Phase 9：Evaluation Harness 升级
 
@@ -895,9 +919,18 @@ unsafe_action_prevention_rate
 
 验收：
 
-- `agent_runtime` benchmark mode 可跑。
+- `runtime` benchmark mode 可跑。
 - full workflow replay 继续可跑。
 - 报告能说明 memory、governance、verification 的价值。
+
+当前状态（2026-09-02）：Phase 9 Evaluation Harness 升级薄切片可收尾。
+`runtime` benchmark mode 仍是 no-key deterministic 路径，不使用 LLM planner；
+它通过 governed graph 和 Tool Runtime 记录 plan validity、tool call success、
+governance block、review intervention、proposal acceptance、verification pass、
+agent recovery、unsafe action prevention 等 runtime 指标。`full_workflow`
+benchmark replay 继续可跑；Markdown benchmark report 会展示 runtime 指标。
+这不表示整体 runtime refactor 完成，旧 `/tasks` 和 workflow-specific 兼容路径
+仍然保留。
 
 ### Phase 10：旧路径收敛和命名清理
 
@@ -915,6 +948,25 @@ unsafe_action_prevention_rate
 - 没有破坏 demo。
 - 没有删除仍被 benchmark 覆盖的路径。
 - README、architecture、safety docs 和 RFC 互相一致。
+
+当前状态（2026-09-02）：Phase 10 旧路径收敛和命名清理薄切片可收尾。
+`/tasks/{id}` 和 `/tasks` 列表都会作为 legacy facade 暴露 compact
+`agent_run_id` / `agent_runtime`，且不暴露 raw `tool_results`；Run Cockpit
+优先读取 `/workflows/{task_id}/governed`，失败时回退 task facade；Task Detail
+在已有 Run Cockpit state 时隐藏旧 security-only runtime 面板；unsupported
+workflow 的被动 governed-state probe 返回 404，不再打断 legacy Task Detail；
+README、architecture、demo script 已同步 AgentRun / Review Queue / Run Cockpit
+表述。旧 `/tasks`、workflow-specific endpoint、security questionnaire graph
+仍作为兼容路径保留，整体 runtime refactor 仍未完成。
+
+当前补充状态（2026-09-02）：internal legacy read/write Tool Runtime
+convergence phase 已完成。legacy analyze、login-and-analyze、同步 rules
+mapping、worker rules mapping、page extraction、job-summary prerequisite
+extraction、fill、submit 和 verification 持久化路径都会记录 compact
+`AgentToolCall` / `AgentToolResult` 或 generic verification state，且 task
+facade 不暴露 raw `tool_results`。剩余 gap 进入下一 phase：generic graph
+成为主 demo 路径、Review Queue 成为 primary contract，以及第 21 节整体完成
+定义的最终验证。
 
 ## 20. 测试策略
 

@@ -295,6 +295,8 @@ class TaskResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     form_fields: list[FormFieldResponse] = Field(default_factory=list)
+    agent_run_id: str | None = None
+    agent_runtime: dict[str, object] | None = None
 
 
 class PlannedStepResponse(BaseModel):
@@ -467,7 +469,7 @@ class ApprovalRequestResponse(BaseModel):
 class BenchmarkRunRequest(BaseModel):
     """Options for running the local benchmark suite."""
 
-    mode: Literal["rules", "llm", "rag_llm", "full_workflow"] = "rules"
+    mode: Literal["rules", "llm", "rag_llm", "full_workflow", "runtime"] = "rules"
     provider: str | None = None
     stress_mode: Literal["standard", "cache_cold", "cache_warm", "concurrent"] = "standard"
     memory_mode: Literal["off", "on"] = "off"

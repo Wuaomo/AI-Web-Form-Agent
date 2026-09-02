@@ -26,6 +26,8 @@ from app.job_constants import (
     JOB_STATUS_FAILED,
     JOB_STATUS_RETRY_SCHEDULED,
 )
+from app.services.form_extractor import ExtractedFormField
+from app.workflow_constants import CHECKPOINT_SUCCESS, WORKFLOW_STAGE_MAPPING
 
 
 @pytest.fixture
@@ -131,6 +133,57 @@ def test_execute_job_map_calls_workflow_stage(db_session):
 
     db.refresh(job)
     assert job.status == JOB_STATUS_SUCCEEDED
+
+
+def test_execute_job_rules_mapping_persists_runtime_call(db_session):
+    """Verify async rules mapping records the runtime tool call/result."""
+
+    from app.models import Job, TaskCheckpoint
+    from app.services.job_worker import execute_job
+
+    db, task_id = db_session
+    task = db.get(Task, task_id)
+    task.status = "ANALYZING"
+    task.workflow_status = "ANALYZING"
+    field = FormField(
+        task_id=task_id,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        required=True,
+        mapped_profile_key="email",
+        mapped_value="ada@example.com",
+        confidence=1.0,
+    )
+    db.add(field)
+    job = Job(
+        task_id=task_id,
+        job_type=JOB_TYPE_MAP_FIELDS,
+        status=JOB_STATUS_RUNNING,
+        attempts=1,
+        max_attempts=3,
+        payload={"mode": "rules"},
+    )
+    db.add(job)
+    db.commit()
+
+    with patch("app.services.field_mapper.map_fields_by_rules", return_value=[field]):
+        execute_job(db=db, job=job)
+
+    db.refresh(job)
+    assert job.status == JOB_STATUS_SUCCEEDED
+    checkpoint = (
+        db.query(TaskCheckpoint)
+        .filter_by(task_id=task_id, stage=WORKFLOW_STAGE_MAPPING)
+        .one()
+    )
+    assert checkpoint.status == CHECKPOINT_SUCCESS
+    call = db.get(AgentToolCall, f"task-{task.id}:map_fields")
+    assert call is not None
+    assert call.tool_name == "map_fields"
+    result = db.get(AgentToolResult, f"task-{task.id}:map_fields")
+    assert result is not None
+    assert result.output_json["mapped_count"] == 1
 
 
 def test_execute_job_fill_calls_workflow_stage(db_session):
@@ -245,6 +298,52 @@ def test_run_worker_once_no_job_returns_false(db_session):
     assert result is False
 
 
+def test_execute_analyze_stage_persists_runtime_tool_call(db_session):
+    """Verify worker analysis records the browser read as a runtime tool call."""
+
+    from app.services.job_worker import _execute_analyze_stage
+
+    db, task_id = db_session
+    field = ExtractedFormField(
+        element_ref="field_1",
+        form_title="Contact information",
+        section_title=None,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        placeholder=None,
+        name="email",
+        html_id="email",
+        current_value=None,
+        required=True,
+    )
+    job = Job(
+        task_id=task_id,
+        job_type=JOB_TYPE_ANALYZE_FORM,
+        status=JOB_STATUS_RUNNING,
+        attempts=1,
+        max_attempts=3,
+    )
+    db.add(job)
+    db.commit()
+
+    with patch(
+        "app.services.form_extractor.extract_form_analysis",
+        new=AsyncMock(return_value=MagicMock(fields=[field], login_required=False)),
+    ):
+        _execute_analyze_stage(db, job)
+
+    call = db.get(AgentToolCall, f"task-{task_id}:extract_form")
+    assert call is not None
+    assert call.tool_name == "extract_form"
+    assert call.status == "SUCCEEDED"
+    assert call.governance_decision["decision"] == "ALLOW"
+    result = db.get(AgentToolResult, f"task-{task_id}:extract_form")
+    assert result is not None
+    assert result.output_json["field_count"] == 1
+    assert result.output_json["login_required"] is False
+
+
 def test_execute_fill_stage_blocks_required_policy_review(db_session):
     """Verify worker fill path refuses required fields that still need approval."""
 
@@ -326,3 +425,104 @@ def test_execute_fill_stage_persists_runtime_tool_call(db_session):
         "screenshot_id": 9,
         "verification_count": 0,
     }
+
+
+def test_execute_benchmark_stage_passes_runtime_mode_and_db(db_session):
+    """Verify queued runtime benchmarks persist through the shared runner."""
+
+    from app.services.benchmark_runner import BenchmarkRunSummary
+    from app.services.job_worker import _execute_benchmark_stage
+
+    db, task_id = db_session
+    job = Job(
+        task_id=task_id,
+        job_type=JOB_TYPE_RUN_BENCHMARK,
+        status=JOB_STATUS_RUNNING,
+        attempts=1,
+        max_attempts=3,
+    )
+    job.payload = {"mode": "runtime"}
+    db.add(job)
+    db.commit()
+
+    def fake_run_benchmarks(
+        *,
+        mode: str,
+        provider: str | None,
+        db,
+        stress_mode: str = "standard",
+        memory_mode: str = "off",
+        baseline_run_id: int | None = None,
+    ) -> BenchmarkRunSummary:
+        assert mode == "runtime"
+        assert provider is None
+        assert db is db_session[0]
+        assert stress_mode == "standard"
+        assert memory_mode == "off"
+        assert baseline_run_id is None
+        return BenchmarkRunSummary(
+            mode="runtime",
+            provider=None,
+            total_cases=0,
+            average_score=1.0,
+            summary_metrics={"governed_runtime_path_rate": 1.0},
+            case_results=[],
+        )
+
+    with patch("app.services.benchmark_runner.run_benchmarks", side_effect=fake_run_benchmarks) as mocked_runner:
+        _execute_benchmark_stage(db, job)
+
+    mocked_runner.assert_called_once()
+
+
+def test_execute_benchmark_stage_passes_queued_options(db_session):
+    """Verify queued benchmark options reach the shared runner."""
+
+    from app.services.benchmark_runner import BenchmarkRunSummary
+    from app.services.job_worker import _execute_benchmark_stage
+
+    db, task_id = db_session
+    job = Job(
+        task_id=task_id,
+        job_type=JOB_TYPE_RUN_BENCHMARK,
+        status=JOB_STATUS_RUNNING,
+        attempts=1,
+        max_attempts=3,
+    )
+    job.payload = {
+        "mode": "runtime",
+        "stress_mode": "cache_warm",
+        "memory_mode": "off",
+        "baseline_run_id": 42,
+    }
+    db.add(job)
+    db.commit()
+
+    def fake_run_benchmarks(
+        *,
+        mode: str,
+        provider: str | None,
+        db,
+        stress_mode: str = "standard",
+        memory_mode: str = "off",
+        baseline_run_id: int | None = None,
+    ) -> BenchmarkRunSummary:
+        assert mode == "runtime"
+        assert provider is None
+        assert stress_mode == "cache_warm"
+        assert memory_mode == "off"
+        assert baseline_run_id == 42
+        return BenchmarkRunSummary(
+            mode="runtime",
+            provider=None,
+            total_cases=0,
+            average_score=1.0,
+            summary_metrics={"governed_runtime_path_rate": 1.0},
+            case_results=[],
+        )
+
+    with patch(
+        "app.services.benchmark_runner.run_benchmarks",
+        side_effect=fake_run_benchmarks,
+    ):
+        _execute_benchmark_stage(db, job)

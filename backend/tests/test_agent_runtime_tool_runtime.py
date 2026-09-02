@@ -239,8 +239,18 @@ async def test_fill_form_wraps_browser_executor_after_approval() -> None:
 
     screenshot = SimpleNamespace(id=12)
     verification = [
-        SimpleNamespace(field_id=1, status="VERIFIED"),
-        SimpleNamespace(field_id=2, status="SKIPPED"),
+        SimpleNamespace(
+            field_id=1,
+            selector="#email",
+            expected_value="ada@example.com",
+            status="VERIFIED",
+        ),
+        SimpleNamespace(
+            field_id=2,
+            selector="#secret",
+            expected_value=None,
+            status="SKIPPED",
+        ),
     ]
     fill_handler = AsyncMock(return_value=(screenshot, verification))
     fields = [SimpleNamespace(id=1), SimpleNamespace(id=2)]
@@ -268,6 +278,14 @@ async def test_fill_form_wraps_browser_executor_after_approval() -> None:
         "screenshot_id": 12,
         "verification_count": 2,
     }
+    assert [candidate.target_ref for candidate in result.verification_candidates] == [
+        "1",
+        "2",
+    ]
+    assert result.verification_candidates[0].run_id == "task-7"
+    assert result.verification_candidates[0].verification_type == "field_value"
+    assert result.verification_candidates[0].expected == "ada@example.com"
+    assert result.verification_candidates[0].screenshot_id == 12
     fill_handler.assert_awaited_once_with(
         task_id=7,
         url="https://example.com/form",

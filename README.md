@@ -22,7 +22,8 @@ The local demo works without LLM API keys. Optional LLM providers can improve su
 ```text
 React UI
   -> FastAPI API
-    -> LangGraph durable workflow orchestration
+    -> AgentRun facade + governed runtime state
+    -> LangGraph durable runtime orchestration
     -> LangChain structured suggestions and retrieval
     -> PolicyEngine + ApprovalGateService safety boundaries
     -> Playwright browser execution (approved only)
@@ -32,7 +33,8 @@ React UI
 
 **Key Components:**
 
-- **LangGraph**: Durable, human-reviewed workflow orchestration with interrupt points before sensitive actions. The graph defines the execution order and enforces review gates.
+- **Agent Runtime**: Compact AgentRun state, internal legacy read/write tool calls, governance decisions, review counts, and verification summaries exposed through Run Cockpit and legacy task facades.
+- **LangGraph**: Durable, human-reviewed runtime orchestration with interrupt points before sensitive actions. The generic governed graph is the migration path; the old questionnaire graph remains for compatibility.
 - **LangChain**: Structured suggestions and retrieval for enhanced mapping and questionnaire answers. Optional - the system works without LLMs.
 - **PolicyEngine**: Safety decision owner that blocks sensitive fields, refuses unsupported answers, and enforces action controls.
 - **ApprovalGateService**: Human-in-the-loop approval workflow for risky operations like form filling and submission.
@@ -50,7 +52,8 @@ This project demonstrates safe, inspectable AI workflow automation. It combines 
 ## Current App Surface
 
 - Workflow console for runs, templates, approvals, traces, and evaluation.
-- Review mapping flow before browser execution.
+- Run Cockpit on Task Detail for compact AgentRun plan, tool, governance, and verification state.
+- Review Queue summary and review mapping flow before browser execution.
 - Deterministic planner and tool registry for enabled workflow templates.
 - Policy engine and persisted approval requests for risky steps.
 - SQLite-backed workflow memory for reviewed reusable values.
@@ -287,7 +290,7 @@ CI runs backend tests and frontend tests/build through `.github/workflows/ci.yml
 
 ## Current Boundaries
 
-This repository is intended to show a review-first agent architecture: workflow templates, policy gates, approval center, profile memory, source-backed retrieval, trace evidence, evaluation runs, and a runnable local demo. It does not claim production deployment, production authentication, cloud hosting, broad scraping, or CAPTCHA bypass.
+This repository is intended to show a review-first agent architecture: AgentRun facades, workflow templates as planning hints, policy gates, approval center, profile memory, source-backed retrieval, trace evidence, evaluation runs, and a runnable local demo. It does not claim the full runtime refactor is complete, nor production deployment, production authentication, cloud hosting, broad scraping, or CAPTCHA bypass.
 
 ## Resume Bullets
 

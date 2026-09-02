@@ -176,6 +176,7 @@ def _prepare_tool_call_node(
 ) -> GovernedAgentGraphState:
     steps = state["plan"]["steps"]
     step = steps[state.get("current_step_index", 0)]
+    tool = _runtime(config).get_tool(step["tool_name"])
     tool_call = ToolCall(
         id=f"{state['run_id']}:{step['step_id']}",
         run_id=state["run_id"],
@@ -183,7 +184,7 @@ def _prepare_tool_call_node(
         tool_name=step["tool_name"],
         input_json=step.get("input_json", {}),
         status="PENDING",
-        risk_level=step.get("risk_level", "low"),
+        risk_level=tool.risk_level if tool is not None else step.get("risk_level", "low"),
     )
 
     return {**state, "current_tool_call": tool_call.model_dump(mode="json")}
@@ -208,10 +209,10 @@ def _check_governance_node(
             tool,
             tool_call.get("input_json", {}),
         )
-        if (
-            decision.decision == "REVIEW_REQUIRED"
-            and tool_call["id"] in state.get("approved_tool_call_ids", [])
-        ):
+        if decision.decision in {
+            "REVIEW_REQUIRED",
+            "APPROVAL_REQUIRED",
+        } and tool_call["id"] in state.get("approved_tool_call_ids", []):
             decision = GovernanceDecision(
                 decision="VERIFY_REQUIRED",
                 reason="Tool call was approved during human review.",
@@ -273,9 +274,25 @@ def _observe_result_node(
             "error": result.get("error"),
         }
 
+    next_index = state.get("current_step_index", 0) + 1
+    if _is_login_required_result(state, result):
+        return {
+            **state,
+            "current_step_index": next_index,
+            "run": {**state["run"], "status": "BLOCKED"},
+            "error": "Login required before governed workflow can continue.",
+        }
+    if _has_pending_proposals(result):
+        return {
+            **state,
+            "current_step_index": next_index,
+            "run": {**state["run"], "status": "WAITING_REVIEW"},
+            "interrupt_at": "review",
+        }
+
     return {
         **state,
-        "current_step_index": state.get("current_step_index", 0) + 1,
+        "current_step_index": next_index,
         "run": {**state["run"], "status": "RUNNING"},
     }
 
@@ -298,6 +315,16 @@ def _verify_result_node(
     state: GovernedAgentGraphState,
     config: RunnableConfig,
 ) -> GovernedAgentGraphState:
+    verification = state.get("verification_result") or {}
+    mismatches = verification.get("mismatches")
+    if verification.get("verified") is False or (
+        isinstance(mismatches, list) and mismatches
+    ):
+        return {
+            **state,
+            "run": {**state["run"], "status": "FAILED"},
+            "error": _verification_failure_reason(verification),
+        }
     return state
 
 
@@ -339,6 +366,10 @@ def _route_after_plan(state: GovernedAgentGraphState) -> str:
 def _route_after_observe(state: GovernedAgentGraphState) -> str:
     if state["run"]["status"] == "FAILED":
         return "fail"
+    if state["run"]["status"] == "BLOCKED":
+        return "end"
+    if state.get("interrupt_at") == "review":
+        return "end"
     if state.get("stop_after_one_tool"):
         return "end"
     if state.get("current_tool_call", {}).get("tool_name") == "verify_browser_state":
@@ -349,6 +380,8 @@ def _route_after_observe(state: GovernedAgentGraphState) -> str:
 
 
 def _route_after_verify(state: GovernedAgentGraphState) -> str:
+    if state["run"]["status"] == "FAILED":
+        return "fail"
     if state.get("current_step_index", 0) < len(state["plan"]["steps"]):
         return "prepare_tool_call"
     return "finish"
@@ -364,6 +397,35 @@ def _record_verification_result(
         **state,
         "verification_result": result.get("output_json", {}),
     }
+
+
+def _verification_failure_reason(verification: dict[str, Any]) -> str:
+    mismatches = verification.get("mismatches")
+    if isinstance(mismatches, list) and mismatches:
+        first = mismatches[0]
+        reason = first.get("reason") if isinstance(first, dict) else None
+        if reason:
+            return str(reason)
+    return "Browser state verification failed."
+
+
+def _has_pending_proposals(result: dict[str, Any]) -> bool:
+    return any(
+        proposal.get("status") == "PENDING"
+        for proposal in result.get("created_proposals", [])
+        if isinstance(proposal, dict)
+    )
+
+
+def _is_login_required_result(
+    state: GovernedAgentGraphState,
+    result: dict[str, Any],
+) -> bool:
+    return (
+        state.get("current_tool_call", {}).get("tool_name")
+        in {"extract_form", "extract_form_fields"}
+        and result.get("output_json", {}).get("login_required") is True
+    )
 
 
 def _create_planning_trace_span(config: RunnableConfig, planner_context: dict[str, Any]):
@@ -477,6 +539,7 @@ def build_governed_agent_graph(*, checkpointer=None):
         {
             "prepare_tool_call": "prepare_tool_call",
             "finish": "finish",
+            "fail": "fail",
         },
     )
     workflow.add_edge("finish", END)
@@ -566,7 +629,21 @@ async def start_governed_runtime(
             "metadata": metadata or {},
         }
     }
-    return await _get_graph().ainvoke(initial_state, config=config)
+    return await _get_graph().ainvoke(
+        {
+            **initial_state,
+            "plan": {},
+            "current_tool_call": None,
+            "governance_decision": None,
+            "tool_results": [],
+            "verification_result": {},
+            "approved_tool_call_ids": [],
+            "current_step_index": 0,
+            "interrupt_at": None,
+            "error": None,
+        },
+        config=config,
+    )
 
 
 def get_governed_runtime_state(run_id: str) -> dict[str, Any] | None:
@@ -593,15 +670,76 @@ async def resume_governed_runtime_from_review(
     runtime: ToolRuntime | None = None,
     planner: AgentPlanner | None = None,
     metadata: dict[str, Any] | None = None,
+    state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Resume a checkpointer-backed generic graph from a review pause."""
 
-    state = get_governed_runtime_state(run_id)
+    state = state or get_governed_runtime_state(run_id)
     if state is None:
         raise ValueError(f"No governed runtime state found for run {run_id}.")
     if state.get("interrupt_at") != "review":
         raise ValueError(f"Governed runtime {run_id} is not waiting for review.")
 
+    tool_call = state["current_tool_call"]
+    if tool_call.get("status") == "SUCCEEDED":
+        resume_state = {
+            **state,
+            "run": {**state["run"], "status": "RUNNING"},
+            "interrupt_at": None,
+        }
+        config = {
+            "configurable": {
+                "thread_id": _thread_id(run_id),
+                "runtime": runtime or ToolRuntime(),
+                "planner": planner,
+                "metadata": metadata or {},
+            }
+        }
+        _get_graph().update_state(config, resume_state, as_node="decide_next_step")
+        return await _get_graph().ainvoke(None, config=config)
+
+    return await _resume_paused_tool_call(
+        run_id,
+        state=state,
+        runtime=runtime,
+        planner=planner,
+        metadata=metadata,
+    )
+
+
+async def resume_governed_runtime_from_approval(
+    run_id: str,
+    *,
+    runtime: ToolRuntime | None = None,
+    planner: AgentPlanner | None = None,
+    metadata: dict[str, Any] | None = None,
+    state: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Resume a checkpointer-backed generic graph from an approval pause."""
+
+    state = state or get_governed_runtime_state(run_id)
+    if state is None:
+        raise ValueError(f"No governed runtime state found for run {run_id}.")
+    if state.get("interrupt_at") != "approval":
+        raise ValueError(f"Governed runtime {run_id} is not waiting for approval.")
+
+    return await _resume_paused_tool_call(
+        run_id,
+        state=state,
+        runtime=runtime,
+        planner=planner,
+        metadata=metadata,
+    )
+
+
+async def _resume_paused_tool_call(
+    run_id: str,
+    *,
+    state: dict[str, Any],
+    runtime: ToolRuntime | None,
+    planner: AgentPlanner | None,
+    metadata: dict[str, Any] | None,
+) -> dict[str, Any]:
     tool_call = state["current_tool_call"]
     approved_ids = list(state.get("approved_tool_call_ids", []))
     if tool_call["id"] not in approved_ids:
@@ -631,6 +769,7 @@ __all__ = [
     "_reset_governed_runtime_for_tests",
     "build_governed_agent_graph",
     "get_governed_runtime_state",
+    "resume_governed_runtime_from_approval",
     "resume_governed_runtime_from_review",
     "run_allowed_tool_once",
     "run_allowed_tools_until_pause",

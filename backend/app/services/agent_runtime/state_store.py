@@ -4,10 +4,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.models import AgentPlan, AgentRun, AgentToolCall, AgentToolResult, Task
+from app.models import (
+    AgentPlan,
+    AgentRun,
+    AgentToolCall,
+    AgentToolResult,
+    AgentVerificationResult,
+    Task,
+    VERIFICATION_STATUS_FAILED,
+    VERIFICATION_STATUS_PARTIAL,
+    VERIFICATION_STATUS_SKIPPED,
+    VERIFICATION_STATUS_VERIFIED,
+)
 from app.services.agent_runtime.review_queue import (
     persist_task_review_proposals,
     refresh_pending_review_count,
@@ -88,8 +99,16 @@ def save_governed_runtime_state(
         plan_payload=plan_payload,
         raw_state=raw_state,
     )
+    _save_verification_results(
+        db,
+        run_id=run_id,
+        plan_payload=plan_payload,
+        raw_state=raw_state,
+    )
     _save_created_proposals(db, task=task, run_id=run_id, raw_state=raw_state)
     refresh_pending_review_count(db, run_id=run_id)
+    if raw_state.get("interrupt_at") == "approval" and run.pending_review_count == 0:
+        run.pending_review_count = 1
 
     db.commit()
     db.refresh(run)
@@ -101,9 +120,13 @@ def save_fill_form_runtime_state(
     *,
     task: Task,
     tool_result: Any,
+    verification_data: list[Any] | None = None,
 ) -> AgentRun:
     """Persist compact runtime state for a legacy fill_form browser write."""
 
+    tool_payload = tool_result.model_dump(mode="json")
+    tool_output = _dict_value(tool_payload.get("output_json"))
+    screenshot_id = tool_output.get("screenshot_id")
     return save_governed_runtime_state(
         db,
         task=task,
@@ -137,7 +160,15 @@ def save_fill_form_runtime_state(
                 ),
                 "created_by": "deterministic",
             },
-            "tool_results": [tool_result.model_dump(mode="json")],
+            "tool_results": [tool_payload],
+            "verification_results": [
+                _field_verification_runtime_result(
+                    item,
+                    tool_call_id=f"task-{task.id}:fill_form",
+                    screenshot_id=screenshot_id,
+                )
+                for item in verification_data or []
+            ],
         },
     )
 
@@ -150,6 +181,9 @@ def save_submit_form_runtime_state(
 ) -> AgentRun:
     """Persist compact runtime state for a legacy submit_form browser write."""
 
+    tool_payload = tool_result.model_dump(mode="json")
+    tool_output = _dict_value(tool_payload.get("output_json"))
+    screenshot_id = tool_output.get("screenshot_id")
     return save_governed_runtime_state(
         db,
         task=task,
@@ -183,7 +217,22 @@ def save_submit_form_runtime_state(
                 ),
                 "created_by": "deterministic",
             },
-            "tool_results": [tool_result.model_dump(mode="json")],
+            "tool_results": [tool_payload],
+            "verification_results": [
+                {
+                    "tool_call_id": f"task-{task.id}:submit_form",
+                    "target_type": "form_submit",
+                    "target_ref": "submit_form",
+                    "verification_type": "page_state",
+                    "expected": {"approved": True},
+                    "actual": {
+                        "submitted": bool(tool_output.get("submitted")),
+                        "screenshot_id": screenshot_id,
+                    },
+                    "status": VERIFICATION_STATUS_VERIFIED,
+                    "screenshot_id": screenshot_id,
+                }
+            ],
         },
     )
 
@@ -214,6 +263,7 @@ def restore_governed_runtime_state(
         ),
         "planner_mode": run.mode,
         "interrupt_at": _interrupt_for_status(run.status),
+        "current_step_index": _restored_current_step_index(tool_calls),
         "run": {
             "id": run.id,
             "goal": run.goal,
@@ -221,6 +271,7 @@ def restore_governed_runtime_state(
             "profile_id": run.profile_id,
             "status": run.status,
             "mode": run.mode,
+            "pending_review_count": run.pending_review_count,
             "context": {
                 "task_id": task.id,
                 "workflow_type": run.workflow_hint,
@@ -243,7 +294,7 @@ def restore_governed_runtime_state(
             for call in tool_calls
             if call.result is not None
         ],
-        "verification_result": {},
+        "verification_result": _verification_summary(db, run_id=run.id),
         "error": run.error,
     }
 
@@ -326,7 +377,9 @@ def _save_tool_calls_and_results(
         {
             **current,
             "run_id": run_id,
-            "governance_decision": raw_state.get("governance_decision") or {},
+            "governance_decision": raw_state.get("governance_decision")
+            or current.get("governance_decision")
+            or {},
         },
     )
 
@@ -407,6 +460,114 @@ def _upsert_tool_result(
     )
     result.error = payload.get("error")
     return result
+
+
+def _save_verification_results(
+    db: Session,
+    *,
+    run_id: str,
+    plan_payload: dict[str, Any],
+    raw_state: dict[str, Any],
+) -> None:
+    by_tool_call: dict[str, list[dict[str, Any]]] = {}
+    for item in _dict_items(raw_state.get("verification_results")):
+        tool_call_id = str(item.get("tool_call_id") or "")
+        if tool_call_id:
+            by_tool_call.setdefault(tool_call_id, []).append(item)
+
+    steps = _steps_by_id(plan_payload)
+    for result in _dict_items(raw_state.get("tool_results")):
+        tool_call_id = str(result.get("tool_call_id") or "")
+        output = _dict_value(result.get("output_json"))
+        if tool_call_id and "verification_results" in output:
+            by_tool_call[tool_call_id] = _dict_items(
+                output.get("verification_results")
+            )
+        elif (
+            tool_call_id
+            and _tool_name_for_result(tool_call_id, steps) == "verify_browser_state"
+        ):
+            by_tool_call[tool_call_id] = [
+                _browser_state_verification_result(tool_call_id, output)
+            ]
+
+    for tool_call_id, items in by_tool_call.items():
+        db.execute(
+            delete(AgentVerificationResult).where(
+                AgentVerificationResult.tool_call_id == tool_call_id
+            )
+        )
+        for index, item in enumerate(items):
+            persisted = AgentVerificationResult(
+                id=str(item.get("id") or f"{tool_call_id}:verification:{index}"),
+                run_id=run_id,
+                tool_call_id=tool_call_id,
+                target_type=str(item.get("target_type") or "field_value"),
+                target_ref=str(item.get("target_ref") or ""),
+                verification_type=str(item.get("verification_type") or "field_value"),
+                expected_json="null",
+                actual_json="null",
+                status=str(item.get("status") or "FAILED"),
+                reason=item.get("reason"),
+                evidence_items_json="[]",
+                screenshot_id=(
+                    item.get("screenshot_id")
+                    if isinstance(item.get("screenshot_id"), int)
+                    and not isinstance(item.get("screenshot_id"), bool)
+                    else None
+                ),
+            )
+            persisted.expected = item.get("expected")
+            persisted.actual = item.get("actual")
+            persisted.evidence_items = _dict_items(item.get("evidence_items"))
+            db.add(persisted)
+
+
+def _field_verification_runtime_result(
+    item: object,
+    *,
+    tool_call_id: str,
+    screenshot_id: object,
+) -> dict[str, Any]:
+    field_id = getattr(item, "field_id", None)
+    selector = str(getattr(item, "selector", ""))
+    return {
+        "tool_call_id": tool_call_id,
+        "target_type": "field_value",
+        "target_ref": str(field_id) if field_id is not None else selector,
+        "verification_type": "field_value",
+        "expected": getattr(item, "expected_value", None),
+        "actual": getattr(item, "actual_value", None),
+        "status": str(getattr(item, "status", "FAILED")),
+        "reason": getattr(item, "reason", None),
+        "screenshot_id": screenshot_id,
+    }
+
+
+def _browser_state_verification_result(
+    tool_call_id: str,
+    output: dict[str, Any],
+) -> dict[str, Any]:
+    mismatches = _dict_items(output.get("mismatches"))
+    return {
+        "tool_call_id": tool_call_id,
+        "target_type": "page_state",
+        "target_ref": "browser_state",
+        "verification_type": "page_state",
+        "expected": {"verified": True},
+        "actual": output,
+        "status": (
+            VERIFICATION_STATUS_VERIFIED
+            if output.get("verified") is True and not mismatches
+            else VERIFICATION_STATUS_FAILED
+        ),
+        "reason": (
+            str(mismatches[0].get("reason"))
+            if mismatches and mismatches[0].get("reason")
+            else None
+        ),
+        "screenshot_id": output.get("screenshot_id"),
+    }
 
 
 def _save_created_proposals(
@@ -501,6 +662,10 @@ def _current_tool_call_payload(
     return _tool_call_payload(tool_calls[-1]) if tool_calls else None
 
 
+def _restored_current_step_index(tool_calls: list[AgentToolCall]) -> int:
+    return sum(1 for call in tool_calls if call.result is not None)
+
+
 def _tool_call_payload(call: AgentToolCall) -> dict[str, Any]:
     return {
         "id": call.id,
@@ -531,6 +696,48 @@ def _tool_result_payload(result: AgentToolResult) -> dict[str, Any]:
     }
 
 
+def _verification_summary(db: Session, *, run_id: str) -> dict[str, Any]:
+    results = list(
+        db.execute(
+            select(AgentVerificationResult)
+            .where(AgentVerificationResult.run_id == run_id)
+            .order_by(AgentVerificationResult.created_at, AgentVerificationResult.id)
+        ).scalars()
+    )
+    if not results:
+        return {}
+
+    failed = [item for item in results if item.status == VERIFICATION_STATUS_FAILED]
+    partial = [item for item in results if item.status == VERIFICATION_STATUS_PARTIAL]
+    skipped = [item for item in results if item.status == VERIFICATION_STATUS_SKIPPED]
+    return {
+        "status": (
+            VERIFICATION_STATUS_FAILED
+            if failed
+            else VERIFICATION_STATUS_PARTIAL
+            if partial
+            else VERIFICATION_STATUS_SKIPPED
+            if len(skipped) == len(results)
+            else VERIFICATION_STATUS_PARTIAL
+            if skipped
+            else VERIFICATION_STATUS_VERIFIED
+        ),
+        "total": len(results),
+        "verified": sum(1 for item in results if item.status == VERIFICATION_STATUS_VERIFIED),
+        "failed": len(failed),
+        "skipped": len(skipped),
+        "mismatches": [
+            {
+                "target_type": item.target_type,
+                "target_ref": item.target_ref,
+                "verification_type": item.verification_type,
+                "reason": item.reason,
+            }
+            for item in [*failed, *partial][:3]
+        ],
+    }
+
+
 def _steps_by_id(plan_payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {
         str(step["step_id"]): step
@@ -547,6 +754,14 @@ def _plan_step_id_from_tool_call_id(
         if tool_call_id.endswith(f":{step_id}"):
             return step_id
     return None
+
+
+def _tool_name_for_result(
+    tool_call_id: str,
+    steps: dict[str, dict[str, Any]],
+) -> str:
+    step_id = _plan_step_id_from_tool_call_id(tool_call_id, steps)
+    return str(steps.get(step_id or "", {}).get("tool_name") or "")
 
 
 def _dict_value(value: object) -> dict[str, Any]:
