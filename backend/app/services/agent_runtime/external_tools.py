@@ -331,10 +331,21 @@ def _to_agent_tool(
         raise ValueError(f"External tool {spec.runtime_name} must be read-only")
 
     async def handler(
-        _context: ToolExecutionContext,
+        context: ToolExecutionContext,
         tool_input: dict[str, object],
     ) -> dict[str, object]:
-        return await executor.execute(spec, tool_input)
+        output = await executor.execute(spec, tool_input)
+        output["_evidence_items"] = [
+            {
+                "id": f"{context.run_id or 'external-tool'}:{spec.runtime_name}:evidence",
+                "run_id": context.run_id or "external-tool",
+                "source_type": "tool_result",
+                "source_id": spec.runtime_name,
+                "source_title": spec.description,
+                "quote_or_summary": _external_output_summary(output),
+            }
+        ]
+        return output
 
     return AgentTool(
         name=spec.runtime_name,
@@ -351,6 +362,18 @@ def _to_agent_tool(
 
 def _object_schema(value: object) -> dict[str, object]:
     return value if isinstance(value, dict) else {"type": "object"}
+
+
+def _external_output_summary(output: dict[str, object]) -> str:
+    scalars = [
+        f"{key}={value}"
+        for key, value in output.items()
+        if isinstance(value, str | int | float | bool) or value is None
+    ]
+    if scalars:
+        return "; ".join(scalars[:5])
+    keys = ", ".join(sorted(output)[:5])
+    return f"External tool returned {len(output)} top-level field(s): {keys}."
 
 
 __all__ = [

@@ -129,6 +129,40 @@ async def test_readonly_mcp_tool_executes_through_runtime_governance_and_trace()
 
 
 @pytest.mark.anyio
+async def test_external_readonly_output_becomes_compact_tool_evidence() -> None:
+    """Verify external read results expose compact evidence without UI raw output coupling."""
+
+    executor = FakeExternalExecutor(
+        {"documents": [{"title": "SOC2 policy", "body": "long raw text"}], "count": 1}
+    )
+    runtime = ToolRuntime()
+    register_external_readonly_tools(
+        runtime,
+        [mcp_search_spec()],
+        allowlist={"mcp.kb.search_documents"},
+        executor=executor,
+    )
+
+    result = await runtime.execute(
+        tool_call_id="task-7:search_policy",
+        tool_name="mcp.kb.search_documents",
+        tool_input={"query": "encryption"},
+        context=ToolExecutionContext(run_id="task-7"),
+    )
+
+    assert result.status == "SUCCEEDED"
+    assert result.evidence_items
+    assert result.evidence_items[0].run_id == "task-7"
+    assert result.evidence_items[0].source_type == "tool_result"
+    assert result.evidence_items[0].source_id == "mcp.kb.search_documents"
+    assert result.evidence_items[0].quote_or_summary == "count=1"
+    assert result.output_json == {
+        "documents": [{"title": "SOC2 policy", "body": "long raw text"}],
+        "count": 1,
+    }
+
+
+@pytest.mark.anyio
 async def test_external_tool_allowlist_controls_runtime_exposure() -> None:
     """Verify discovered external tools do not exist until allowlisted."""
 

@@ -9,6 +9,7 @@ from typing import Any
 
 from app.services.agent_runtime.governance import GovernanceEngine
 from app.services.agent_runtime.schemas import (
+    EvidenceItem,
     GovernanceDecision,
     Proposal,
     RiskLevel,
@@ -176,6 +177,7 @@ class ToolRuntime:
             )
 
         created_proposals = _pop_created_proposals(output)
+        evidence_items = _pop_evidence_items(output)
         verification_candidates = _pop_verification_candidates(output)
         _finish_trace_span(
             execution_context,
@@ -189,6 +191,7 @@ class ToolRuntime:
             status="SUCCEEDED",
             governance_decision=governance_decision,
             output_json=output,
+            evidence_items=evidence_items,
             created_proposals=created_proposals,
             verification_candidates=verification_candidates,
         )
@@ -321,6 +324,13 @@ def _pop_verification_candidates(output: dict[str, Any]) -> list[VerificationCan
         for item in raw
         if isinstance(item, dict)
     ]
+
+
+def _pop_evidence_items(output: dict[str, Any]) -> list[EvidenceItem]:
+    raw = output.pop("_evidence_items", [])
+    if not isinstance(raw, list):
+        return []
+    return [EvidenceItem.model_validate(item) for item in raw if isinstance(item, dict)]
 
 
 def _pop_created_proposals(output: dict[str, Any]) -> list[Proposal]:
