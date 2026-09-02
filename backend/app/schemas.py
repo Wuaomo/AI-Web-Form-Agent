@@ -295,6 +295,8 @@ class TaskResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     form_fields: list[FormFieldResponse] = Field(default_factory=list)
+    agent_run_id: str | None = None
+    agent_runtime: dict[str, object] | None = None
 
 
 class PlannedStepResponse(BaseModel):

@@ -223,6 +223,26 @@ def test_create_task_rejects_unsupported_workflow_type(
     assert response.json()["detail"] == "Workflow template not found: unknown_type"
 
 
+def test_get_task_includes_compact_agent_runtime_state(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify legacy task details expose the current AgentRun facade state."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    save_two_pending_tool_created_proposals(session, task, field)
+
+    response = client.get(f"/tasks/{task.id}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["agent_run_id"] == f"task-{task.id}"
+    assert payload["agent_runtime"]["status"] == "WAITING_REVIEW"
+    assert payload["agent_runtime"]["pending_review_count"] == 2
+    assert payload["agent_runtime"]["tool_result_count"] == 1
+    assert "tool_results" not in payload["agent_runtime"]
+
+
 def test_review_items_returns_field_value_proposals(
     test_environment: tuple[TestClient, Session],
 ) -> None:

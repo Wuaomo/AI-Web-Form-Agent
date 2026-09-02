@@ -652,7 +652,29 @@ def get_task(task_id: int, db: Session = Depends(get_db)) -> Task:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Task not found",
         )
+    attach_agent_runtime_facade(db, task)
     return task
+
+
+def attach_agent_runtime_facade(db: Session, task: Task) -> None:
+    """Attach compact AgentRun state to the legacy task response."""
+
+    raw_state = restore_governed_runtime_state(db, task=task)
+    if raw_state is None:
+        return
+
+    run = raw_state.get("run") or {}
+    task.agent_run_id = str(run.get("id") or raw_state.get("run_id") or "")
+    task.agent_runtime = {
+        "status": run.get("status"),
+        "planner_mode": run.get("mode") or raw_state.get("planner_mode"),
+        "pending_review_count": run.get("pending_review_count") or 0,
+        "current_step_index": raw_state.get("current_step_index", 0),
+        "interrupt_at": raw_state.get("interrupt_at"),
+        "tool_result_count": len(raw_state.get("tool_results") or []),
+        "verification_result": raw_state.get("verification_result") or {},
+        "error": raw_state.get("error"),
+    }
 
 
 @router.get("/{task_id}/plan", response_model=WorkflowPlanResponse)
