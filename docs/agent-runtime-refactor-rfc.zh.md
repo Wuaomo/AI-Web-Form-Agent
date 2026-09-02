@@ -892,6 +892,14 @@ refactor 仍未完成，旧 `/tasks` 和 workflow-specific 兼容路径仍保留
 - write tools 默认拒绝注册或 blocked。
 - 外部 raw output 不进入主 UI。
 
+当前状态（2026-09-02）：Phase 8 只读外部工具薄切片可收尾。
+MCP / OpenAPI read-only tools 通过 allowlist 注册到同一个 Tool Runtime；
+未 allowlist 的工具不可用，write-capable external tools 会拒绝注册。
+planner-visible metadata 和 trace metadata 都标明 source、read_only、risk
+和 mutation flags；外部工具执行仍经过 Governance，并把 read output 提炼成
+compact `EvidenceItem`，主 UI 只拿 compact tool-call/evidence 摘要。
+外部写工具仍未接入，整体 runtime refactor 仍未完成。
+
 ### Phase 9：Evaluation Harness 升级
 
 目标：benchmark 衡量 agent runtime，而不只衡量 extraction/mapping。
