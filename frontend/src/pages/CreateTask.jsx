@@ -13,6 +13,7 @@ import {
   requiresLlmProviderForCreate,
   resolveWorkflowTypeSelection,
   sortWorkflowTemplates,
+  usesGovernedDemoPath,
 } from "../workflowTemplatePresentation";
 
 function CreateTask() {
@@ -96,6 +97,17 @@ function CreateTask() {
       if (form.workflow_type === "job_research_summary") {
         await api.generateJobSummary(task.id);
         navigate(`/tasks/${task.id}`);
+        return;
+      }
+      if (usesGovernedDemoPath(form.workflow_type)) {
+        const runtimeState = await api.startGovernedWorkflow(task.id, {
+          plannerMode: "deterministic",
+        });
+        navigate(
+          runtimeState.status === "WAITING_REVIEW"
+            ? `/tasks/${task.id}/review-mapping`
+            : `/tasks/${task.id}`,
+        );
         return;
       }
       const analyzedTask = await api.analyzeTask(task.id);

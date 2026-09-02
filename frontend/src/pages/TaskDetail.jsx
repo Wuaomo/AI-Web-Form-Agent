@@ -71,6 +71,9 @@ import {
 } from "../runCockpitPresentation";
 import { getExtractionData, getSummaryData } from "../webExtractionPresentation";
 import {
+  usesGovernedDemoPath,
+} from "../workflowTemplatePresentation";
+import {
   pendingApprovalRequests,
   shouldShowApprovalsOnMain,
 } from "../taskDetailPresentation";
@@ -283,6 +286,10 @@ function TaskDetail() {
       });
       setGovernedRuntime(runtimeState);
       await refreshTaskData();
+      if (runtimeState.status === "WAITING_REVIEW") {
+        navigate(`/tasks/${taskId}/review-mapping`);
+        return;
+      }
       setNotice("Governed runtime started.");
     } catch (requestError) {
       setError(requestError.message);
@@ -538,6 +545,10 @@ function TaskDetail() {
 
   function runPrimaryAction() {
     if (runState.primaryAction === "prepare") {
+      if (usesGovernedDemoPath(task?.workflow_type)) {
+        startGovernedWorkflowRun();
+        return;
+      }
       analyzeAndReview();
       return;
     }

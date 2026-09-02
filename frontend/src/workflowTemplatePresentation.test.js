@@ -11,6 +11,7 @@ import {
   resolveWorkflowTypeSelection,
   sortWorkflowTemplates,
   templateAvailabilityLabel,
+  usesGovernedDemoPath,
 } from "./workflowTemplatePresentation.js";
 
 test("template helpers expose status labels and enabled flags", () => {
@@ -84,14 +85,19 @@ test("dockerDemoUrlForWorkflow uses the vendor onboarding fixture", () => {
 test("security questionnaire creation can run without an LLM provider", () => {
   assert.equal(requiresLlmProviderForCreate("security_questionnaire"), false);
   assert.equal(requiresLlmProviderForCreate("vendor_onboarding"), false);
-  assert.equal(requiresLlmProviderForCreate("form_fill"), true);
+  assert.equal(requiresLlmProviderForCreate("form_fill"), false);
   assert.equal(requiresLlmProviderForCreate("web_data_extract"), false);
 });
 
 test("mappingModeForWorkflow uses rules for local no-provider workflows", () => {
   assert.equal(mappingModeForWorkflow("security_questionnaire"), "rules");
   assert.equal(mappingModeForWorkflow("vendor_onboarding"), "rules");
-  assert.equal(mappingModeForWorkflow("form_fill"), "llm");
+  assert.equal(mappingModeForWorkflow("form_fill"), "rules");
+});
+
+test("form fill uses the governed demo path", () => {
+  assert.equal(usesGovernedDemoPath("form_fill"), true);
+  assert.equal(usesGovernedDemoPath("web_data_extract"), false);
 });
 
 test("resolveWorkflowTypeSelection falls back to security_questionnaire when available", () => {
