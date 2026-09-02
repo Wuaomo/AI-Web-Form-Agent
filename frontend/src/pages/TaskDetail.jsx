@@ -66,6 +66,7 @@ import {
   getRunCockpitToolCalls,
   getRunCockpitVerificationDetails,
   resolveRunCockpitRuntime,
+  shouldShowLegacyWorkflowRuntimePanel,
   shouldShowRunCockpit,
 } from "../runCockpitPresentation";
 import { getExtractionData, getSummaryData } from "../webExtractionPresentation";
@@ -1030,7 +1031,7 @@ function TaskDetail() {
 
             {renderRunCockpit()}
 
-            {task.workflow_type === "security_questionnaire" && (
+            {shouldShowLegacyWorkflowRuntimePanel(task, governedRuntime) && (
               <div className="runtime-status-panel">
                 <div className="runtime-status-header">
                   <p className="eyebrow">Agent workflow</p>

@@ -7,6 +7,7 @@ import {
   getRunCockpitToolCalls,
   getRunCockpitVerificationDetails,
   resolveRunCockpitRuntime,
+  shouldShowLegacyWorkflowRuntimePanel,
   shouldShowRunCockpit,
 } from "./runCockpitPresentation.js";
 
@@ -100,6 +101,30 @@ test("resolveRunCockpitRuntime prefers endpoint state over task facade state", (
   );
 
   assert.deepEqual(runtime, { status: "COMPLETED", planner_mode: "deterministic" });
+});
+
+test("shouldShowLegacyWorkflowRuntimePanel hides legacy panel when Run Cockpit has runtime state", () => {
+  assert.equal(
+    shouldShowLegacyWorkflowRuntimePanel(
+      { workflow_type: "security_questionnaire" },
+      { planner_mode: "deterministic" },
+    ),
+    false,
+  );
+  assert.equal(
+    shouldShowLegacyWorkflowRuntimePanel(
+      { workflow_type: "security_questionnaire" },
+      null,
+    ),
+    true,
+  );
+  assert.equal(
+    shouldShowLegacyWorkflowRuntimePanel(
+      { workflow_type: "vendor_onboarding" },
+      null,
+    ),
+    false,
+  );
 });
 
 test("buildRunCockpitSummary reads persisted generic verification status", () => {
