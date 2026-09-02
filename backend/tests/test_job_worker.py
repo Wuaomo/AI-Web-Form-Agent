@@ -27,6 +27,7 @@ from app.job_constants import (
     JOB_STATUS_RETRY_SCHEDULED,
 )
 from app.services.form_extractor import ExtractedFormField
+from app.workflow_constants import CHECKPOINT_SUCCESS, WORKFLOW_STAGE_MAPPING
 
 
 @pytest.fixture
@@ -132,6 +133,57 @@ def test_execute_job_map_calls_workflow_stage(db_session):
 
     db.refresh(job)
     assert job.status == JOB_STATUS_SUCCEEDED
+
+
+def test_execute_job_rules_mapping_persists_runtime_call(db_session):
+    """Verify async rules mapping records the runtime tool call/result."""
+
+    from app.models import Job, TaskCheckpoint
+    from app.services.job_worker import execute_job
+
+    db, task_id = db_session
+    task = db.get(Task, task_id)
+    task.status = "ANALYZING"
+    task.workflow_status = "ANALYZING"
+    field = FormField(
+        task_id=task_id,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        required=True,
+        mapped_profile_key="email",
+        mapped_value="ada@example.com",
+        confidence=1.0,
+    )
+    db.add(field)
+    job = Job(
+        task_id=task_id,
+        job_type=JOB_TYPE_MAP_FIELDS,
+        status=JOB_STATUS_RUNNING,
+        attempts=1,
+        max_attempts=3,
+        payload={"mode": "rules"},
+    )
+    db.add(job)
+    db.commit()
+
+    with patch("app.services.field_mapper.map_fields_by_rules", return_value=[field]):
+        execute_job(db=db, job=job)
+
+    db.refresh(job)
+    assert job.status == JOB_STATUS_SUCCEEDED
+    checkpoint = (
+        db.query(TaskCheckpoint)
+        .filter_by(task_id=task_id, stage=WORKFLOW_STAGE_MAPPING)
+        .one()
+    )
+    assert checkpoint.status == CHECKPOINT_SUCCESS
+    call = db.get(AgentToolCall, f"task-{task.id}:map_fields")
+    assert call is not None
+    assert call.tool_name == "map_fields"
+    result = db.get(AgentToolResult, f"task-{task.id}:map_fields")
+    assert result is not None
+    assert result.output_json["mapped_count"] == 1
 
 
 def test_execute_job_fill_calls_workflow_stage(db_session):
