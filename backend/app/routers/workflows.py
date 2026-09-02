@@ -210,6 +210,7 @@ def _to_governed_compact_state(raw_state: dict) -> dict:
         "status": run.get("status", "FAILED"),
         "planner_mode": run.get("mode", raw_state.get("planner_mode")),
         "pending_review_count": _governed_pending_review_count(raw_state),
+        "current_step_index": raw_state.get("current_step_index", 0),
         "interrupt_at": raw_state.get("interrupt_at"),
         "plan": raw_state.get("plan", {}),
         "current_tool_call": raw_state.get("current_tool_call"),
