@@ -919,9 +919,18 @@ unsafe_action_prevention_rate
 
 验收：
 
-- `agent_runtime` benchmark mode 可跑。
+- `runtime` benchmark mode 可跑。
 - full workflow replay 继续可跑。
 - 报告能说明 memory、governance、verification 的价值。
+
+当前状态（2026-09-02）：Phase 9 Evaluation Harness 升级薄切片可收尾。
+`runtime` benchmark mode 仍是 no-key deterministic 路径，不使用 LLM planner；
+它通过 governed graph 和 Tool Runtime 记录 plan validity、tool call success、
+governance block、review intervention、proposal acceptance、verification pass、
+agent recovery、unsafe action prevention 等 runtime 指标。`full_workflow`
+benchmark replay 继续可跑；Markdown benchmark report 会展示 runtime 指标。
+这不表示整体 runtime refactor 完成，旧 `/tasks` 和 workflow-specific 兼容路径
+仍然保留。
 
 ### Phase 10：旧路径收敛和命名清理
 

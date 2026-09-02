@@ -135,6 +135,10 @@ Completed or mostly completed:
 - Phase 8 reliability benchmark baseline: local full-workflow evaluation runs
   without LLM API keys and reports workflow success, safety pass, verification
   pass, and failure-rate metrics.
+- Phase 9 runtime evaluation baseline: `runtime` benchmark mode runs without
+  LLM API keys, stays on the deterministic governed runtime path, reports plan
+  validity, tool success, governance/review, verification, recovery, and unsafe
+  prevention metrics, and the Markdown report highlights those runtime metrics.
 
 Still missing from the revised direction:
 
