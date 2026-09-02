@@ -122,6 +122,8 @@ async def test_readonly_mcp_tool_executes_through_runtime_governance_and_trace()
         assert spans[0].phase == "external_tool"
         assert spans[0].name == "mcp.kb.search_documents"
         assert spans[0].status == "SUCCESS"
+        assert spans[0].span_metadata["source"] == "mcp"
+        assert spans[0].span_metadata["read_only"] is True
         assert spans[0].span_metadata["mutates_external_system"] is False
         assert spans[0].span_metadata["governance_decision"]["decision"] == "ALLOW"
     finally:

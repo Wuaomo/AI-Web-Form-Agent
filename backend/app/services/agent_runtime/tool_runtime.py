@@ -260,6 +260,8 @@ def _create_trace_span(
             name=tool.name,
             input={"tool_call_id": tool_call_id, **tool_input},
             metadata={
+                "source": _tool_source(tool.name),
+                "read_only": not tool.mutates_browser and not tool.mutates_external_system,
                 "risk_level": tool.risk_level,
                 "mutates_browser": tool.mutates_browser,
                 "mutates_external_system": tool.mutates_external_system,
