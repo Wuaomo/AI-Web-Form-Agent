@@ -144,14 +144,16 @@ Completed or mostly completed:
   extraction, job-summary prerequisite extraction, fill, submit, and verification
   persistence now record compact AgentToolCall/AgentToolResult state. This is a
   compatibility-layer convergence phase, not the overall runtime refactor finish.
+- Generic governed graph primary demo path: Create Run, Page Intake, and Task
+  Detail preparation now route generic form fill, vendor onboarding, and security
+  questionnaire demos through `/workflows/{task_id}/governed/start` in
+  deterministic no-key mode; runtime benchmark coverage uses the main demo
+  workflow hint. The old security questionnaire graph remains as fallback.
 
-Still missing from the revised direction:
+Still missing from the runtime refactor direction:
 
-- broader memory governance beyond confirmed form-field mappings;
-- generic graph as the primary path for the main demos;
 - Review Queue as the primary contract beyond field-mapping compatibility;
-- final section 21 validation across every runtime object and demo;
-- portfolio screenshots/GIF assets that show the questionnaire workflow.
+- final section 21 validation across every runtime object and demo.
 
 ## Post-Portfolio Extensions
 

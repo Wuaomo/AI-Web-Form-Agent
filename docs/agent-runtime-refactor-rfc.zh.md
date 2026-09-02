@@ -849,6 +849,16 @@ generic governed graph 主路径。
 - benchmark 不退化。
 - 旧 graph 可以标记 deprecated。
 
+当前状态（2026-09-02）：Phase 6 通用 governed graph 主 demo 路径薄切片已完成。
+Create Run、Page Intake、Task Detail 的 demo preparation path 会把
+generic form fill、vendor onboarding、security questionnaire 路由到
+`/workflows/{task_id}/governed/start` 的 deterministic no-key 路径；
+后端 parity tests 覆盖三条 demo 的 analyze/map/review pause、安全阻断和
+source-backed questionnaire 建议，runtime benchmark 也使用 main demo 的
+`form_fill` workflow hint。旧 security questionnaire graph 仍作为
+compatibility fallback 保留。这不表示整体 runtime refactor 完成；剩余 gap
+是 Review Queue 成为 primary contract，以及第 21 节整体完成定义的最终验证。
+
 ### Phase 7：LLM planner 完整接入
 
 目标：LLM 可以生成计划和 proposals，但不能越权。
@@ -964,9 +974,8 @@ convergence phase 已完成。legacy analyze、login-and-analyze、同步 rules
 mapping、worker rules mapping、page extraction、job-summary prerequisite
 extraction、fill、submit 和 verification 持久化路径都会记录 compact
 `AgentToolCall` / `AgentToolResult` 或 generic verification state，且 task
-facade 不暴露 raw `tool_results`。剩余 gap 进入下一 phase：generic graph
-成为主 demo 路径、Review Queue 成为 primary contract，以及第 21 节整体完成
-定义的最终验证。
+facade 不暴露 raw `tool_results`。剩余 gap 进入下一 phase：Review Queue
+成为 primary contract，以及第 21 节整体完成定义的最终验证。
 
 ## 20. 测试策略
 
@@ -1039,15 +1048,16 @@ npm run build
 当前分支合并后，下一步应该是：
 
 ```text
-Phase 1：AgentRun 持久化
+Review Queue 成为 primary contract
 ```
 
-这是最重要的收敛点。没有持久化，Run Cockpit 和 governed graph 仍然更像 demo state；有了持久化，后续 Tool Runtime、Review Queue、Verification、Benchmark 都能落到同一个 runtime contract 上。
+generic governed graph 已成为主 demo preparation path；下一刀应该让 Review
+Mapping 更明确地降级为兼容界面，让 proposal-backed Review Queue 成为审查主合同。
 
 第一刀建议：
 
-1. 新增最小 `agent_runs` 和 `agent_plans` 表。
-2. governed start 双写 `Task -> AgentRun` 和 `plan -> AgentPlan`。
-3. governed get 从持久化返回 compact state。
-4. 前端行为不变。
-5. Docker backend pytest + frontend test/build 全跑。
+1. Review Mapping rows 优先从 `AgentProposal` 派生。
+2. approve/edit/reject 优先写 `AgentReviewDecision`，再兼容同步 `FormField`。
+3. source evidence 继续走 compact proposal evidence。
+4. 不新增 dashboard，复用现有 Review Mapping 页面。
+5. backend pytest + frontend test/build 全跑。

@@ -34,7 +34,7 @@ React UI
 **Key Components:**
 
 - **Agent Runtime**: Compact AgentRun state, internal legacy read/write tool calls, governance decisions, review counts, and verification summaries exposed through Run Cockpit and legacy task facades.
-- **LangGraph**: Durable, human-reviewed runtime orchestration with interrupt points before sensitive actions. The generic governed graph is the migration path; the old questionnaire graph remains for compatibility.
+- **LangGraph**: Durable, human-reviewed runtime orchestration with interrupt points before sensitive actions. The generic governed graph is the primary demo preparation path; the old questionnaire graph remains for compatibility.
 - **LangChain**: Structured suggestions and retrieval for enhanced mapping and questionnaire answers. Optional - the system works without LLMs.
 - **PolicyEngine**: Safety decision owner that blocks sensitive fields, refuses unsupported answers, and enforces action controls.
 - **ApprovalGateService**: Human-in-the-loop approval workflow for risky operations like form filling and submission.
@@ -54,6 +54,7 @@ This project demonstrates safe, inspectable AI workflow automation. It combines 
 - Workflow console for runs, templates, approvals, traces, and evaluation.
 - Run Cockpit on Task Detail for compact AgentRun plan, tool, governance, and verification state.
 - Review Queue summary and review mapping flow before browser execution.
+- Deterministic governed graph path for security questionnaire, vendor onboarding, and generic form-fill demo preparation.
 - Deterministic planner and tool registry for enabled workflow templates.
 - Policy engine and persisted approval requests for risky steps.
 - SQLite-backed workflow memory for reviewed reusable values.
@@ -64,9 +65,9 @@ This project demonstrates safe, inspectable AI workflow automation. It combines 
 
 ## Supported Workflows
 
-- **Security Questionnaire**: Primary demo. Extract questionnaire items, suggest answers from reviewed memory or local policy docs, show evidence, require review, then fill approved values in the browser.
-- **Vendor Onboarding**: Reuse reviewed company profile data for vendor onboarding forms with approval gates before browser execution.
-- **Generic Form Fill**: Map profile values to ordinary web forms, review every value, fill the browser, and stop before submit.
+- **Security Questionnaire**: Primary demo. Uses the generic governed graph for no-key preparation while keeping the old questionnaire graph as fallback. Extract questionnaire items, suggest answers from reviewed memory or local policy docs, show evidence, require review, then fill approved values in the browser.
+- **Vendor Onboarding**: Uses the generic governed graph to reuse reviewed company profile data for vendor onboarding forms with approval gates before browser execution.
+- **Generic Form Fill**: Uses the generic governed graph to map profile values to ordinary web forms, review every value, fill the browser, and stop before submit.
 - Web Data Extraction Workflow: Open pages, extract structured data, capture screenshots, and save results.
 - Job Research Summary Workflow: Extract job page content, summarize, and save research results.
 - Data Entry Workflow: Registered but disabled.
@@ -233,7 +234,7 @@ Use [docs/demo-script.md](docs/demo-script.md) for a 3 to 5 minute reviewer demo
 2. Seed `Demo Applicant`.
 3. Open Profiles and Workflows.
 4. Create a **Security Questionnaire** run with the Docker demo URL.
-5. Generate mappings in rules mode (no LLM API key required).
+5. Let the deterministic governed graph prepare mappings (no LLM API key required).
 6. Open Review Mapping and inspect answers suggested from `mock-security-policy.md` with source evidence.
 7. Confirm mappings only after reviewing the source evidence.
 8. Inspect screenshot and verification evidence after browser execution.
@@ -258,8 +259,8 @@ Use [docs/demo-script.md](docs/demo-script.md) for a 3 to 5 minute reviewer demo
 Last checked on this branch:
 
 ```text
-backend:  python -m pytest       -> 408 passed, 1 warning
-frontend: npm test               -> 190 passed
+backend:  python -m pytest       -> 759 passed, 1 warning
+frontend: npm test               -> 249 passed
 frontend: npm run build          -> passed
 ```
 
