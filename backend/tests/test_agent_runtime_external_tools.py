@@ -403,6 +403,8 @@ def test_runtime_tool_metadata_includes_allowlisted_external_tools() -> None:
         {
             "name": "mcp.kb.search_documents",
             "description": "Search reviewed knowledge documents.",
+            "source": "mcp",
+            "read_only": True,
             "risk_level": "low",
             "mutates_browser": False,
             "mutates_external_system": False,

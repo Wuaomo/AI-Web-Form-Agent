@@ -75,6 +75,8 @@ class ToolRuntime:
             {
                 "name": tool.name,
                 "description": tool.description,
+                "source": _tool_source(tool.name),
+                "read_only": not tool.mutates_browser and not tool.mutates_external_system,
                 "risk_level": tool.risk_level,
                 "mutates_browser": tool.mutates_browser,
                 "mutates_external_system": tool.mutates_external_system,
@@ -313,6 +315,10 @@ def _summarize_output(output: dict[str, Any]) -> dict[str, Any]:
         for key, value in output.items()
         if isinstance(value, str | int | float | bool) or value is None
     }
+
+
+def _tool_source(tool_name: str) -> str:
+    return tool_name.split(".", 1)[0] if tool_name.startswith(("mcp.", "openapi.")) else "internal"
 
 
 def _pop_verification_candidates(output: dict[str, Any]) -> list[VerificationCandidate]:
