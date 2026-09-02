@@ -243,6 +243,12 @@ def test_openai_structured_planner_adapter_fails_closed_without_api_key() -> Non
         adapter.plan({"goal": "Inspect safely."})
 
 
+def test_openai_structured_planner_schema_rejects_empty_plans() -> None:
+    """Verify provider-side schema matches AgentPlan's non-empty step contract."""
+
+    assert STRUCTURED_PLANNER_SCHEMA["properties"]["steps"]["minItems"] == 1
+
+
 def test_openai_structured_planner_adapter_returns_structured_content() -> None:
     """Verify configured OpenAI adapter delegates to the existing LLM JSON boundary."""
 
