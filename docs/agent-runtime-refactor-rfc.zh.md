@@ -866,6 +866,15 @@ generic governed graph 主路径。
 - LLM planner 不能调用未注册工具。
 - LLM planner 不能跳过 review/governance。
 
+当前状态（2026-09-02）：Phase 7 LLM planner 接入薄切片可收尾。
+`llm_structured` 只生成 schema-valid `AgentPlan`，并且 unknown tool、
+invalid args、malformed/missing planner output 都会被拒绝；registered
+tool metadata 会传给 planner，实际执行仍只走 Tool Runtime 和 Governance。
+浏览器写入仍暂停在 review，submit 仍暂停在 explicit approval；失败的 LLM
+planner 不会覆盖已有持久化 compact run/plan；no-key deterministic path 和
+runtime benchmark path 仍走本地 deterministic governed runtime。整体 runtime
+refactor 仍未完成，旧 `/tasks` 和 workflow-specific 兼容路径仍保留。
+
 ### Phase 8：只读外部工具成熟
 
 目标：MCP / OpenAPI read-only tools 可以进入 planner 和 Tool Runtime。
