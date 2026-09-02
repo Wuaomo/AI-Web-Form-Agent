@@ -2044,6 +2044,50 @@ def test_analyze_reuses_cached_form_analysis_for_same_url(
     assert second_response.json()["form_fields"][0]["selector"] == "#email"
 
 
+def test_analyze_persists_extract_form_runtime_call(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify legacy analysis records the browser read as a runtime tool call."""
+
+    client, session = test_environment
+    task = create_task_without_fields(session)
+    extracted_field = ExtractedFormField(
+        element_ref="field_1",
+        form_title="Contact information",
+        section_title=None,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        placeholder=None,
+        name="email",
+        html_id="email",
+        current_value=None,
+        required=True,
+    )
+
+    with patch(
+        "app.routers.tasks.extract_form_analysis",
+        new=AsyncMock(
+            return_value=SimpleNamespace(
+                fields=[extracted_field],
+                login_required=False,
+            ),
+        ),
+    ):
+        response = client.post(f"/tasks/{task.id}/analyze")
+
+    assert response.status_code == 200
+    call = session.get(AgentToolCall, f"task-{task.id}:extract_form")
+    assert call is not None
+    assert call.tool_name == "extract_form"
+    assert call.status == "SUCCEEDED"
+    assert call.governance_decision["decision"] == "ALLOW"
+    result = session.get(AgentToolResult, f"task-{task.id}:extract_form")
+    assert result is not None
+    assert result.output_json["field_count"] == 1
+    assert result.output_json["login_required"] is False
+
+
 def test_analyze_supports_security_questionnaire_workflow(
     test_environment: tuple[TestClient, Session],
 ) -> None:

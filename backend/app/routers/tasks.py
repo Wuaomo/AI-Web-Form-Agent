@@ -66,7 +66,7 @@ from app.services.field_mapper import (
     map_fields_by_rules,
     map_fields_with_llm_result,
 )
-from app.services.form_extractor import ExtractedFormAnalysis, extract_form_analysis
+from app.services.form_extractor import ExtractedFormAnalysis, ExtractedFormField, extract_form_analysis
 from app.services.page_extractor import extract_page
 from app.services.research_summary import generate_research_summary
 from app.services.form_analysis_cache import (
@@ -121,6 +121,7 @@ from app.services.agent_runtime.tools import (
     execute_fill_form_runtime_tool,
     execute_submit_form_runtime_tool,
 )
+from app.services.agent_runtime.tool_runtime import ToolExecutionContext
 from app.services.agent_runtime.governed_agent_graph import (
     get_governed_runtime_state,
     resume_governed_runtime_from_approval,
@@ -576,6 +577,61 @@ def save_extracted_fields(
     )
 
 
+def analysis_from_runtime_extract_result(output: dict[str, Any]) -> ExtractedFormAnalysis:
+    """Return typed analysis from the extract_form runtime output."""
+
+    return ExtractedFormAnalysis(
+        fields=[
+            ExtractedFormField(**field)
+            for field in output.get("fields", [])
+            if isinstance(field, dict)
+        ],
+        login_required=bool(output.get("login_required")),
+    )
+
+
+def save_analyze_runtime_state(db: Session, *, task: Task, tool_result: Any) -> None:
+    """Persist compact runtime state for a legacy analyze browser read."""
+
+    save_governed_runtime_state(
+        db,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": task.description or "Analyze browser form.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": task.status,
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:analysis-plan:1",
+                "version": 1,
+                "goal": task.description or "Analyze browser form.",
+                "steps": [
+                    {
+                        "step_id": "extract_form",
+                        "tool_name": "extract_form",
+                        "reason": "Extract browser form fields.",
+                        "input_json": {
+                            "url": task.url,
+                            "profile_id": task.profile_id,
+                        },
+                        "risk_level": "low",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "tool_results": [tool_result.model_dump(mode="json")],
+        },
+    )
+
+
 @router.post(
     "",
     response_model=TaskResponse,
@@ -861,13 +917,30 @@ async def analyze_task(
     try:
         analysis = read_form_analysis_cache(db, task.url)
         cache_hit = analysis is not None
+        tool_result = None
         if analysis is None:
-            analysis = await extract_form_analysis(task.url, task.profile_id)
+            tool_result = await build_default_tool_runtime(
+                extract_form_analysis_handler=extract_form_analysis,
+            ).execute(
+                tool_call_id=f"task-{task.id}:extract_form",
+                tool_name="extract_form",
+                tool_input={"url": task.url, "profile_id": task.profile_id},
+                context=ToolExecutionContext(
+                    run_id=f"task-{task.id}",
+                    plan_step_id="extract_form",
+                    metadata={"db": db, "task_id": task.id},
+                ),
+            )
+            if tool_result.status != "SUCCEEDED":
+                raise RuntimeError(tool_result.error or "Runtime extract_form failed")
+            analysis = analysis_from_runtime_extract_result(tool_result.output_json)
             write_form_analysis_cache(db, task.url, analysis)
         if analysis.login_required:
             mark_login_required(task, db)
         else:
             save_extracted_fields(task, analysis, db)
+        if tool_result is not None:
+            save_analyze_runtime_state(db, task=task, tool_result=tool_result)
         write_checkpoint(
             task_id=task.id,
             stage=WORKFLOW_STAGE_ANALYSIS,
