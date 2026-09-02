@@ -71,7 +71,11 @@ export function mappingModeForWorkflow(workflowType) {
 }
 
 export function usesGovernedDemoPath(workflowType) {
-  return ["form_fill", "vendor_onboarding"].includes(workflowType);
+  return [
+    "form_fill",
+    "vendor_onboarding",
+    "security_questionnaire",
+  ].includes(workflowType);
 }
 
 export function resolveWorkflowTypeSelection(
