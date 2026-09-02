@@ -176,6 +176,7 @@ def _prepare_tool_call_node(
 ) -> GovernedAgentGraphState:
     steps = state["plan"]["steps"]
     step = steps[state.get("current_step_index", 0)]
+    tool = _runtime(config).get_tool(step["tool_name"])
     tool_call = ToolCall(
         id=f"{state['run_id']}:{step['step_id']}",
         run_id=state["run_id"],
@@ -183,7 +184,7 @@ def _prepare_tool_call_node(
         tool_name=step["tool_name"],
         input_json=step.get("input_json", {}),
         status="PENDING",
-        risk_level=step.get("risk_level", "low"),
+        risk_level=tool.risk_level if tool is not None else step.get("risk_level", "low"),
     )
 
     return {**state, "current_tool_call": tool_call.model_dump(mode="json")}

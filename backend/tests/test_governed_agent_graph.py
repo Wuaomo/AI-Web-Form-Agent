@@ -179,6 +179,57 @@ def test_run_to_governance_uses_llm_structured_planner_without_bypassing_review(
     handler.assert_not_awaited()
 
 
+def test_llm_structured_planner_cannot_downgrade_submit_tool_risk() -> None:
+    """Verify registered tool metadata wins over model-provided risk labels."""
+
+    handler = AsyncMock(return_value={"submitted": True})
+    runtime = ToolRuntime(
+        [
+            make_tool(
+                "submit_form",
+                mutates_browser=True,
+                risk_level="high",
+                handler=handler,
+            )
+        ]
+    )
+    planner = AgentPlanner(
+        runtime=runtime,
+        structured_adapter=FakeStructuredPlannerAdapter(
+            {
+                "steps": [
+                    {
+                        "step_id": "submit",
+                        "tool_name": "submit_form",
+                        "reason": "Submit after explicit approval.",
+                        "input_json": {"task_id": 14},
+                        "risk_level": "low",
+                    }
+                ]
+            }
+        ),
+    )
+
+    state = run_to_governance(
+        {
+            "run_id": "task-llm-submit-risk",
+            "task_id": 14,
+            "goal": "Submit the reviewed form.",
+            "target_url": "https://example.com/form",
+            "profile_id": 7,
+            "planner_mode": "llm_structured",
+        },
+        runtime=runtime,
+        planner=planner,
+    )
+
+    assert state["run"]["status"] == "WAITING_APPROVAL"
+    assert state["current_tool_call"]["risk_level"] == "high"
+    assert state["governance_decision"]["decision"] == "APPROVAL_REQUIRED"
+    assert state["governance_decision"]["risk_level"] == "high"
+    handler.assert_not_awaited()
+
+
 def test_run_to_governance_returns_failed_state_for_invalid_llm_plan() -> None:
     """Verify invalid structured plans fail before tool preparation."""
 
