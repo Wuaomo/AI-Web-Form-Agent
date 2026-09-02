@@ -15,6 +15,7 @@ from app.services.agent_runtime.tool_runtime import (
 )
 from app.services.field_mapper import map_fields_by_rules
 from app.services.form_extractor import extract_form_analysis
+from app.services.page_extractor import extract_page
 from app.services.browser_executor import (
     fill_form_and_capture_screenshot,
     submit_form_and_capture_screenshot,
@@ -65,6 +66,39 @@ MAP_FIELDS_OUTPUT_SCHEMA: dict[str, Any] = {
     },
 }
 
+EXTRACT_PAGE_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["url", "profile_id"],
+    "properties": {
+        "url": {"type": "string"},
+        "profile_id": {"type": "integer"},
+    },
+}
+
+EXTRACT_PAGE_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": [
+        "title",
+        "heading_count",
+        "link_count",
+        "table_count",
+        "form_count",
+    ],
+    "properties": {
+        "title": {"type": "string"},
+        "heading_count": {"type": "integer"},
+        "headings": {"type": "array"},
+        "text_block_count": {"type": "integer"},
+        "main_text_blocks": {"type": "array"},
+        "link_count": {"type": "integer"},
+        "links": {"type": "array"},
+        "table_count": {"type": "integer"},
+        "tables": {"type": "array"},
+        "form_count": {"type": "integer"},
+        "forms": {"type": "array"},
+    },
+}
+
 FILL_FORM_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": ["task_id", "url", "profile_id", "fields"],
@@ -112,6 +146,7 @@ def build_default_tool_runtime(
     *,
     extract_form_analysis_handler=extract_form_analysis,
     map_fields_by_rules_handler=map_fields_by_rules,
+    extract_page_handler=extract_page,
     fill_form_handler=fill_form_and_capture_screenshot,
     submit_form_handler=submit_form_and_capture_screenshot,
 ) -> ToolRuntime:
@@ -131,6 +166,13 @@ def build_default_tool_runtime(
             "field_count": len(fields),
             "login_required": analysis.login_required,
         }
+
+    async def run_extract_page(
+        _context: ToolExecutionContext,
+        tool_input: dict[str, Any],
+    ) -> dict[str, Any]:
+        result = await extract_page_handler(tool_input["url"], tool_input["profile_id"])
+        return _page_extraction_to_dict(result)
 
     async def run_map_fields(
         context: ToolExecutionContext,
@@ -246,6 +288,20 @@ def build_default_tool_runtime(
                 mutates_external_system=False,
                 trace_phase="extraction",
                 handler=run_extract_form,
+            )
+        )
+    for name in ("extract_page", "extract_page_structure"):
+        runtime.register(
+            AgentTool(
+                name=name,
+                description="Extract structured page content.",
+                input_schema=EXTRACT_PAGE_INPUT_SCHEMA,
+                output_schema=EXTRACT_PAGE_OUTPUT_SCHEMA,
+                risk_level="low",
+                mutates_browser=False,
+                mutates_external_system=False,
+                trace_phase="extraction",
+                handler=run_extract_page,
             )
         )
     for name in ("map_fields", "generate_field_mappings"):
@@ -402,6 +458,37 @@ def _mapped_field_to_dict(field: object) -> dict[str, Any]:
     }
 
 
+def _page_extraction_to_dict(result: object) -> dict[str, Any]:
+    headings = getattr(result, "headings")
+    links = getattr(result, "links")
+    tables = getattr(result, "tables")
+    forms = getattr(result, "forms")
+    text_blocks = getattr(result, "main_text_blocks")
+    return {
+        "title": getattr(result, "title"),
+        "heading_count": len(headings),
+        "headings": [{"level": h.level, "text": h.text} for h in headings],
+        "text_block_count": len(text_blocks),
+        "main_text_blocks": text_blocks,
+        "link_count": len(links),
+        "links": [{"text": link.text, "href": link.href} for link in links],
+        "table_count": len(tables),
+        "tables": [
+            {"headers": table.headers, "row_count": len(table.rows)}
+            for table in tables
+        ],
+        "form_count": len(forms),
+        "forms": [
+            {
+                "action": form.action,
+                "method": form.method,
+                "field_count": form.field_count,
+            }
+            for form in forms
+        ],
+    }
+
+
 def _task_from_context(context: ToolExecutionContext, task_id: int) -> Task | None:
     db = context.metadata.get("db")
     return db.get(Task, task_id) if hasattr(db, "get") else None
@@ -433,6 +520,8 @@ def _int_id(item: object) -> int | None:
 __all__ = [
     "EXTRACT_FORM_INPUT_SCHEMA",
     "EXTRACT_FORM_OUTPUT_SCHEMA",
+    "EXTRACT_PAGE_INPUT_SCHEMA",
+    "EXTRACT_PAGE_OUTPUT_SCHEMA",
     "FILL_FORM_INPUT_SCHEMA",
     "FILL_FORM_OUTPUT_SCHEMA",
     "MAP_FIELDS_INPUT_SCHEMA",

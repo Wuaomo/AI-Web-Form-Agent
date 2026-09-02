@@ -672,6 +672,68 @@ def save_map_fields_runtime_state(db: Session, *, task: Task, tool_result: Any) 
     )
 
 
+def save_extract_page_runtime_state(db: Session, *, task: Task, tool_result: Any) -> None:
+    """Persist compact runtime state for a legacy page extraction read."""
+
+    save_governed_runtime_state(
+        db,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": task.description or "Extract page content.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": task.status,
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:page-extraction-plan:1",
+                "version": 1,
+                "goal": task.description or "Extract page content.",
+                "steps": [
+                    {
+                        "step_id": "extract_page",
+                        "tool_name": "extract_page",
+                        "reason": "Extract structured page content.",
+                        "input_json": {
+                            "url": task.url,
+                            "profile_id": task.profile_id,
+                        },
+                        "risk_level": "low",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "tool_results": [tool_result.model_dump(mode="json")],
+        },
+    )
+
+
+async def execute_extract_page_runtime(db: Session, task: Task) -> Any:
+    """Run the read-only extract_page runtime tool for one legacy task."""
+
+    tool_result = await build_default_tool_runtime(
+        extract_page_handler=extract_page,
+    ).execute(
+        tool_call_id=f"task-{task.id}:extract_page",
+        tool_name="extract_page",
+        tool_input={"url": task.url, "profile_id": task.profile_id},
+        context=ToolExecutionContext(
+            run_id=f"task-{task.id}",
+            plan_step_id="extract_page",
+            metadata={"db": db, "task_id": task.id},
+        ),
+    )
+    if tool_result.status != "SUCCEEDED":
+        raise RuntimeError(tool_result.error or "Runtime extract_page failed")
+    return tool_result
+
+
 @router.post(
     "",
     response_model=TaskResponse,
@@ -1174,7 +1236,7 @@ async def extract_task_page(
     db.commit()
 
     try:
-        result = await extract_page(task.url, task.profile_id)
+        tool_result = await execute_extract_page_runtime(db, task)
 
         await open_url_and_capture_screenshot(
             task_id=task.id,
@@ -1184,25 +1246,7 @@ async def extract_task_page(
             db=db,
         )
 
-        extraction_output = {
-            "title": result.title,
-            "heading_count": len(result.headings),
-            "headings": [{"level": h.level, "text": h.text} for h in result.headings],
-            "text_block_count": len(result.main_text_blocks),
-            "main_text_blocks": result.main_text_blocks,
-            "link_count": len(result.links),
-            "links": [{"text": l.text, "href": l.href} for l in result.links],
-            "table_count": len(result.tables),
-            "tables": [
-                {"headers": t.headers, "row_count": len(t.rows)}
-                for t in result.tables
-            ],
-            "form_count": len(result.forms),
-            "forms": [
-                {"action": f.action, "method": f.method, "field_count": f.field_count}
-                for f in result.forms
-            ],
-        }
+        extraction_output = tool_result.output_json
 
         write_checkpoint(
             task_id=task.id,
@@ -1214,11 +1258,18 @@ async def extract_task_page(
         )
 
         apply_workflow_status(task, WORKFLOW_STATUS_COMPLETED, reason="extraction_completed")
+        save_extract_page_runtime_state(db, task=task, tool_result=tool_result)
         create_log(
             task_id=task.id,
             step=get_next_log_step(task.id, db),
             action="extract_page",
-            message=f"Extracted page data: {len(result.headings)} headings, {len(result.links)} links, {len(result.tables)} tables, {len(result.forms)} forms",
+            message=(
+                "Extracted page data: "
+                f"{extraction_output['heading_count']} headings, "
+                f"{extraction_output['link_count']} links, "
+                f"{extraction_output['table_count']} tables, "
+                f"{extraction_output['form_count']} forms"
+            ),
             status="SUCCESS",
             db=db,
         )
@@ -1227,10 +1278,10 @@ async def extract_task_page(
             extract_span_id,
             status=SPAN_STATUS_SUCCESS,
             output={
-                "heading_count": len(result.headings),
-                "link_count": len(result.links),
-                "table_count": len(result.tables),
-                "form_count": len(result.forms),
+                "heading_count": extraction_output["heading_count"],
+                "link_count": extraction_output["link_count"],
+                "table_count": extraction_output["table_count"],
+                "form_count": extraction_output["form_count"],
             },
             latency_ms=int((time.monotonic() - span_started_at) * 1000),
         )
@@ -1317,6 +1368,7 @@ async def generate_job_summary(
     db.commit()
 
     try:
+        extract_tool_result = None
         extraction_checkpoints = list_checkpoints(task_id=task.id, db=db)
         extraction_data = None
         for cp in extraction_checkpoints:
@@ -1335,7 +1387,7 @@ async def generate_job_summary(
             )
             db.commit()
 
-            result = await extract_page(task.url, task.profile_id)
+            extract_tool_result = await execute_extract_page_runtime(db, task)
 
             await open_url_and_capture_screenshot(
                 task_id=task.id,
@@ -1345,25 +1397,7 @@ async def generate_job_summary(
                 db=db,
             )
 
-            extraction_data = {
-                "title": result.title,
-                "heading_count": len(result.headings),
-                "headings": [{"level": h.level, "text": h.text} for h in result.headings],
-                "text_block_count": len(result.main_text_blocks),
-                "main_text_blocks": result.main_text_blocks,
-                "link_count": len(result.links),
-                "links": [{"text": l.text, "href": l.href} for l in result.links],
-                "table_count": len(result.tables),
-                "tables": [
-                    {"headers": t.headers, "row_count": len(t.rows)}
-                    for t in result.tables
-                ],
-                "form_count": len(result.forms),
-                "forms": [
-                    {"action": f.action, "method": f.method, "field_count": f.field_count}
-                    for f in result.forms
-                ],
-            }
+            extraction_data = extract_tool_result.output_json
 
             write_checkpoint(
                 task_id=task.id,
@@ -1393,6 +1427,8 @@ async def generate_job_summary(
         )
 
         apply_workflow_status(task, WORKFLOW_STATUS_COMPLETED, reason="summary_completed")
+        if extract_tool_result is not None:
+            save_extract_page_runtime_state(db, task=task, tool_result=extract_tool_result)
         create_log(
             task_id=task.id,
             step=get_next_log_step(task.id, db),

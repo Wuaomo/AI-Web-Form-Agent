@@ -158,6 +158,22 @@ def create_task_without_fields(session: Session) -> Task:
     return task
 
 
+def create_web_data_task(session: Session) -> Task:
+    """Create a web data extraction task for endpoint tests."""
+
+    profile = Profile(profile_name="Web data profile")
+    task = Task(
+        url="https://example.com/page",
+        profile=profile,
+        status="CREATED",
+        workflow_status="CREATED",
+        workflow_type="web_data_extract",
+    )
+    session.add(task)
+    session.commit()
+    return task
+
+
 def test_create_task_response_includes_workflow_fields(
     test_environment: tuple[TestClient, Session],
 ) -> None:
@@ -262,6 +278,80 @@ def test_list_tasks_includes_compact_agent_runtime_state(
     assert payload["agent_runtime"]["pending_review_count"] == 2
     assert payload["agent_runtime"]["tool_result_count"] == 1
     assert "tool_results" not in payload["agent_runtime"]
+
+
+def test_extract_page_persists_runtime_call_without_raw_task_facade_output(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify legacy page extraction records runtime without raw UI facade output."""
+
+    client, session = test_environment
+    task = create_web_data_task(session)
+    page_result = SimpleNamespace(
+        title="Research page",
+        headings=[SimpleNamespace(level=1, text="Overview")],
+        main_text_blocks=["Long research paragraph for checkpoint output."],
+        links=[SimpleNamespace(text="Docs", href="https://example.com/docs")],
+        tables=[SimpleNamespace(headers=["Name"], rows=[["Ada"]])],
+        forms=[SimpleNamespace(action="/signup", method="POST", field_count=2)],
+    )
+
+    with (
+        patch("app.routers.tasks.extract_page", new=AsyncMock(return_value=page_result)),
+        patch(
+            "app.routers.tasks.open_url_and_capture_screenshot",
+            new=AsyncMock(return_value=None),
+        ),
+    ):
+        response = client.post(f"/tasks/{task.id}/extract-page")
+
+    assert response.status_code == 200
+    call = session.get(AgentToolCall, f"task-{task.id}:extract_page")
+    assert call is not None
+    assert call.tool_name == "extract_page"
+    result = session.get(AgentToolResult, f"task-{task.id}:extract_page")
+    assert result is not None
+    assert result.output_json["heading_count"] == 1
+
+    task_response = client.get(f"/tasks/{task.id}")
+    payload = task_response.json()
+    assert payload["agent_runtime"]["tool_result_count"] == 1
+    assert "tool_results" not in payload["agent_runtime"]
+    assert "main_text_blocks" not in payload["agent_runtime"]
+
+
+def test_job_summary_page_extraction_persists_runtime_call(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify job-summary prerequisite page extraction records runtime."""
+
+    client, session = test_environment
+    task = create_web_data_task(session)
+    page_result = SimpleNamespace(
+        title="Research page",
+        headings=[SimpleNamespace(level=1, text="Overview")],
+        main_text_blocks=["This page describes a role with security ownership."],
+        links=[],
+        tables=[],
+        forms=[],
+    )
+
+    with (
+        patch("app.routers.tasks.extract_page", new=AsyncMock(return_value=page_result)),
+        patch(
+            "app.routers.tasks.open_url_and_capture_screenshot",
+            new=AsyncMock(return_value=None),
+        ),
+    ):
+        response = client.post(f"/tasks/{task.id}/job-summary")
+
+    assert response.status_code == 200
+    call = session.get(AgentToolCall, f"task-{task.id}:extract_page")
+    assert call is not None
+    assert call.tool_name == "extract_page"
+    result = session.get(AgentToolResult, f"task-{task.id}:extract_page")
+    assert result is not None
+    assert result.output_json["text_block_count"] == 1
 
 
 def test_review_items_returns_field_value_proposals(
