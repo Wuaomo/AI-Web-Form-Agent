@@ -61,6 +61,7 @@ MAP_FIELDS_OUTPUT_SCHEMA: dict[str, Any] = {
         "field_count": {"type": "integer"},
         "mapped_count": {"type": "integer"},
         "mode": {"type": "string"},
+        "source_suggestions": {"type": "array"},
     },
 }
 
@@ -168,9 +169,12 @@ def build_default_tool_runtime(
             "fields": field_payload,
             "field_count": len(field_payload),
             "mapped_count": sum(
-                1 for field in field_payload if field["mapped_profile_key"]
+                1
+                for field in field_payload
+                if field["mapped_profile_key"] or field["mapped_value"]
             ),
             "mode": "rules",
+            "source_suggestions": source_suggestions,
             "_created_proposals": [
                 proposal.model_dump(mode="json") for proposal in proposals
             ],

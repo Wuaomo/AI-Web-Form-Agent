@@ -1667,6 +1667,32 @@ def test_map_fields_supports_developer_rule_mode(
     llm.assert_not_called()
 
 
+def test_rules_mapping_persists_map_fields_runtime_call(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify legacy rules mapping records the internal read/write as runtime."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_profile_key = "email"
+    field.mapped_value = "ada@example.com"
+    field.confidence = 1.0
+    session.commit()
+
+    with patch("app.routers.tasks.map_fields_by_rules", return_value=[field]):
+        response = client.post(f"/tasks/{task.id}/map-fields?mode=rules")
+
+    assert response.status_code == 200
+    call = session.get(AgentToolCall, f"task-{task.id}:map_fields")
+    assert call is not None
+    assert call.tool_name == "map_fields"
+    assert call.status == "SUCCEEDED"
+    result = session.get(AgentToolResult, f"task-{task.id}:map_fields")
+    assert result is not None
+    assert result.output_json["field_count"] == 1
+    assert result.output_json["mapped_count"] == 1
+
+
 def test_confirm_mapping_rejects_missing_required_values(
     test_environment: tuple[TestClient, Session],
 ) -> None:

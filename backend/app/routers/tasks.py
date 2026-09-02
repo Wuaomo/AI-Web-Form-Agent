@@ -1,5 +1,6 @@
 """Task-related API endpoints."""
 
+import asyncio
 import logging
 import re
 import time
@@ -623,6 +624,45 @@ def save_analyze_runtime_state(db: Session, *, task: Task, tool_result: Any) -> 
                             "profile_id": task.profile_id,
                         },
                         "risk_level": "low",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "tool_results": [tool_result.model_dump(mode="json")],
+        },
+    )
+
+
+def save_map_fields_runtime_state(db: Session, *, task: Task, tool_result: Any) -> None:
+    """Persist compact runtime state for a legacy rules mapping step."""
+
+    save_governed_runtime_state(
+        db,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": task.description or "Map browser form fields.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": task.status,
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:mapping-plan:1",
+                "version": 1,
+                "goal": task.description or "Map browser form fields.",
+                "steps": [
+                    {
+                        "step_id": "map_fields",
+                        "tool_name": "map_fields",
+                        "reason": "Map extracted fields to profile values.",
+                        "input_json": {"task_id": task.id},
+                        "risk_level": "medium",
                     }
                 ],
                 "created_by": "deterministic",
@@ -1459,6 +1499,9 @@ def map_task_fields(
     )
     map_started_at = time.monotonic()
     selected_provider = provider
+    source_suggestions: list[dict[str, object]] = []
+    retrieval_suggestions: list[dict[str, object]] = []
+    tool_result = None
 
     try:
         if mode == "llm":
@@ -1482,11 +1525,32 @@ def map_task_fields(
             fields = mapping_result.fields
             retrieval_suggestions = mapping_result.retrieval_suggestions
         else:
-            fields = map_fields_by_rules(task_id, db)
-            retrieval_suggestions = []
+            tool_result = asyncio.run(
+                build_default_tool_runtime(
+                    map_fields_by_rules_handler=map_fields_by_rules,
+                ).execute(
+                    tool_call_id=f"task-{task.id}:map_fields",
+                    tool_name="map_fields",
+                    tool_input={"task_id": task.id},
+                    context=ToolExecutionContext(
+                        run_id=f"task-{task.id}",
+                        plan_step_id="map_fields",
+                        metadata={"db": db, "task_id": task.id},
+                    ),
+                )
+            )
+            if tool_result.status != "SUCCEEDED":
+                raise RuntimeError(tool_result.error or "Runtime map_fields failed")
+            fields = list(
+                db.scalars(
+                    select(FormField)
+                    .where(FormField.task_id == task_id)
+                    .order_by(FormField.id)
+                )
+            )
+            source_suggestions = tool_result.output_json.get("source_suggestions") or []
 
-        source_suggestions: list[dict[str, object]] = []
-        if task.workflow_type == WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE:
+        if mode == "llm" and task.workflow_type == WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE:
             source_suggestions = apply_policy_answer_suggestions(
                 fields=fields,
                 db=db,
@@ -1513,6 +1577,8 @@ def map_task_fields(
             output=checkpoint_output,
             db=db,
         )
+        if mode == "rules":
+            save_map_fields_runtime_state(db, task=task, tool_result=tool_result)
         db.commit()
         safe_finish_span(
             map_span_id,
