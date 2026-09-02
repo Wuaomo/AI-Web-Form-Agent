@@ -90,11 +90,7 @@ def _ensure_supported_workflow(task: Task) -> None:
 
 def _ensure_governed_workflow(task: Task) -> None:
     workflow_type = task.workflow_type or WORKFLOW_TYPE_FORM_FILL
-    supported = {
-        WORKFLOW_TYPE_FORM_FILL,
-        WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
-        WORKFLOW_TYPE_VENDOR_ONBOARDING,
-    }
+    supported = _governed_workflow_types()
     if workflow_type not in supported:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -103,6 +99,14 @@ def _ensure_governed_workflow(task: Task) -> None:
                 f"the governed runtime. Supported: {sorted(supported)}"
             ),
         )
+
+
+def _governed_workflow_types() -> set[str]:
+    return {
+        WORKFLOW_TYPE_FORM_FILL,
+        WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
+        WORKFLOW_TYPE_VENDOR_ONBOARDING,
+    }
 
 
 def _to_compact_state(raw_state: dict) -> dict:
@@ -393,7 +397,11 @@ def get_governed_workflow_state(
     """Get the latest compact state for the generic governed runtime."""
 
     task = _get_task_or_404(db, task_id)
-    _ensure_governed_workflow(task)
+    if (task.workflow_type or WORKFLOW_TYPE_FORM_FILL) not in _governed_workflow_types():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No governed runtime state found for task {task_id}.",
+        )
 
     raw_state = get_governed_runtime_state(f"task-{task.id}")
     if raw_state is None:

@@ -127,6 +127,19 @@ def create_form_fill_task(session: Session, profile: Profile) -> Task:
     return task
 
 
+def create_web_data_extract_task(session: Session, profile: Profile) -> Task:
+    task = Task(
+        url="https://example.com/page",
+        profile_id=profile.id,
+        workflow_type="web_data_extract",
+        status="READY",
+        workflow_status="READY",
+    )
+    session.add(task)
+    session.commit()
+    return task
+
+
 def create_governed_proposal(
     session: Session,
     task: Task,
@@ -2172,6 +2185,19 @@ def test_governed_get_returns_404_when_no_runtime_state() -> None:
     client, session = build_environment()
     profile = create_profile(session)
     task = create_form_fill_task(session, profile)
+
+    response = client.get(f"/workflows/{task.id}/governed")
+
+    assert response.status_code == 404
+    session.close()
+
+
+def test_governed_get_returns_404_for_unsupported_workflow_probe() -> None:
+    """GET /governed stays safe as a passive Task Detail runtime probe."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_web_data_extract_task(session, profile)
 
     response = client.get(f"/workflows/{task.id}/governed")
 
