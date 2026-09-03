@@ -54,3 +54,19 @@ def test_section_21_validation_audit_marks_no_key_demo_paths_covered() -> None:
         r"\| No-key deterministic demos and benchmark replay \| covered \|",
         text,
     )
+
+
+def test_section_21_validation_audit_indexes_raw_output_exposure() -> None:
+    """Verify raw runtime outputs are audited at each user-facing boundary."""
+
+    text = AUDIT_DOC.read_text(encoding="utf-8")
+
+    assert "## Raw Output Exposure Matrix" in text
+    for boundary in [
+        "Task facade",
+        "Run Cockpit",
+        "Review Queue",
+        "External read-only tools",
+        "Backend persistence",
+    ]:
+        assert f"| {boundary} |" in text
