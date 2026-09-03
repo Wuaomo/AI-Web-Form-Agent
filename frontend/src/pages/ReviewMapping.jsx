@@ -12,6 +12,7 @@ import Message from "../components/Message";
 import {
   buildReviewGroups,
   buildReviewQueueSummary,
+  buildReviewQueueCompactItems,
   buildProposalBackedReviewFields,
   computeAttentionSummary,
   fieldDisplayName,
@@ -684,6 +685,7 @@ function ReviewMapping() {
   const { requiredMissing, lowConfidence, unmapped } = computeAttentionSummary(reviewFields);
   const reviewGroups = buildReviewGroups(reviewFields);
   const reviewQueueSummary = buildReviewQueueSummary(reviewItems);
+  const compactReviewItems = buildReviewQueueCompactItems(reviewItems);
 
   return (
     <section>
@@ -749,6 +751,20 @@ function ReviewMapping() {
             <span>Evidence-backed</span>
           </div>
         </div>
+        {compactReviewItems.length > 0 && (
+          <ul className="source-evidence-list" aria-label="Non-field review proposals">
+            {compactReviewItems.map((item) => (
+              <li key={item.id}>
+                <span className="badge">{item.label}</span>
+                <p>
+                  {item.value} / {item.status} / {item.riskLevel} risk
+                  {item.evidenceCount > 0 ? ` / ${item.evidenceCount} evidence` : ""}
+                </p>
+                <span className="muted-text">{item.target}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       {requiredMissing.length > 0 || lowConfidence.length > 0 || unmapped.length > 0 ? (

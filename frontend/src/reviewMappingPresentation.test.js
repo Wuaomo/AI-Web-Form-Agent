@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildReviewGroups,
   buildReviewQueueSummary,
+  buildReviewQueueCompactItems,
   buildProposalBackedReviewFields,
   computeAttentionSummary,
   formatProposalTypeLabel,
@@ -318,6 +319,41 @@ test("buildReviewQueueSummary counts generic proposal review states and evidence
       { type: "memory_write", label: "Memory write", count: 1 },
     ],
   });
+});
+
+test("buildReviewQueueCompactItems includes non-field proposals", () => {
+  const items = buildReviewQueueCompactItems([
+    {
+      id: "task-1-field-10",
+      proposal_type: "field_value",
+      target_type: "form_field",
+      target_ref: "10",
+      proposed_value: "Ada",
+      status: "PENDING",
+    },
+    {
+      id: "task-1-field-10-memory-mapping",
+      proposal_type: "memory_write",
+      target_type: "workflow_memory",
+      target_ref: "10",
+      proposed_value: "email",
+      status: "PENDING",
+      risk_level: "medium",
+      evidence: [{ id: "e-1" }],
+    },
+  ]);
+
+  assert.deepEqual(items, [
+    {
+      id: "task-1-field-10-memory-mapping",
+      label: "Memory write",
+      target: "workflow_memory:10",
+      value: "email",
+      status: "PENDING",
+      riskLevel: "medium",
+      evidenceCount: 1,
+    },
+  ]);
 });
 
 test("formatProposalTypeLabel returns stable proposal labels", () => {

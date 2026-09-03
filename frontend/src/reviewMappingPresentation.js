@@ -191,6 +191,30 @@ export function buildReviewQueueSummary(items = []) {
   };
 }
 
+export function buildReviewQueueCompactItems(items = []) {
+  return items
+    .filter((item) => item?.target_type !== "form_field")
+    .map((item) => ({
+      id: item.id,
+      label: formatProposalTypeLabel(item.proposal_type),
+      target: `${item.target_type || "target"}:${item.target_ref || ""}`,
+      value: formatProposalValue(item.proposed_value),
+      status: item.status || "PENDING",
+      riskLevel: item.risk_level || "low",
+      evidenceCount: Array.isArray(item.evidence) ? item.evidence.length : 0,
+    }));
+}
+
+function formatProposalValue(value) {
+  if (value === null || value === undefined || value === "") {
+    return "No value";
+  }
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  return String(value);
+}
+
 export function formatMappingSummary(field) {
   if (!field.mapped_profile_key && !field.mapped_value) {
     return "Not chosen yet";
