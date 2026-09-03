@@ -149,6 +149,12 @@ Completed or mostly completed:
   questionnaire demos through `/workflows/{task_id}/governed/start` in
   deterministic no-key mode; runtime benchmark coverage uses the main demo
   workflow hint. The old security questionnaire graph remains as fallback.
+- Review Queue primary contract, field-mapping compatibility slice: Review
+  Mapping rows now prefer persisted `AgentProposal` values, statuses, and compact
+  evidence when present; approve/edit/reject uses `AgentReviewDecision` locally
+  and keeps `FormField` synchronized for the legacy fill path. Legacy
+  `/tasks` review items, checkpoint source suggestions, and FormField-only rows
+  remain as compatibility fallbacks.
 
 Still missing from the runtime refactor direction:
 

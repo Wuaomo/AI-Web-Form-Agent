@@ -53,7 +53,7 @@ This project demonstrates safe, inspectable AI workflow automation. It combines 
 
 - Workflow console for runs, templates, approvals, traces, and evaluation.
 - Run Cockpit on Task Detail for compact AgentRun plan, tool, governance, and verification state.
-- Review Queue summary and review mapping flow before browser execution.
+- Review Queue summary and proposal-backed review mapping flow before browser execution.
 - Deterministic governed graph path for security questionnaire, vendor onboarding, and generic form-fill demo preparation.
 - Deterministic planner and tool registry for enabled workflow templates.
 - Policy engine and persisted approval requests for risky steps.
@@ -291,7 +291,7 @@ CI runs backend tests and frontend tests/build through `.github/workflows/ci.yml
 
 ## Current Boundaries
 
-This repository is intended to show a review-first agent architecture: AgentRun facades, workflow templates as planning hints, policy gates, approval center, profile memory, source-backed retrieval, trace evidence, evaluation runs, and a runnable local demo. It does not claim the full runtime refactor is complete, nor production deployment, production authentication, cloud hosting, broad scraping, or CAPTCHA bypass.
+This repository is intended to show a review-first agent architecture: AgentRun facades, workflow templates as planning hints, policy gates, approval center, profile memory, source-backed retrieval, trace evidence, evaluation runs, and a runnable local demo. Review Queue is now primary for field-mapping compatibility rows, while legacy `/tasks` review items and FormField sync remain as compatibility paths. It does not claim the full runtime refactor or final section 21 validation is complete, nor production deployment, production authentication, cloud hosting, broad scraping, or CAPTCHA bypass.
 
 ## Resume Bullets
 

@@ -790,6 +790,15 @@ ReviewDecision，然后把 memory write 变成一种需要人工 approve/edit/re
 - source evidence 对任意 proposal type 可展示。
 - memory write proposal 需要 review。
 
+当前状态（2026-09-03）：Review Queue primary contract 的 field-mapping
+compatibility 薄切片已部分完成。Review Mapping 行在有 `AgentProposal` 时优先
+展示 proposal 的 `proposed_value`、状态和 compact evidence；approve/edit/reject
+优先走 `AgentReviewDecision`，并继续同步 `FormField`，保证旧 fill path 不断。
+没有 `AgentProposal` 的旧 task 仍回退到 FormField / legacy review item 路径；
+checkpoint `source_suggestions` 仍作为 source evidence fallback。整体 runtime
+refactor 仍未完成，剩余 gap 至少包括 Review Queue 超出 field mapping 的主合同化
+以及第 21 节完整验证。
+
 ### Phase 4：浏览器写入工具化
 
 目标：fill/click/submit 都通过 Tool Runtime + Governance。
