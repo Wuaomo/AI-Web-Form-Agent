@@ -2,8 +2,9 @@
 
 Date: 2026-09-03
 
-Scope: RFC section 21 validation only. This audit records current evidence and
-remaining gaps; it does not mark the full runtime refactor complete.
+Scope: RFC section 21 validation only. Current status: section 21 validation
+audit completed; remaining gaps documented. This audit records current evidence
+and remaining gaps; it does not mark the full runtime refactor complete.
 
 ## Runtime Object Persistence Matrix
 
@@ -32,7 +33,7 @@ remaining gaps; it does not mark the full runtime refactor complete.
 | No-key deterministic demos and benchmark replay | covered | `backend/tests/test_workflow_runtime_endpoint.py::test_governed_start_keeps_demo_paths_no_key_deterministic`, `backend/tests/test_benchmark_endpoint.py::test_run_benchmark_full_workflow_runs_without_provider`, `::test_run_benchmark_runtime_runs_without_provider` | Generic demo preparation and benchmark replay are covered; legacy fallback remains documented separately. |
 | Read-only external tools | covered | `backend/tests/test_agent_runtime_external_tools.py` | External connector execution remains adapter-driven and allowlisted only. |
 | External write tools | covered | `backend/tests/test_agent_runtime_external_tools.py::test_external_adapter_rejects_write_capable_mcp_tools`, `::test_external_adapter_rejects_write_capable_openapi_operations`, `frontend/src/reviewMappingPresentation.test.js::buildReviewQueueCompactItems guards external write proposals` | External writes are not executable; only compact display guards exist. |
-| Docs and demo alignment | partial | `README.md`, `docs/architecture.md`, `docs/demo-script.md`, this audit | README/RFC/roadmap still need final audit-status wording after validation slices finish. |
+| Docs and demo alignment | covered | `README.md`, `docs/roadmap/00-ai-engineer-alignment-roadmap.md`, `docs/agent-runtime-refactor-rfc.zh.md`, `docs/demo-script.md`, this audit | Keep future docs updates tied to behavior changes. |
 
 ## Raw Output Exposure Matrix
 

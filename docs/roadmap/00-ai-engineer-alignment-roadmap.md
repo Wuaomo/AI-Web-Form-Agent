@@ -164,7 +164,13 @@ Completed or mostly completed:
 
 Still missing from the runtime refactor direction:
 
-- final section 21 validation across every runtime object and demo.
+- section 21 validation audit completed; remaining gaps documented in
+  `docs/section-21-validation-audit.md`. This is an audit milestone, not an
+  overall runtime refactor completion claim.
+- Remaining gaps include legacy `/tasks` and workflow-specific compatibility
+  paths, old security questionnaire graph fallback, and internal browser paths
+  that still rely on compact convergence state rather than a pure Agent Runtime
+  API boundary.
 
 ## Post-Portfolio Extensions
 

@@ -4,6 +4,7 @@ import re
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AUDIT_DOC = REPO_ROOT / "docs" / "section-21-validation-audit.md"
+FINAL_STATUS = "section 21 validation audit completed; remaining gaps documented"
 
 
 def test_section_21_validation_audit_indexes_runtime_object_evidence() -> None:
@@ -70,3 +71,16 @@ def test_section_21_validation_audit_indexes_raw_output_exposure() -> None:
         "Backend persistence",
     ]:
         assert f"| {boundary} |" in text
+
+
+def test_section_21_validation_status_is_reflected_in_primary_docs() -> None:
+    """Verify primary docs record the final audit status without completion claims."""
+
+    for path in [
+        REPO_ROOT / "README.md",
+        REPO_ROOT / "docs" / "roadmap" / "00-ai-engineer-alignment-roadmap.md",
+        REPO_ROOT / "docs" / "agent-runtime-refactor-rfc.zh.md",
+    ]:
+        text = path.read_text(encoding="utf-8")
+        assert FINAL_STATUS in text
+        assert "runtime refactor complete" not in text.lower()

@@ -1033,6 +1033,12 @@ npm run build
 - write external tools 未接入，或已完整通过 review/approval/verification。
 - 文档、README、demo script、benchmark report 与实际行为一致。
 
+当前状态（2026-09-03）：section 21 validation audit completed; remaining gaps documented in `docs/section-21-validation-audit.md`。
+这只是完成定义的审计收口，不是整体 runtime refactor 完成声明。仍保留
+legacy `/tasks` 和 workflow-specific 兼容路径、旧 security questionnaire graph
+fallback，以及部分内部浏览器路径的 compact AgentToolCall/AgentToolResult
+convergence 说明。
+
 ## 22. 不算完成的状态
 
 以下状态不能称为“整体重构完成”：
