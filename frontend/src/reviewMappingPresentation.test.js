@@ -347,6 +347,7 @@ test("buildReviewQueueCompactItems includes non-field proposals", () => {
     {
       id: "task-1-field-10-memory-mapping",
       label: "Memory write",
+      proposalType: "memory_write",
       target: "workflow_memory:10",
       value: "email",
       status: "PENDING",

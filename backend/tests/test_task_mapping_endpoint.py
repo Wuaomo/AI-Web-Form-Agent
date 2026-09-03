@@ -1615,6 +1615,73 @@ def test_review_item_decision_edits_non_field_proposed_value_only(
     assert session.query(WorkflowMemoryItem).count() == 0
 
 
+@pytest.mark.parametrize(
+    ("decision_value", "edited_value", "expected_status"),
+    [
+        ("approved", None, "APPROVED"),
+        ("edited", "support_email", "EDITED"),
+        ("rejected", None, "REJECTED"),
+    ],
+)
+def test_review_item_decision_keeps_memory_write_proposal_only(
+    test_environment: tuple[TestClient, Session],
+    decision_value: str,
+    edited_value: str | None,
+    expected_status: str,
+) -> None:
+    """Verify memory-write decisions persist without saving memory or fields."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_value = "old@example.com"
+    field.confidence = 0.5
+    run = AgentRun(
+        id=f"proposal-only-memory-run-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review memory proposal.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"proposal-only-memory-write-{task.id}",
+        run=run,
+        proposal_type="memory_write",
+        target_type="workflow_memory",
+        target_ref=str(field.id),
+        proposed_value="email",
+        rationale="Review memory write.",
+        confidence=0.8,
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+
+    payload = {"decision": decision_value}
+    if edited_value is not None:
+        payload["edited_value"] = edited_value
+    response = client.post(
+        f"/tasks/{task.id}/review-items/{proposal.id}/decision",
+        json=payload,
+    )
+
+    assert response.status_code == 200
+    decision = session.get(AgentReviewDecision, f"decision-{proposal.id}")
+    assert decision is not None
+    assert decision.decision == decision_value
+    assert decision.edited_value == edited_value
+    session.refresh(proposal)
+    assert proposal.status == expected_status
+    session.refresh(field)
+    assert field.mapped_value == "old@example.com"
+    assert field.confidence == 0.5
+    assert session.query(WorkflowMemoryItem).count() == 0
+
+
 def test_review_item_decision_rejects_existing_field_mapping(
     test_environment: tuple[TestClient, Session],
 ) -> None:

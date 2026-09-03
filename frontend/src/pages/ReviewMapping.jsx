@@ -35,6 +35,7 @@ import {
   valueControlLabel,
 } from "../reviewMappingPresentation";
 import {
+  applyReviewItemDecision,
   applyFieldReviewDecision,
   applyFieldValueEdit,
 } from "../reviewMappingActions";
@@ -79,6 +80,7 @@ function ReviewMapping() {
   const [taskCheckpoints, setTaskCheckpoints] = useState([]);
   const [workflowRuntime, setWorkflowRuntime] = useState(null);
   const [fieldApprovals, setFieldApprovals] = useState({});
+  const [compactReviewEdits, setCompactReviewEdits] = useState({});
   const agentReviewInFlight = useRef(false);
   const pendingValueUpdateTimers = useRef({});
   const pendingValueUpdates = useRef({});
@@ -170,6 +172,29 @@ function ReviewMapping() {
     setReviewItems((current) =>
       current.map((item) => (item.id === updatedItem.id ? updatedItem : item)),
     );
+  }
+
+  async function applyCompactReviewItemDecision(itemId, decision) {
+    const reviewItem = reviewItems.find((item) => item.id === itemId);
+    if (!reviewItem) {
+      return;
+    }
+    setError("");
+    setFieldUpdateCount((count) => count + 1);
+    try {
+      const result = await applyReviewItemDecision({
+        apiClient: api,
+        taskId,
+        reviewItem,
+        decision,
+        editedValue: compactReviewEdits[itemId],
+      });
+      applyReviewedItem(result.reviewItem);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setFieldUpdateCount((count) => Math.max(count - 1, 0));
+    }
   }
 
   async function setFieldApproval(fieldId, status) {
@@ -761,6 +786,41 @@ function ReviewMapping() {
                   {item.evidenceCount > 0 ? ` / ${item.evidenceCount} evidence` : ""}
                 </p>
                 <span className="muted-text">{item.target}</span>
+                {item.proposalType === "memory_write" && item.status === "PENDING" && (
+                  <div className="review-actions">
+                    <input
+                      value={compactReviewEdits[item.id] ?? item.value}
+                      onChange={(event) =>
+                        setCompactReviewEdits((current) => ({
+                          ...current,
+                          [item.id]: event.target.value,
+                        }))
+                      }
+                      aria-label={`${item.label} edited value`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => applyCompactReviewItemDecision(item.id, "approved")}
+                      disabled={fieldUpdateCount > 0}
+                    >
+                      Approve
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applyCompactReviewItemDecision(item.id, "edited")}
+                      disabled={fieldUpdateCount > 0}
+                    >
+                      Save edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applyCompactReviewItemDecision(item.id, "rejected")}
+                      disabled={fieldUpdateCount > 0}
+                    >
+                      Reject
+                    </button>
+                  </div>
+                )}
               </li>
             ))}
           </ul>

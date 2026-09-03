@@ -15,6 +15,23 @@ export async function applyFieldValueEdit({
   });
 }
 
+export async function applyReviewItemDecision({
+  apiClient,
+  taskId,
+  reviewItem,
+  decision,
+  editedValue,
+}) {
+  await apiClient.reviewTaskItem(
+    taskId,
+    reviewItem.id,
+    buildReviewDecisionPayload(decision, editedValue),
+  );
+  return {
+    reviewItem: applyDecisionToReviewItem(reviewItem, decision, editedValue),
+  };
+}
+
 export async function applyFieldReviewDecision({
   apiClient,
   taskId,
@@ -25,15 +42,17 @@ export async function applyFieldReviewDecision({
 }) {
   const reviewItem = reviewItemsByFieldId.get(field.id);
   if (reviewItem) {
-    await apiClient.reviewTaskItem(
+    const result = await applyReviewItemDecision({
+      apiClient,
       taskId,
-      reviewItem.id,
-      buildReviewDecisionPayload(decision, editedValue),
-    );
+      reviewItem,
+      decision,
+      editedValue,
+    });
     return {
       usedGenericReview: true,
       field: applyDecisionToField(field, decision, editedValue, reviewItem),
-      reviewItem: applyDecisionToReviewItem(reviewItem, decision, editedValue),
+      reviewItem: result.reviewItem,
     };
   }
 

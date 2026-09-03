@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  applyReviewItemDecision,
   applyFieldReviewDecision,
   applyFieldValueEdit,
 } from "./reviewMappingActions.js";
@@ -138,6 +139,48 @@ test("generic review decisions return updated review item state for proposal-bac
   assert.equal(approved.reviewItem.proposed_value, "proposal@example.com");
   assert.equal(edited.reviewItem.status, "EDITED");
   assert.equal(edited.reviewItem.proposed_value, "edited@example.com");
+  assert.equal(rejected.reviewItem.status, "REJECTED");
+});
+
+test("non-field proposal decisions use generic review item API", async () => {
+  const apiClient = fakeApi();
+  const reviewItem = {
+    id: "task-7-field-4-memory-mapping",
+    target_type: "workflow_memory",
+    proposed_value: "email",
+    status: "PENDING",
+  };
+
+  const approved = await applyReviewItemDecision({
+    apiClient,
+    taskId: 7,
+    reviewItem,
+    decision: "approved",
+  });
+  const edited = await applyReviewItemDecision({
+    apiClient,
+    taskId: 7,
+    reviewItem,
+    decision: "edited",
+    editedValue: "support_email",
+  });
+  const rejected = await applyReviewItemDecision({
+    apiClient,
+    taskId: 7,
+    reviewItem,
+    decision: "rejected",
+  });
+
+  assert.deepEqual(
+    apiClient.calls.map((call) => call.decision),
+    [
+      { decision: "approved" },
+      { decision: "edited", edited_value: "support_email" },
+      { decision: "rejected" },
+    ],
+  );
+  assert.equal(approved.reviewItem.status, "APPROVED");
+  assert.equal(edited.reviewItem.proposed_value, "support_email");
   assert.equal(rejected.reviewItem.status, "REJECTED");
 });
 

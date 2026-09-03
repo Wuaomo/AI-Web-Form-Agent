@@ -197,6 +197,7 @@ export function buildReviewQueueCompactItems(items = []) {
     .map((item) => ({
       id: item.id,
       label: formatProposalTypeLabel(item.proposal_type),
+      proposalType: item.proposal_type || "unknown",
       target: `${item.target_type || "target"}:${item.target_ref || ""}`,
       value: formatProposalValue(item.proposed_value),
       status: item.status || "PENDING",
