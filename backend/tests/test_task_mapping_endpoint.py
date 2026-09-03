@@ -1762,6 +1762,49 @@ def test_review_items_show_external_write_without_raw_tool_results(
     }
 
 
+def test_review_items_restore_unknown_proposal_type_without_crashing(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify unknown proposal types stay reviewable through compatibility UI."""
+
+    client, session = test_environment
+    task, _ = create_task_with_field(session)
+    run = AgentRun(
+        id=f"unknown-proposal-run-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review unknown proposal.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"unknown-proposal-{task.id}",
+        run=run,
+        proposal_type="unexpected_runtime_action",
+        target_type="runtime_action",
+        target_ref="next-step",
+        proposed_value="Review this compactly.",
+        rationale="Unknown proposal types should not break review.",
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+
+    response = client.get(f"/tasks/{task.id}/review-items")
+
+    assert response.status_code == 200
+    item = response.json()[0]
+    assert item["proposal_type"] == "unexpected_runtime_action"
+    assert item["target_type"] == "runtime_action"
+    assert item["target_ref"] == "next-step"
+    assert item["risk_level"] == "medium"
+    assert item["status"] == "PENDING"
+
+
 @pytest.mark.parametrize(
     ("decision_value", "edited_value", "expected_status"),
     [

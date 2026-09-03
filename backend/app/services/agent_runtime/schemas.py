@@ -36,7 +36,7 @@ ToolCallStatus = Literal[
     "WAITING_APPROVAL",
 ]
 ToolResultStatus = Literal["SUCCEEDED", "FAILED"]
-ProposalType = Literal[
+KnownProposalType = Literal[
     "field_value",
     "open_ended_answer",
     "answer",
@@ -46,6 +46,7 @@ ProposalType = Literal[
     "form_submit",
     "external_api_write",
 ]
+ProposalType = str
 ProposalStatus = Literal[
     "PENDING",
     "APPROVED",

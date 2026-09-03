@@ -507,6 +507,25 @@ test("buildReviewQueueCompactItems guards external write proposals", () => {
   assert.doesNotMatch(items[0].value, /tool_results|do not show/);
 });
 
+test("buildReviewQueueCompactItems falls back for unknown proposals", () => {
+  const items = buildReviewQueueCompactItems([
+    {
+      id: "task-1-unknown",
+      proposal_type: "",
+      target_type: "",
+      target_ref: "",
+      proposed_value: "",
+    },
+  ]);
+
+  assert.equal(items[0].label, "Unknown");
+  assert.equal(items[0].proposalType, "unknown");
+  assert.equal(items[0].target, "target:");
+  assert.equal(items[0].value, "No value");
+  assert.equal(items[0].status, "PENDING");
+  assert.equal(items[0].riskLevel, "low");
+});
+
 test("formatProposalTypeLabel returns stable proposal labels", () => {
   assert.equal(formatProposalTypeLabel("field_value"), "Field value");
   assert.equal(formatProposalTypeLabel("open_ended_answer"), "Open ended answer");
