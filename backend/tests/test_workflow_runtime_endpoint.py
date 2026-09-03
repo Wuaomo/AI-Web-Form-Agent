@@ -352,6 +352,72 @@ def test_governed_start_keeps_deterministic_mode_without_openai_key() -> None:
     session.close()
 
 
+@pytest.mark.parametrize(
+    "workflow_type",
+    ["form_fill", "vendor_onboarding", "security_questionnaire"],
+)
+def test_governed_start_keeps_demo_paths_no_key_deterministic(
+    workflow_type: str,
+) -> None:
+    """Verify primary demos use deterministic governed runtime without an LLM key."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = Task(
+        url=f"https://example.com/{workflow_type}",
+        profile_id=profile.id,
+        workflow_type=workflow_type,
+        status="READY",
+        workflow_status="READY",
+    )
+    session.add(task)
+    session.flush()
+    field = FormField(
+        task_id=task.id,
+        label="Email address",
+        selector="#email",
+        field_type="email",
+        required=True,
+    )
+    session.add(field)
+    session.commit()
+
+    analysis = SimpleNamespace(fields=[], login_required=False)
+    runtime = build_default_tool_runtime(
+        extract_form_analysis_handler=AsyncMock(return_value=analysis)
+    )
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.config.OPENAI_API_KEY", None), patch(
+        "app.routers.workflows.build_default_tool_runtime",
+        return_value=runtime,
+    ):
+        response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workflow_type"] == workflow_type
+    assert payload["planner_mode"] == "deterministic"
+    assert payload["plan"]["created_by"] == "deterministic"
+    assert payload["status"] == "WAITING_REVIEW"
+    assert payload["interrupt_at"] == "review"
+
+    run = session.get(AgentRun, f"task-{task.id}")
+    assert run is not None
+    assert run.mode == "deterministic"
+    assert (
+        session.query(AgentProposal)
+        .filter(AgentProposal.run_id == run.id)
+        .filter(AgentProposal.target_ref == str(field.id))
+        .count()
+        >= 1
+    )
+    session.close()
+
+
 def test_governed_start_persists_agent_run_and_plan() -> None:
     """POST /governed/start double-writes the compact AgentRun and AgentPlan."""
 

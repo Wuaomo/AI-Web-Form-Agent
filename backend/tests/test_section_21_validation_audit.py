@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -42,3 +43,14 @@ def test_section_21_validation_audit_indexes_completion_criteria() -> None:
         "Docs and demo alignment",
     ]:
         assert f"| {criterion} |" in text
+
+
+def test_section_21_validation_audit_marks_no_key_demo_paths_covered() -> None:
+    """Verify no-key demo coverage is not left as an audit gap."""
+
+    text = AUDIT_DOC.read_text(encoding="utf-8")
+
+    assert re.search(
+        r"\| No-key deterministic demos and benchmark replay \| covered \|",
+        text,
+    )
