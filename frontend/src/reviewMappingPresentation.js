@@ -203,9 +203,14 @@ export function buildReviewQueueCompactItems(items = []) {
       status: item.status || "PENDING",
       riskLevel: item.risk_level || "low",
       ...(isBrowserActionProposal(item) ? { action: item.proposed_value?.action } : {}),
+      ...(canRequestMoreEvidence(item) ? { canRequestEvidence: true } : {}),
       ...(item.proposal_type === "form_submit" ? { reviewMode: "approval" } : {}),
       evidenceCount: Array.isArray(item.evidence) ? item.evidence.length : 0,
     }));
+}
+
+function canRequestMoreEvidence(item) {
+  return item?.status === "PENDING" && item?.proposal_type !== "form_submit";
 }
 
 function isBrowserActionProposal(item) {

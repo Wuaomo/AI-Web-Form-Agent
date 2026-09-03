@@ -790,6 +790,19 @@ function ReviewMapping() {
                 {item.reviewMode === "approval" && (
                   <span className="muted-text">Explicit approval required before submit.</span>
                 )}
+                {item.canRequestEvidence && item.status === "PENDING" && (
+                  <div className="review-actions">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        applyCompactReviewItemDecision(item.id, "needs_more_evidence")
+                      }
+                      disabled={fieldUpdateCount > 0}
+                    >
+                      Needs evidence
+                    </button>
+                  </div>
+                )}
                 {item.proposalType === "memory_write" && item.status === "PENDING" && (
                   <div className="review-actions">
                     <input

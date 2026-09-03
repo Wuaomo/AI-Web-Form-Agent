@@ -352,6 +352,7 @@ test("buildReviewQueueCompactItems includes non-field proposals", () => {
       value: "email",
       status: "PENDING",
       riskLevel: "medium",
+      canRequestEvidence: true,
       evidenceCount: 1,
     },
   ]);
@@ -431,6 +432,53 @@ test("buildReviewQueueCompactItems shows browser action proposals compactly", ()
   assert.equal(items[1].label, "Browser navigation");
   assert.equal(items[1].target, "url:https://example.com/confirm");
   assert.equal(items[1].action, "navigate");
+});
+
+test("buildReviewQueueCompactItems allows non-field evidence requests", () => {
+  const items = buildReviewQueueCompactItems([
+    {
+      id: "task-1-memory",
+      proposal_type: "memory_write",
+      target_type: "workflow_memory",
+      target_ref: "10",
+      proposed_value: "email",
+      status: "PENDING",
+    },
+    {
+      id: "task-1-click",
+      proposal_type: "browser_click",
+      target_type: "browser_element",
+      target_ref: "#save",
+      proposed_value: { action: "click", selector: "#save" },
+      status: "PENDING",
+    },
+    {
+      id: "task-1-custom",
+      proposal_type: "custom_followup",
+      target_type: "runtime_action",
+      target_ref: "next",
+      proposed_value: "Collect more page context",
+      status: "PENDING",
+    },
+    {
+      id: "task-1-submit",
+      proposal_type: "form_submit",
+      target_type: "approval_request",
+      target_ref: "7",
+      proposed_value: { action: "submit_form", approval_id: 7 },
+      status: "PENDING",
+    },
+  ]);
+
+  assert.deepEqual(
+    items.map((item) => [item.proposalType, item.canRequestEvidence]),
+    [
+      ["memory_write", true],
+      ["browser_click", true],
+      ["custom_followup", true],
+      ["form_submit", undefined],
+    ],
+  );
 });
 
 test("formatProposalTypeLabel returns stable proposal labels", () => {

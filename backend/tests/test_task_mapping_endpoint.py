@@ -1651,6 +1651,68 @@ def test_review_item_decision_edits_non_field_proposed_value_only(
 
 
 @pytest.mark.parametrize(
+    ("proposal_type", "target_type"),
+    [
+        ("memory_write", "workflow_memory"),
+        ("browser_click", "browser_element"),
+        ("custom_followup", "runtime_action"),
+    ],
+)
+def test_review_item_decision_requests_more_evidence_for_non_field_proposals(
+    test_environment: tuple[TestClient, Session],
+    proposal_type: str,
+    target_type: str,
+) -> None:
+    """Verify non-field proposals can request evidence without legacy side effects."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_value = "old@example.com"
+    field.confidence = 0.5
+    run = AgentRun(
+        id=f"evidence-run-{task.id}-{proposal_type}",
+        legacy_task_id=task.id,
+        goal="Review non-field proposal.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"evidence-{proposal_type}-{task.id}",
+        run=run,
+        proposal_type=proposal_type,
+        target_type=target_type,
+        target_ref="target",
+        proposed_value="review this",
+        rationale="Review non-field proposal.",
+        confidence=0.8,
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+
+    response = client.post(
+        f"/tasks/{task.id}/review-items/{proposal.id}/decision",
+        json={"decision": "needs_more_evidence"},
+    )
+
+    assert response.status_code == 200
+    decision = session.get(AgentReviewDecision, f"decision-{proposal.id}")
+    assert decision is not None
+    assert decision.decision == "needs_more_evidence"
+    session.refresh(proposal)
+    assert proposal.status == "NEEDS_MORE_EVIDENCE"
+    session.refresh(field)
+    assert field.mapped_value == "old@example.com"
+    assert field.confidence == 0.5
+    assert session.query(WorkflowMemoryItem).count() == 0
+
+
+@pytest.mark.parametrize(
     ("decision_value", "edited_value", "expected_status"),
     [
         ("approved", None, "APPROVED"),
