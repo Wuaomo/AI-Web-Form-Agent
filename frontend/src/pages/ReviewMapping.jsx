@@ -19,6 +19,7 @@ import {
   formatMappingSummary,
   formatProposalEvidence,
   formatSourceSuggestion,
+  getFieldSourceEvidence,
   getFieldChoiceOptions,
   getProposalReviewItemsByFieldId,
   getSourceSuggestionsByFieldId,
@@ -599,6 +600,37 @@ function ReviewMapping() {
     );
   }
 
+  function renderFieldSourceEvidence(fieldId) {
+    const evidence = getFieldSourceEvidence(
+      fieldId,
+      proposalReviewItemsByFieldId,
+      sourceSuggestionsByFieldId,
+    );
+    if (!evidence) {
+      return null;
+    }
+    if (evidence.type === "proposal") {
+      return (
+        <details className="source-evidence-details">
+          <summary>Source evidence ({evidence.items.length})</summary>
+          <ul className="source-evidence-list">
+            {evidence.items.map((item) => (
+              <li key={item.id}>
+                <span className="evidence-source">{item.source_type}</span>
+                <p>{formatProposalEvidence(item)}</p>
+              </li>
+            ))}
+          </ul>
+        </details>
+      );
+    }
+    return (
+      <p className="review-field-source">
+        {formatSourceSuggestion(evidence.suggestion)}
+      </p>
+    );
+  }
+
   async function confirmMapping() {
     if (requiredMissing.length > 0) {
       setError("Please enter values for all required fields before confirming.");
@@ -904,30 +936,7 @@ function ReviewMapping() {
                           {formatConfidence(field.confidence)}
                         </p>
                       )}
-                      {proposalReviewItemsByFieldId.get(field.id)?.evidence?.length > 0 ? (
-                        <details className="source-evidence-details">
-                          <summary>
-                            Source evidence (
-                            {proposalReviewItemsByFieldId.get(field.id).evidence.length})
-                          </summary>
-                          <ul className="source-evidence-list">
-                            {proposalReviewItemsByFieldId
-                              .get(field.id)
-                              .evidence.map((item) => (
-                                <li key={item.id}>
-                                  <span className="evidence-source">
-                                    {item.source_type}
-                                  </span>
-                                  <p>{formatProposalEvidence(item)}</p>
-                                </li>
-                              ))}
-                          </ul>
-                        </details>
-                      ) : sourceSuggestionsByFieldId.has(field.id) && (
-                        <p className="review-field-source">
-                          {formatSourceSuggestion(sourceSuggestionsByFieldId.get(field.id))}
-                        </p>
-                      )}
+                      {renderFieldSourceEvidence(field.id)}
                       {showAdvancedFieldDetails && field.element_ref && (
                         <details className="technical-details review-field-details">
                           <summary>Field details</summary>
@@ -1012,32 +1021,6 @@ function ReviewMapping() {
                             </span>
                           </div>
                         )}
-                        {getSuggestionForField(field.id)?.source_evidence &&
-                          getSuggestionForField(field.id).source_evidence
-                            .length > 0 && (
-                            <details className="source-evidence-details">
-                              <summary>
-                                Source evidence (
-                                {
-                                  getSuggestionForField(field.id).source_evidence
-                                    .length
-                                }
-                                )
-                              </summary>
-                              <ul className="source-evidence-list">
-                                {getSuggestionForField(
-                                  field.id,
-                                ).source_evidence.map((item, idx) => (
-                                  <li key={idx}>
-                                    <span className="evidence-source">
-                                      {item.source_type}
-                                    </span>
-                                    <p>{item.content}</p>
-                                  </li>
-                                ))}
-                              </ul>
-                            </details>
-                          )}
                         <div className="field-approval-actions">
                           <button
                             className={`button button-small ${

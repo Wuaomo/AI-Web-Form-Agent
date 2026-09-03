@@ -11,6 +11,7 @@ import {
   formatMappingSummary,
   formatSourceSuggestion,
   getProposalReviewItemsByFieldId,
+  getFieldSourceEvidence,
   getFieldChoiceOptions,
   getSourceSuggestionsByFieldId,
   hasFieldChoiceOptions,
@@ -240,6 +241,43 @@ test("proposal-backed review fields prefer proposal value status and evidence", 
   assert.deepEqual(rows[0].proposal_evidence, evidence);
   assert.equal(rows[1].mapped_value, "legacy@example.com");
   assert.equal(rows[1].review_status, undefined);
+});
+
+test("field source evidence prefers compact proposal evidence before checkpoint fallback", () => {
+  const proposalEvidence = [
+    {
+      id: "proposal-evidence",
+      source_type: "policy_doc",
+      quote_or_summary: "Compact proposal evidence.",
+    },
+  ];
+  const proposalItemsByFieldId = new Map([
+    [10, { evidence: proposalEvidence }],
+  ]);
+  const sourceSuggestionsByFieldId = new Map([
+    [10, { source: "checkpoint.md", matched_section: "Fallback" }],
+    [11, { source: "checkpoint.md", matched_section: "Fallback" }],
+  ]);
+
+  assert.deepEqual(
+    getFieldSourceEvidence(
+      10,
+      proposalItemsByFieldId,
+      sourceSuggestionsByFieldId,
+    ),
+    { type: "proposal", items: proposalEvidence },
+  );
+  assert.deepEqual(
+    getFieldSourceEvidence(
+      11,
+      proposalItemsByFieldId,
+      sourceSuggestionsByFieldId,
+    ),
+    {
+      type: "suggestion",
+      suggestion: { source: "checkpoint.md", matched_section: "Fallback" },
+    },
+  );
 });
 
 test("buildReviewQueueSummary counts generic proposal review states and evidence", () => {

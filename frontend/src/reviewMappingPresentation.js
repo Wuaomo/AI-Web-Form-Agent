@@ -267,6 +267,19 @@ export function buildProposalBackedReviewFields(fields = [], reviewItemsByFieldI
   });
 }
 
+export function getFieldSourceEvidence(
+  fieldId,
+  proposalItemsByFieldId = new Map(),
+  sourceSuggestionsByFieldId = new Map(),
+) {
+  const proposalEvidence = proposalItemsByFieldId.get(fieldId)?.evidence;
+  if (Array.isArray(proposalEvidence) && proposalEvidence.length > 0) {
+    return { type: "proposal", items: proposalEvidence };
+  }
+  const suggestion = sourceSuggestionsByFieldId.get(fieldId);
+  return suggestion ? { type: "suggestion", suggestion } : null;
+}
+
 export function formatProposalEvidence(evidence) {
   if (!evidence) {
     return "";
