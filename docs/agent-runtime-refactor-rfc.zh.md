@@ -790,14 +790,17 @@ ReviewDecision，然后把 memory write 变成一种需要人工 approve/edit/re
 - source evidence 对任意 proposal type 可展示。
 - memory write proposal 需要 review。
 
-当前状态（2026-09-03）：Review Queue primary contract 的 field-mapping
-compatibility 薄切片已部分完成。Review Mapping 行在有 `AgentProposal` 时优先
-展示 proposal 的 `proposed_value`、状态和 compact evidence；approve/edit/reject
-优先走 `AgentReviewDecision`，并继续同步 `FormField`，保证旧 fill path 不断。
-没有 `AgentProposal` 的旧 task 仍回退到 FormField / legacy review item 路径；
-checkpoint `source_suggestions` 仍作为 source evidence fallback。整体 runtime
-refactor 仍未完成，剩余 gap 至少包括 Review Queue 超出 field mapping 的主合同化
-以及第 21 节完整验证。
+当前状态（2026-09-03）：Review Queue primary contract 已部分推进到 field
+mapping 之外。Review Mapping 行在有 `AgentProposal` 时优先展示 proposal 的
+`proposed_value`、状态和 compact evidence；approve/edit/reject 优先走
+`AgentReviewDecision`，并继续同步 `FormField`，保证旧 fill path 不断。非字段
+proposal 会出现在 Review Queue compact list；`memory_write` proposal 可
+approve/edit/reject，并只写 `AgentReviewDecision`，不直接写 workflow memory、
+不同步 `FormField`；`form_submit` proposal 以 high-risk approval-owned item
+展示，最终提交仍由 explicit approval endpoint 控制，不能自动 submit。没有
+`AgentProposal` 的旧 task 仍回退到 FormField / legacy review item / legacy
+fill 路径；checkpoint `source_suggestions` 仍作为 source evidence fallback。
+整体 runtime refactor 仍未完成，剩余 gap 至少包括第 21 节完整验证。
 
 ### Phase 4：浏览器写入工具化
 
@@ -866,7 +869,7 @@ generic form fill、vendor onboarding、security questionnaire 路由到
 source-backed questionnaire 建议，runtime benchmark 也使用 main demo 的
 `form_fill` workflow hint。旧 security questionnaire graph 仍作为
 compatibility fallback 保留。这不表示整体 runtime refactor 完成；剩余 gap
-是 Review Queue 成为 primary contract，以及第 21 节整体完成定义的最终验证。
+至少包括 Review Queue 剩余 proposal 类型和第 21 节整体完成定义的最终验证。
 
 ### Phase 7：LLM planner 完整接入
 
@@ -984,7 +987,7 @@ mapping、worker rules mapping、page extraction、job-summary prerequisite
 extraction、fill、submit 和 verification 持久化路径都会记录 compact
 `AgentToolCall` / `AgentToolResult` 或 generic verification state，且 task
 facade 不暴露 raw `tool_results`。剩余 gap 进入下一 phase：Review Queue
-成为 primary contract，以及第 21 节整体完成定义的最终验证。
+primary contract 的剩余 proposal 类型，以及第 21 节整体完成定义的最终验证。
 
 ## 20. 测试策略
 
