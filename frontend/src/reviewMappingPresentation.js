@@ -202,6 +202,7 @@ export function buildReviewQueueCompactItems(items = []) {
       value: formatProposalValue(item.proposed_value),
       status: item.status || "PENDING",
       riskLevel: item.risk_level || "low",
+      ...(item.proposal_type === "form_submit" ? { reviewMode: "approval" } : {}),
       evidenceCount: Array.isArray(item.evidence) ? item.evidence.length : 0,
     }));
 }
@@ -211,6 +212,11 @@ function formatProposalValue(value) {
     return "No value";
   }
   if (typeof value === "object") {
+    if (value.action === "submit_form") {
+      const approval = value.approval_id ? ` approval #${value.approval_id}` : "";
+      const fieldCount = Number(value.field_count || 0);
+      return `submit_form${approval} (${fieldCount} fields)`;
+    }
     return JSON.stringify(value);
   }
   return String(value);

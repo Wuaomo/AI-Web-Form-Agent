@@ -786,6 +786,9 @@ function ReviewMapping() {
                   {item.evidenceCount > 0 ? ` / ${item.evidenceCount} evidence` : ""}
                 </p>
                 <span className="muted-text">{item.target}</span>
+                {item.reviewMode === "approval" && (
+                  <span className="muted-text">Explicit approval required before submit.</span>
+                )}
                 {item.proposalType === "memory_write" && item.status === "PENDING" && (
                   <div className="review-actions">
                     <input

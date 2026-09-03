@@ -357,6 +357,38 @@ test("buildReviewQueueCompactItems includes non-field proposals", () => {
   ]);
 });
 
+test("buildReviewQueueCompactItems marks submit proposals as approval-owned", () => {
+  const items = buildReviewQueueCompactItems([
+    {
+      id: "task-1-submit-12",
+      proposal_type: "form_submit",
+      target_type: "approval_request",
+      target_ref: "12",
+      proposed_value: {
+        action: "submit_form",
+        approval_id: 12,
+        field_count: 3,
+      },
+      status: "PENDING",
+      risk_level: "high",
+    },
+  ]);
+
+  assert.deepEqual(items, [
+    {
+      id: "task-1-submit-12",
+      label: "Form submit",
+      proposalType: "form_submit",
+      target: "approval_request:12",
+      value: "submit_form approval #12 (3 fields)",
+      status: "PENDING",
+      riskLevel: "high",
+      reviewMode: "approval",
+      evidenceCount: 0,
+    },
+  ]);
+});
+
 test("formatProposalTypeLabel returns stable proposal labels", () => {
   assert.equal(formatProposalTypeLabel("field_value"), "Field value");
   assert.equal(formatProposalTypeLabel("open_ended_answer"), "Open ended answer");
