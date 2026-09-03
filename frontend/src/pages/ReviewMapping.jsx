@@ -161,6 +161,15 @@ function ReviewMapping() {
     );
   }
 
+  function applyReviewedItem(updatedItem) {
+    if (!updatedItem) {
+      return;
+    }
+    setReviewItems((current) =>
+      current.map((item) => (item.id === updatedItem.id ? updatedItem : item)),
+    );
+  }
+
   async function setFieldApproval(fieldId, status) {
     const field = fields.find((item) => item.id === fieldId);
     const reviewItem = field ? proposalReviewItemsByFieldId.get(field.id) : null;
@@ -177,6 +186,7 @@ function ReviewMapping() {
           reviewItemsByFieldId: proposalReviewItemsByFieldId,
         });
         applyReviewedField(result.field);
+        applyReviewedItem(result.reviewItem);
       } catch (requestError) {
         setError(requestError.message);
         return;
@@ -220,6 +230,7 @@ function ReviewMapping() {
         ),
       );
       results.forEach((result) => applyReviewedField(result.field));
+      results.forEach((result) => applyReviewedItem(result.reviewItem));
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -345,15 +356,15 @@ function ReviewMapping() {
           field,
           mappedValue: changes.mapped_value,
           reviewItemsByFieldId: proposalReviewItemsByFieldId,
-        }).then((result) => result.field)
+        })
       : api.updateTaskField(taskId, fieldId, changes);
     inFlightFieldUpdates.current.add(request);
 
     try {
-      const updated = await request;
-      setFields((current) =>
-        current.map((field) => (field.id === updated.id ? updated : field)),
-      );
+      const result = await request;
+      const updated = result.field || result;
+      applyReviewedField(updated);
+      applyReviewedItem(result.reviewItem);
       return updated;
     } catch (requestError) {
       setError(requestError.message);

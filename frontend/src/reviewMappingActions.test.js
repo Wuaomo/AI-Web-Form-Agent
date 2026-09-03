@@ -96,6 +96,51 @@ test("field approve and reject use generic review item decisions when a proposal
   );
 });
 
+test("generic review decisions return updated review item state for proposal-backed rows", async () => {
+  const apiClient = fakeApi();
+  const field = { id: 4, mapped_value: "old@example.com" };
+  const reviewItemsByFieldId = new Map([
+    [
+      4,
+      {
+        id: "task-7-field-4",
+        target_type: "form_field",
+        proposed_value: "proposal@example.com",
+        status: "PENDING",
+      },
+    ],
+  ]);
+
+  const approved = await applyFieldReviewDecision({
+    apiClient,
+    taskId: 7,
+    field,
+    decision: "approved",
+    reviewItemsByFieldId,
+  });
+  const edited = await applyFieldReviewDecision({
+    apiClient,
+    taskId: 7,
+    field,
+    decision: "edited",
+    editedValue: "edited@example.com",
+    reviewItemsByFieldId,
+  });
+  const rejected = await applyFieldReviewDecision({
+    apiClient,
+    taskId: 7,
+    field,
+    decision: "rejected",
+    reviewItemsByFieldId,
+  });
+
+  assert.equal(approved.reviewItem.status, "APPROVED");
+  assert.equal(approved.reviewItem.proposed_value, "proposal@example.com");
+  assert.equal(edited.reviewItem.status, "EDITED");
+  assert.equal(edited.reviewItem.proposed_value, "edited@example.com");
+  assert.equal(rejected.reviewItem.status, "REJECTED");
+});
+
 test("field edits and rejects keep the legacy field update fallback", async () => {
   const apiClient = fakeApi();
   const field = { id: 4, mapped_value: "old@example.com" };

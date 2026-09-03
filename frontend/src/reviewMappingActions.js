@@ -32,7 +32,8 @@ export async function applyFieldReviewDecision({
     );
     return {
       usedGenericReview: true,
-      field: applyDecisionToField(field, decision, editedValue),
+      field: applyDecisionToField(field, decision, editedValue, reviewItem),
+      reviewItem: applyDecisionToReviewItem(reviewItem, decision, editedValue),
     };
   }
 
@@ -61,14 +62,18 @@ function buildReviewDecisionPayload(decision, editedValue) {
   return { decision };
 }
 
-function applyDecisionToField(field, decision, editedValue) {
+function applyDecisionToField(field, decision, editedValue, reviewItem) {
   if (decision === "edited") {
     return { ...field, mapped_value: editedValue, confidence: 1 };
   }
   if (decision === "approved") {
+    const mappedValue = Object.hasOwn(reviewItem || {}, "proposed_value")
+      ? reviewItem.proposed_value
+      : field.mapped_value;
     return {
       ...field,
-      confidence: field.mapped_value == null ? field.confidence : 1,
+      mapped_value: mappedValue,
+      confidence: mappedValue == null ? field.confidence : 1,
     };
   }
   if (decision === "rejected") {
@@ -80,4 +85,18 @@ function applyDecisionToField(field, decision, editedValue) {
     };
   }
   return field;
+}
+
+function applyDecisionToReviewItem(reviewItem, decision, editedValue) {
+  const status = {
+    approved: "APPROVED",
+    edited: "EDITED",
+    rejected: "REJECTED",
+    needs_more_evidence: "NEEDS_MORE_EVIDENCE",
+  }[decision];
+  return {
+    ...reviewItem,
+    status: status || reviewItem.status,
+    proposed_value: decision === "edited" ? editedValue : reviewItem.proposed_value,
+  };
 }
