@@ -201,16 +201,28 @@ export function buildReviewQueueCompactItems(items = []) {
       target: `${item.target_type || "target"}:${item.target_ref || ""}`,
       value: formatProposalValue(item.proposed_value),
       status: item.status || "PENDING",
-      riskLevel: item.risk_level || "low",
+      riskLevel: reviewItemRiskLevel(item),
       ...(isBrowserActionProposal(item) ? { action: item.proposed_value?.action } : {}),
       ...(canRequestMoreEvidence(item) ? { canRequestEvidence: true } : {}),
+      ...(item.proposal_type === "external_api_write" ? { reviewMode: "blocked" } : {}),
       ...(item.proposal_type === "form_submit" ? { reviewMode: "approval" } : {}),
       evidenceCount: Array.isArray(item.evidence) ? item.evidence.length : 0,
     }));
 }
 
+function reviewItemRiskLevel(item) {
+  if (item?.proposal_type === "external_api_write") {
+    return item.risk_level === "blocked" ? "blocked" : "high";
+  }
+  return item?.risk_level || "low";
+}
+
 function canRequestMoreEvidence(item) {
-  return item?.status === "PENDING" && item?.proposal_type !== "form_submit";
+  return (
+    item?.status === "PENDING" &&
+    item?.proposal_type !== "form_submit" &&
+    item?.proposal_type !== "external_api_write"
+  );
 }
 
 function isBrowserActionProposal(item) {
@@ -235,7 +247,12 @@ function formatProposalValue(value) {
       const target = value.label || value.selector || value.url || "";
       return target ? `${value.action} ${target}` : value.action;
     }
-    return JSON.stringify(value);
+    if (typeof value.action === "string") {
+      const target = value.service || value.operation || value.target || "";
+      return target ? `${value.action} ${target}` : value.action;
+    }
+    const { tool_results, ...compactValue } = value;
+    return JSON.stringify(compactValue);
   }
   return String(value);
 }

@@ -481,6 +481,32 @@ test("buildReviewQueueCompactItems allows non-field evidence requests", () => {
   );
 });
 
+test("buildReviewQueueCompactItems guards external write proposals", () => {
+  const items = buildReviewQueueCompactItems([
+    {
+      id: "task-1-external-write",
+      proposal_type: "external_api_write",
+      target_type: "external_api",
+      target_ref: "vendor_system",
+      proposed_value: {
+        action: "write_record",
+        service: "vendor_system",
+        tool_results: [{ raw: "do not show" }],
+      },
+      status: "PENDING",
+      evidence: [{ id: "policy" }],
+    },
+  ]);
+
+  assert.equal(items[0].label, "External api write");
+  assert.equal(items[0].target, "external_api:vendor_system");
+  assert.equal(items[0].riskLevel, "high");
+  assert.equal(items[0].reviewMode, "blocked");
+  assert.equal(items[0].canRequestEvidence, undefined);
+  assert.equal(items[0].evidenceCount, 1);
+  assert.doesNotMatch(items[0].value, /tool_results|do not show/);
+});
+
 test("formatProposalTypeLabel returns stable proposal labels", () => {
   assert.equal(formatProposalTypeLabel("field_value"), "Field value");
   assert.equal(formatProposalTypeLabel("open_ended_answer"), "Open ended answer");

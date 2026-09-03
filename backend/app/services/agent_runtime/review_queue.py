@@ -395,6 +395,7 @@ def _proposal_from_row(row: AgentProposal) -> Proposal:
     proposed_value = row.proposed_value
     if latest_decision is not None and latest_decision.decision == "edited":
         proposed_value = latest_decision.edited_value
+    proposed_value = _compact_proposed_value(proposed_value)
 
     return Proposal(
         id=row.id,
@@ -430,6 +431,12 @@ def _proposal_from_row(row: AgentProposal) -> Proposal:
             )
         ],
     )
+
+
+def _compact_proposed_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: item for key, item in value.items() if key != "tool_results"}
+    return value
 
 
 def _latest_decision(

@@ -1712,6 +1712,56 @@ def test_review_item_decision_requests_more_evidence_for_non_field_proposals(
     assert session.query(WorkflowMemoryItem).count() == 0
 
 
+def test_review_items_show_external_write_without_raw_tool_results(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify external write proposals stay compact and display-only."""
+
+    client, session = test_environment
+    task, _ = create_task_with_field(session)
+    run = AgentRun(
+        id=f"external-write-run-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review external write proposal.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"external-write-{task.id}",
+        run=run,
+        proposal_type="external_api_write",
+        target_type="external_api",
+        target_ref="vendor_system",
+        proposed_value={
+            "action": "write_record",
+            "service": "vendor_system",
+            "tool_results": [{"raw": "do not expose"}],
+        },
+        rationale="External writes remain blocked for display only.",
+        risk_level="high",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+
+    response = client.get(f"/tasks/{task.id}/review-items")
+
+    assert response.status_code == 200
+    item = response.json()[0]
+    assert item["proposal_type"] == "external_api_write"
+    assert item["risk_level"] == "high"
+    assert item["target_type"] == "external_api"
+    assert item["target_ref"] == "vendor_system"
+    assert item["proposed_value"] == {
+        "action": "write_record",
+        "service": "vendor_system",
+    }
+
+
 @pytest.mark.parametrize(
     ("decision_value", "edited_value", "expected_status"),
     [

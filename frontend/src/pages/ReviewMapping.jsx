@@ -790,6 +790,9 @@ function ReviewMapping() {
                 {item.reviewMode === "approval" && (
                   <span className="muted-text">Explicit approval required before submit.</span>
                 )}
+                {item.reviewMode === "blocked" && (
+                  <span className="muted-text">External writes are display-only in this build.</span>
+                )}
                 {item.canRequestEvidence && item.status === "PENDING" && (
                   <div className="review-actions">
                     <button
