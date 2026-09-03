@@ -790,15 +790,17 @@ ReviewDecision，然后把 memory write 变成一种需要人工 approve/edit/re
 - source evidence 对任意 proposal type 可展示。
 - memory write proposal 需要 review。
 
-当前状态（2026-09-03）：Review Queue primary contract 已部分推进到 field
-mapping 之外。Review Mapping 行在有 `AgentProposal` 时优先展示 proposal 的
-`proposed_value`、状态和 compact evidence；approve/edit/reject 优先走
-`AgentReviewDecision`，并继续同步 `FormField`，保证旧 fill path 不断。非字段
-proposal 会出现在 Review Queue compact list；`memory_write` proposal 可
-approve/edit/reject，并只写 `AgentReviewDecision`，不直接写 workflow memory、
-不同步 `FormField`；`form_submit` proposal 以 high-risk approval-owned item
-展示，最终提交仍由 explicit approval endpoint 控制，不能自动 submit。没有
-`AgentProposal` 的旧 task 仍回退到 FormField / legacy review item / legacy
+当前状态（2026-09-03）：Review Queue primary contract 已覆盖 field、memory、
+submit、browser-action visibility、unknown proposal fallback 和 external-write
+display guards。Review Mapping 行在有 `AgentProposal` 时优先展示 proposal 的
+`proposed_value`、状态和 compact evidence；approve/edit/reject/needs-more-evidence
+优先写 `AgentReviewDecision`，且只对 field proposal 同步 `FormField`，保证旧
+fill path 不断。`memory_write` decision 只停留在 proposal，不直接写 workflow
+memory；`form_submit` proposal 以 high-risk approval-owned item 展示，最终提交
+仍由 explicit approval endpoint 控制，不能自动 submit；browser click/navigation
+proposal 只以 compact action item 可见，不执行 browser action；`external_api_write`
+proposal 只以 high-risk/blocked-style compact item 展示，不注册或执行外部写入。
+没有 `AgentProposal` 的旧 task 仍回退到 FormField / legacy review item / legacy
 fill 路径；checkpoint `source_suggestions` 仍作为 source evidence fallback。
 整体 runtime refactor 仍未完成，剩余 gap 至少包括第 21 节完整验证。
 

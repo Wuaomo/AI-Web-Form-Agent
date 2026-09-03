@@ -259,8 +259,8 @@ Use [docs/demo-script.md](docs/demo-script.md) for a 3 to 5 minute reviewer demo
 Last checked on this branch:
 
 ```text
-backend:  python -m pytest       -> 763 passed, 1 warning
-frontend: npm test               -> 255 passed
+backend:  python -m pytest       -> 768 passed, 1 warning
+frontend: npm test               -> 259 passed
 frontend: npm run build          -> passed
 ```
 
@@ -291,7 +291,7 @@ CI runs backend tests and frontend tests/build through `.github/workflows/ci.yml
 
 ## Current Boundaries
 
-This repository is intended to show a review-first agent architecture: AgentRun facades, workflow templates as planning hints, policy gates, approval center, profile memory, source-backed retrieval, trace evidence, evaluation runs, and a runnable local demo. Review Queue primary contract work is partially completed beyond field mapping: proposal-backed field rows, compact non-field proposals, memory-write proposal decisions, and high-risk submit proposal display now use AgentProposal / AgentReviewDecision where applicable. Legacy `/tasks` review items, FormField sync, fill fallback, and explicit submit approval endpoints remain compatibility paths. It does not claim the full runtime refactor or final section 21 validation is complete, nor production deployment, production authentication, cloud hosting, broad scraping, or CAPTCHA bypass.
+This repository is intended to show a review-first agent architecture: AgentRun facades, workflow templates as planning hints, policy gates, approval center, profile memory, source-backed retrieval, trace evidence, evaluation runs, and a runnable local demo. Review Queue primary contract now covers field, memory, submit, browser-action visibility, unknown proposal fallback, and external-write display guards through AgentProposal / AgentReviewDecision where applicable. Legacy `/tasks` review items, FormField sync, fill fallback, and explicit submit approval endpoints remain compatibility paths. It does not claim the full runtime refactor or final section 21 validation is complete, nor production deployment, production authentication, cloud hosting, broad scraping, or CAPTCHA bypass.
 
 ## Resume Bullets
 

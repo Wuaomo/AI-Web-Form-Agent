@@ -149,16 +149,18 @@ Completed or mostly completed:
   questionnaire demos through `/workflows/{task_id}/governed/start` in
   deterministic no-key mode; runtime benchmark coverage uses the main demo
   workflow hint. The old security questionnaire graph remains as fallback.
-- Review Queue primary contract, partially completed beyond field mapping:
-  Review Mapping rows now prefer persisted `AgentProposal` values, statuses, and
-  compact evidence when present; approve/edit/reject uses
-  `AgentReviewDecision` locally and keeps `FormField` synchronized for the
-  legacy fill path. Non-field proposals appear in the Review Queue compact list,
-  `memory_write` approve/edit/reject decisions stay proposal-only, and
-  `form_submit` proposals display as high-risk approval-owned items without
-  auto-submit. Legacy `/tasks` review items, checkpoint source suggestions,
-  FormField-only rows, legacy fill fallback, and explicit approval endpoints
-  remain as compatibility fallbacks.
+- Review Queue primary contract coverage beyond field mapping: Review Mapping
+  rows now prefer persisted `AgentProposal` values, statuses, and compact
+  evidence when present; approve/edit/reject/needs-more-evidence writes
+  `AgentReviewDecision` and keeps `FormField` synchronized only for field
+  proposals. `memory_write` decisions stay proposal-only, `form_submit`
+  proposals display as high-risk approval-owned items without auto-submit,
+  browser click/navigation proposals appear as compact display-only action
+  items, unknown proposal types fall back without crashing, and
+  `external_api_write` proposals display as high-risk blocked-style items
+  without registering or executing external writes. Legacy `/tasks` review
+  items, checkpoint source suggestions, FormField-only rows, legacy fill
+  fallback, and explicit approval endpoints remain as compatibility fallbacks.
 
 Still missing from the runtime refactor direction:
 
