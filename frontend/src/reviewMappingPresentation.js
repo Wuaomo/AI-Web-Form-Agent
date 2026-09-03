@@ -245,6 +245,28 @@ export function getProposalReviewItemsByFieldId(items = []) {
   return itemsByFieldId;
 }
 
+export function buildProposalBackedReviewFields(fields = [], reviewItemsByFieldId = new Map()) {
+  return fields.map((field) => {
+    const item = reviewItemsByFieldId.get(field.id);
+    if (!item) {
+      return field;
+    }
+    const hasProposedValue = Object.hasOwn(item, "proposed_value");
+    return {
+      ...field,
+      mapped_value:
+        hasProposedValue && item.status !== "REJECTED"
+          ? item.proposed_value
+          : field.mapped_value,
+      confidence: item.confidence ?? field.confidence,
+      proposal_type: item.proposal_type,
+      proposal_evidence: Array.isArray(item.evidence) ? item.evidence : [],
+      review_item_id: item.id,
+      review_status: item.status || "PENDING",
+    };
+  });
+}
+
 export function formatProposalEvidence(evidence) {
   if (!evidence) {
     return "";

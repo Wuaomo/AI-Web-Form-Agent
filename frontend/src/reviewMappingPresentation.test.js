@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildReviewGroups,
   buildReviewQueueSummary,
+  buildProposalBackedReviewFields,
   computeAttentionSummary,
   formatProposalTypeLabel,
   formatConfidence,
@@ -198,6 +199,47 @@ test("proposal review helpers expose generic evidence by field id", () => {
   assert.equal(byFieldId.get(10).proposal_type, "answer");
   assert.equal(byFieldId.get(10).evidence[0].source_type, "policy_doc");
   assert.equal(byFieldId.has(11), false);
+});
+
+test("proposal-backed review fields prefer proposal value status and evidence", () => {
+  const fields = [
+    {
+      id: 10,
+      field_type: "text",
+      mapped_value: "stale@example.com",
+      confidence: 0.4,
+    },
+    {
+      id: 11,
+      field_type: "text",
+      mapped_value: "legacy@example.com",
+      confidence: 0.9,
+    },
+  ];
+  const evidence = [{ id: "e-1", quote_or_summary: "Mapped from runtime." }];
+  const reviewItemsByFieldId = new Map([
+    [
+      10,
+      {
+        id: "proposal-10",
+        proposal_type: "field_value",
+        status: "PENDING",
+        proposed_value: "proposal@example.com",
+        confidence: 0.88,
+        evidence,
+      },
+    ],
+  ]);
+
+  const rows = buildProposalBackedReviewFields(fields, reviewItemsByFieldId);
+
+  assert.equal(rows[0].mapped_value, "proposal@example.com");
+  assert.equal(rows[0].confidence, 0.88);
+  assert.equal(rows[0].review_status, "PENDING");
+  assert.equal(rows[0].proposal_type, "field_value");
+  assert.deepEqual(rows[0].proposal_evidence, evidence);
+  assert.equal(rows[1].mapped_value, "legacy@example.com");
+  assert.equal(rows[1].review_status, undefined);
 });
 
 test("buildReviewQueueSummary counts generic proposal review states and evidence", () => {

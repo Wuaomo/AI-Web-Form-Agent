@@ -12,6 +12,7 @@ import Message from "../components/Message";
 import {
   buildReviewGroups,
   buildReviewQueueSummary,
+  buildProposalBackedReviewFields,
   computeAttentionSummary,
   fieldDisplayName,
   formatConfidence,
@@ -369,6 +370,13 @@ function ReviewMapping() {
         item.id === fieldId ? { ...item, mapped_value: mappedValue } : item,
       ),
     );
+    setReviewItems((current) =>
+      current.map((item) =>
+        item.target_type === "form_field" && Number(item.target_ref) === fieldId
+          ? { ...item, proposed_value: mappedValue }
+          : item,
+      ),
+    );
   }
 
   function scheduleFieldValueUpdate(fieldId, mappedValue) {
@@ -621,13 +629,17 @@ function ReviewMapping() {
     (provider) => provider.id === selectedLlmProvider,
   );
   const llmUnavailable = mappingMode === "llm" && !selectedProvider?.configured;
-  const { requiredMissing, lowConfidence, unmapped } = computeAttentionSummary(fields);
-  const reviewGroups = buildReviewGroups(fields);
   const showMappingSource = shouldShowMappingSource();
   const showAdvancedFieldDetails = shouldShowAdvancedFieldDetails();
   const showProfileMemoryControl = shouldShowProfileMemoryControl();
   const sourceSuggestionsByFieldId = getSourceSuggestionsByFieldId(taskCheckpoints);
   const proposalReviewItemsByFieldId = getProposalReviewItemsByFieldId(reviewItems);
+  const reviewFields = buildProposalBackedReviewFields(
+    fields,
+    proposalReviewItemsByFieldId,
+  );
+  const { requiredMissing, lowConfidence, unmapped } = computeAttentionSummary(reviewFields);
+  const reviewGroups = buildReviewGroups(reviewFields);
   const reviewQueueSummary = buildReviewQueueSummary(reviewItems);
 
   return (
