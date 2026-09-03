@@ -1459,6 +1459,41 @@ def test_review_item_decision_keeps_legacy_field_id_fallback(
     assert field.confidence == 1.0
 
 
+def test_legacy_form_field_review_confirm_and_fill_without_prior_agent_proposal(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify old FormField review and fill still work before proposals exist."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_value = "old@example.com"
+    field.confidence = 0.5
+    session.commit()
+    assert session.query(AgentProposal).count() == 0
+
+    review_response = client.post(
+        f"/tasks/{task.id}/review-items/task-{task.id}-field-{field.id}/decision",
+        json={"decision": "edited", "edited_value": "ada@example.com"},
+    )
+    confirm_response = client.post(f"/tasks/{task.id}/confirm-mapping")
+
+    assert review_response.status_code == 200
+    assert confirm_response.status_code == 200
+    session.refresh(field)
+    assert field.mapped_value == "ada@example.com"
+    assert field.confidence == 1.0
+
+    with patch(
+        "app.routers.tasks.fill_form_and_capture_screenshot",
+        new_callable=AsyncMock,
+    ) as fill_form:
+        fill_form.return_value = (SimpleNamespace(id=7), [])
+        fill_response = client.post(f"/tasks/{task.id}/fill")
+
+    assert fill_response.status_code == 200
+    fill_form.assert_awaited_once()
+
+
 def test_review_item_decision_persists_review_decision(
     test_environment: tuple[TestClient, Session],
 ) -> None:
