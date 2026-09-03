@@ -202,9 +202,18 @@ export function buildReviewQueueCompactItems(items = []) {
       value: formatProposalValue(item.proposed_value),
       status: item.status || "PENDING",
       riskLevel: item.risk_level || "low",
+      ...(isBrowserActionProposal(item) ? { action: item.proposed_value?.action } : {}),
       ...(item.proposal_type === "form_submit" ? { reviewMode: "approval" } : {}),
       evidenceCount: Array.isArray(item.evidence) ? item.evidence.length : 0,
     }));
+}
+
+function isBrowserActionProposal(item) {
+  return (
+    (item?.proposal_type === "browser_click" ||
+      item?.proposal_type === "browser_navigation") &&
+    typeof item?.proposed_value?.action === "string"
+  );
 }
 
 function formatProposalValue(value) {
@@ -216,6 +225,10 @@ function formatProposalValue(value) {
       const approval = value.approval_id ? ` approval #${value.approval_id}` : "";
       const fieldCount = Number(value.field_count || 0);
       return `submit_form${approval} (${fieldCount} fields)`;
+    }
+    if (value.action === "click" || value.action === "navigate") {
+      const target = value.label || value.selector || value.url || "";
+      return target ? `${value.action} ${target}` : value.action;
     }
     return JSON.stringify(value);
   }

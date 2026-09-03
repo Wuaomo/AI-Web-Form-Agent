@@ -389,6 +389,50 @@ test("buildReviewQueueCompactItems marks submit proposals as approval-owned", ()
   ]);
 });
 
+test("buildReviewQueueCompactItems shows browser action proposals compactly", () => {
+  const items = buildReviewQueueCompactItems([
+    {
+      id: "task-1-click-save",
+      proposal_type: "browser_click",
+      target_type: "browser_element",
+      target_ref: "#save-draft",
+      proposed_value: {
+        action: "click",
+        selector: "#save-draft",
+        label: "Save draft",
+        tool_results: [{ raw: "do not show" }],
+      },
+      status: "PENDING",
+      risk_level: "medium",
+      evidence: [{ id: "e-1" }, { id: "e-2" }],
+    },
+    {
+      id: "task-1-nav-confirm",
+      proposal_type: "browser_navigation",
+      target_type: "url",
+      target_ref: "https://example.com/confirm",
+      proposed_value: {
+        action: "navigate",
+        url: "https://example.com/confirm",
+      },
+      status: "APPROVED",
+      risk_level: "low",
+      evidence: [],
+    },
+  ]);
+
+  assert.equal(items[0].label, "Browser click");
+  assert.equal(items[0].target, "browser_element:#save-draft");
+  assert.equal(items[0].action, "click");
+  assert.equal(items[0].status, "PENDING");
+  assert.equal(items[0].riskLevel, "medium");
+  assert.equal(items[0].evidenceCount, 2);
+  assert.doesNotMatch(items[0].value, /tool_results|do not show/);
+  assert.equal(items[1].label, "Browser navigation");
+  assert.equal(items[1].target, "url:https://example.com/confirm");
+  assert.equal(items[1].action, "navigate");
+});
+
 test("formatProposalTypeLabel returns stable proposal labels", () => {
   assert.equal(formatProposalTypeLabel("field_value"), "Field value");
   assert.equal(formatProposalTypeLabel("open_ended_answer"), "Open ended answer");

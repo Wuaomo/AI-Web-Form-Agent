@@ -782,6 +782,7 @@ function ReviewMapping() {
               <li key={item.id}>
                 <span className="badge">{item.label}</span>
                 <p>
+                  {item.action ? `${item.action} / ` : ""}
                   {item.value} / {item.status} / {item.riskLevel} risk
                   {item.evidenceCount > 0 ? ` / ${item.evidenceCount} evidence` : ""}
                 </p>
