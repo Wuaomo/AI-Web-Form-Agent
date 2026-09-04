@@ -13,6 +13,10 @@ PHASE_12_STATUS = (
     "Phase 12 Agent Runtime API read boundary thin slice completed; "
     "remaining migration gaps documented"
 )
+REVIEW_QUEUE_STATUS = (
+    "Review Queue primary AgentRun API boundary thin slice completed; "
+    "remaining migration gaps documented"
+)
 
 
 def test_section_21_validation_audit_indexes_runtime_object_evidence() -> None:
@@ -89,6 +93,11 @@ def test_section_21_validation_audit_indexes_runtime_api_boundaries() -> None:
     assert "## Runtime API Boundary Matrix" in text
     for boundary, classification in [
         ("/agent-runs/{run_id}", "primary read boundary"),
+        ("/agent-runs/{run_id}/review-items", "primary review boundary"),
+        (
+            "/agent-runs/{run_id}/review-items/{item_id}/decision",
+            "primary review boundary",
+        ),
         ("/workflows/{task_id}/governed/start", "primary"),
         ("/workflows/{task_id}/governed", "primary"),
         ("/workflows/{task_id}/governed/review-items/{item_id}/decision", "primary"),
@@ -181,4 +190,22 @@ def test_phase_12_agent_run_read_boundary_status_is_reflected_in_primary_docs() 
         assert "workflow-specific endpoints" in text
         assert "old security questionnaire graph fallback" in text
         assert "frontend still reads governed workflow endpoint first" in text
+        assert "runtime refactor complete" not in text.lower()
+
+
+def test_review_queue_primary_agent_run_boundary_status_is_reflected() -> None:
+    """Verify docs record primary Review Queue endpoints and compatibility gaps."""
+
+    for path in [
+        REPO_ROOT / "README.md",
+        REPO_ROOT / "docs" / "roadmap" / "00-ai-engineer-alignment-roadmap.md",
+        REPO_ROOT / "docs" / "agent-runtime-refactor-rfc.zh.md",
+        AUDIT_DOC,
+    ]:
+        text = path.read_text(encoding="utf-8")
+        assert REVIEW_QUEUE_STATUS in text
+        assert "`/agent-runs/{run_id}/review-items`" in text
+        assert "`/agent-runs/{run_id}/review-items/{item_id}/decision`" in text
+        assert "legacy `/tasks/{task_id}/review-items` fallback" in text
+        assert "FormField sync" in text
         assert "runtime refactor complete" not in text.lower()

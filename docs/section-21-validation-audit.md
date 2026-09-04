@@ -7,6 +7,7 @@ audit completed; remaining gaps documented. This audit records current evidence
 and remaining gaps; it does not mark full refactor completion.
 Phase 11 Agent Runtime API primary boundary audit completed; remaining migration gaps documented.
 Phase 12 Agent Runtime API read boundary thin slice completed; remaining migration gaps documented.
+Review Queue primary AgentRun API boundary thin slice completed; remaining migration gaps documented.
 
 ## Runtime Object Persistence Matrix
 
@@ -52,6 +53,8 @@ Phase 12 Agent Runtime API read boundary thin slice completed; remaining migrati
 | Boundary | Classification | Audit result |
 | --- | --- | --- |
 | `/agent-runs/{run_id}` | primary read boundary | Returns compact AgentRun state from persisted runtime rows without raw `tool_results` / `output_json`. |
+| `/agent-runs/{run_id}/review-items` | primary review boundary | Returns proposal-backed Review Queue items through AgentRun while preserving legacy FormField/checkpoint backfill. |
+| `/agent-runs/{run_id}/review-items/{item_id}/decision` | primary review boundary | Writes `AgentReviewDecision` through AgentRun and keeps FormField sync only for field proposals. |
 | `/workflows/{task_id}/governed/start` | primary | Generic governed AgentRun preparation boundary for no-key demo paths. |
 | `/workflows/{task_id}/governed` | primary | Restores compact governed runtime state for Run Cockpit. |
 | `/workflows/{task_id}/governed/review-items/{item_id}/decision` | primary | Writes AgentReviewDecision for proposal-backed review decisions. |
@@ -81,7 +84,7 @@ Phase 12 Agent Runtime API read boundary thin slice completed; remaining migrati
 
 - `/tasks` task detail and list facades.
 - `FormField` fallback and synchronization for field proposals.
-- Legacy review items when no persisted `AgentProposal` exists.
+- legacy `/tasks/{task_id}/review-items` fallback when no persisted `AgentProposal` exists.
 - Explicit approval endpoints for final submit and policy gates.
 - Old security questionnaire graph fallback.
 
@@ -91,3 +94,4 @@ Phase 12 Agent Runtime API read boundary thin slice completed; remaining migrati
 - workflow-specific endpoints remain for template, compatibility, and older workflow paths.
 - old security questionnaire graph fallback remains until generic runtime parity is complete.
 - frontend still reads governed workflow endpoint first before the new AgentRun read helper is wired into Run Cockpit.
+- Review Mapping page still reads the legacy task review endpoint before the new AgentRun Review Queue client helper is wired in.

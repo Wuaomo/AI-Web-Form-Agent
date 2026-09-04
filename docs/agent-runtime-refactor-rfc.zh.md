@@ -1051,6 +1051,15 @@ facade, workflow-specific endpoints, old security questionnaire graph fallback,
 and frontend still reads governed workflow endpoint first. 这仍是 read boundary
 薄切片，不是整体 runtime refactor 完成声明。
 
+当前补充状态（2026-09-04）：Review Queue primary AgentRun API boundary thin slice completed; remaining migration gaps documented。
+`/agent-runs/{run_id}/review-items` 和
+`/agent-runs/{run_id}/review-items/{item_id}/decision` 现在通过 AgentRun API
+暴露 proposal-backed review read/write。remaining gaps include legacy `/tasks/{task_id}/review-items` fallback,
+FormField sync compatibility, workflow-specific endpoints, old security
+questionnaire graph fallback, and Review Mapping still reading the task review
+endpoint before the AgentRun client helper is wired in. 这仍是 Review Queue API
+边界薄切片，不是整体 runtime refactor 完成声明。
+
 ## 22. 不算完成的状态
 
 以下状态不能称为“整体重构完成”：

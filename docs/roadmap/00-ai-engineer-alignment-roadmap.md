@@ -174,6 +174,7 @@ Still missing from the runtime refactor direction:
 - Phase 11 Agent Runtime API primary boundary audit completed; remaining migration gaps documented. Remaining gaps include the legacy `/tasks` facade,
   workflow-specific endpoints, and old security questionnaire graph fallback.
 - Phase 12 Agent Runtime API read boundary thin slice completed; remaining migration gaps documented. `/agent-runs/{run_id}` now returns compact AgentRun state without raw tool output. Remaining gaps include the legacy `/tasks` facade, workflow-specific endpoints, old security questionnaire graph fallback, and frontend still reads governed workflow endpoint first.
+- Review Queue primary AgentRun API boundary thin slice completed; remaining migration gaps documented. `/agent-runs/{run_id}/review-items` and `/agent-runs/{run_id}/review-items/{item_id}/decision` now expose proposal-backed review read/write through the AgentRun API. Remaining gaps include legacy `/tasks/{task_id}/review-items` fallback, FormField sync compatibility, workflow-specific endpoints, old security questionnaire graph fallback, and Review Mapping still reading the task review endpoint before the AgentRun client helper is wired in.
 
 ## Post-Portfolio Extensions
 
