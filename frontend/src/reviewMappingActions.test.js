@@ -5,6 +5,8 @@ import {
   applyReviewItemDecision,
   applyFieldReviewDecision,
   applyFieldValueEdit,
+  getReviewMappingRunId,
+  loadReviewItemsForReviewMapping,
 } from "./reviewMappingActions.js";
 
 function fakeApi() {
@@ -15,12 +17,100 @@ function fakeApi() {
       calls.push({ name: "reviewTaskItem", taskId, itemId, decision });
       return { id: `decision-${itemId}`, ...decision };
     },
+    listTaskReviewItems: async (taskId) => {
+      calls.push({ name: "listTaskReviewItems", taskId });
+      return [{ id: "task-review" }];
+    },
+    listAgentRunReviewItems: async (runId) => {
+      calls.push({ name: "listAgentRunReviewItems", runId });
+      return [{ id: "run-review" }];
+    },
+    reviewAgentRunItem: async (runId, itemId, decision) => {
+      calls.push({ name: "reviewAgentRunItem", runId, itemId, decision });
+      return { id: `decision-${itemId}`, ...decision };
+    },
     updateTaskField: async (taskId, fieldId, changes) => {
       calls.push({ name: "updateTaskField", taskId, fieldId, changes });
       return { id: fieldId, ...changes };
     },
   };
 }
+
+test("review mapping resolves AgentRun review items before task fallback", async () => {
+  const apiClient = fakeApi();
+
+  const items = await loadReviewItemsForReviewMapping({
+    apiClient,
+    taskId: 7,
+    task: { agent_run_id: "run-7" },
+  });
+
+  assert.deepEqual(items, [{ id: "run-review" }]);
+  assert.deepEqual(apiClient.calls, [
+    { name: "listAgentRunReviewItems", runId: "run-7" },
+  ]);
+});
+
+test("review mapping falls back to task review items without a run id", async () => {
+  const apiClient = fakeApi();
+
+  assert.equal(
+    getReviewMappingRunId({ agent_runtime: { run_id: "runtime-run-7" } }),
+    "runtime-run-7",
+  );
+
+  await loadReviewItemsForReviewMapping({
+    apiClient,
+    taskId: 7,
+    task: {},
+  });
+
+  assert.deepEqual(apiClient.calls, [{ name: "listTaskReviewItems", taskId: 7 }]);
+});
+
+test("review mapping falls back to task review items when AgentRun review fails", async () => {
+  const apiClient = {
+    ...fakeApi(),
+    listAgentRunReviewItems: async (runId) => {
+      apiClient.calls.push({ name: "listAgentRunReviewItems", runId });
+      throw new Error("missing run");
+    },
+  };
+
+  const items = await loadReviewItemsForReviewMapping({
+    apiClient,
+    taskId: 7,
+    task: { agent_run_id: "run-7" },
+  });
+
+  assert.deepEqual(items, [{ id: "task-review" }]);
+  assert.deepEqual(apiClient.calls, [
+    { name: "listAgentRunReviewItems", runId: "run-7" },
+    { name: "listTaskReviewItems", taskId: 7 },
+  ]);
+});
+
+test("review item decisions prefer AgentRun review boundary with task fallback", async () => {
+  const apiClient = fakeApi();
+  const reviewItem = { id: "proposal-7", status: "PENDING" };
+
+  await applyReviewItemDecision({
+    apiClient,
+    taskId: 7,
+    runId: "run-7",
+    reviewItem,
+    decision: "approved",
+  });
+
+  assert.deepEqual(apiClient.calls, [
+    {
+      name: "reviewAgentRunItem",
+      runId: "run-7",
+      itemId: "proposal-7",
+      decision: { decision: "approved" },
+    },
+  ]);
+});
 
 test("field edits use generic review item decisions when a proposal exists", async () => {
   const apiClient = fakeApi();

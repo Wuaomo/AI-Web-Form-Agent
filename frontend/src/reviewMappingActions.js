@@ -1,6 +1,7 @@
 export async function applyFieldValueEdit({
   apiClient,
   taskId,
+  runId,
   field,
   mappedValue,
   reviewItemsByFieldId,
@@ -8,6 +9,7 @@ export async function applyFieldValueEdit({
   return applyFieldReviewDecision({
     apiClient,
     taskId,
+    runId,
     field,
     decision: "edited",
     editedValue: mappedValue,
@@ -15,18 +17,44 @@ export async function applyFieldValueEdit({
   });
 }
 
+export function getReviewMappingRunId(task) {
+  return task?.agent_run_id || task?.agent_runtime?.run_id || null;
+}
+
+export async function loadReviewItemsForReviewMapping({
+  apiClient,
+  taskId,
+  task,
+}) {
+  const runId = getReviewMappingRunId(task);
+  if (runId) {
+    try {
+      return await apiClient.listAgentRunReviewItems(runId);
+    } catch {
+      // Keep the migration fallback until Review Mapping fully leaves /tasks.
+    }
+  }
+  return apiClient.listTaskReviewItems(taskId);
+}
+
 export async function applyReviewItemDecision({
   apiClient,
   taskId,
+  runId,
   reviewItem,
   decision,
   editedValue,
 }) {
-  await apiClient.reviewTaskItem(
-    taskId,
-    reviewItem.id,
-    buildReviewDecisionPayload(decision, editedValue),
-  );
+  const payload = buildReviewDecisionPayload(decision, editedValue);
+  if (runId) {
+    try {
+      await apiClient.reviewAgentRunItem(runId, reviewItem.id, payload);
+    } catch {
+      await apiClient.reviewTaskItem(taskId, reviewItem.id, payload);
+    }
+  } else {
+    await apiClient.reviewTaskItem(taskId, reviewItem.id, payload);
+  }
   return {
     reviewItem: applyDecisionToReviewItem(reviewItem, decision, editedValue),
   };
@@ -35,6 +63,7 @@ export async function applyReviewItemDecision({
 export async function applyFieldReviewDecision({
   apiClient,
   taskId,
+  runId,
   field,
   decision,
   editedValue,
@@ -45,6 +74,7 @@ export async function applyFieldReviewDecision({
     const result = await applyReviewItemDecision({
       apiClient,
       taskId,
+      runId,
       reviewItem,
       decision,
       editedValue,

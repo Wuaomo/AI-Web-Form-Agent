@@ -38,6 +38,8 @@ import {
   applyReviewItemDecision,
   applyFieldReviewDecision,
   applyFieldValueEdit,
+  getReviewMappingRunId,
+  loadReviewItemsForReviewMapping,
 } from "../reviewMappingActions";
 import {
   decisionLabel,
@@ -92,20 +94,23 @@ function ReviewMapping() {
     setLoading(true);
     setError("");
     try {
+      const taskResult = await api.getTask(taskId);
       const [
-        taskResult,
         fieldItems,
         providerItems,
         agentReviewItems,
         checkpointItems,
         proposalReviewItems,
       ] = await Promise.all([
-        api.getTask(taskId),
         api.listTaskFields(taskId),
         api.listLlmProviders(),
         api.getTaskAgentReviews(taskId).catch(() => []),
         api.listTaskCheckpoints(taskId).catch(() => []),
-        api.listTaskReviewItems(taskId).catch(() => []),
+        loadReviewItemsForReviewMapping({
+          apiClient: api,
+          taskId,
+          task: taskResult,
+        }).catch(() => []),
       ]);
       setTask(taskResult);
       setFields(fieldItems);
@@ -185,6 +190,7 @@ function ReviewMapping() {
       const result = await applyReviewItemDecision({
         apiClient: api,
         taskId,
+        runId: reviewMappingRunId,
         reviewItem,
         decision,
         editedValue: compactReviewEdits[itemId],
@@ -208,6 +214,7 @@ function ReviewMapping() {
         const result = await applyFieldReviewDecision({
           apiClient: api,
           taskId,
+          runId: reviewMappingRunId,
           field,
           decision: status,
           reviewItemsByFieldId: proposalReviewItemsByFieldId,
@@ -250,6 +257,7 @@ function ReviewMapping() {
           applyFieldReviewDecision({
             apiClient: api,
             taskId,
+            runId: reviewMappingRunId,
             field,
             decision: status,
             reviewItemsByFieldId: proposalReviewItemsByFieldId,
@@ -353,7 +361,13 @@ function ReviewMapping() {
         }),
       );
       setTaskCheckpoints(await api.listTaskCheckpoints(taskId).catch(() => []));
-      setReviewItems(await api.listTaskReviewItems(taskId).catch(() => []));
+      setReviewItems(
+        await loadReviewItemsForReviewMapping({
+          apiClient: api,
+          taskId,
+          task,
+        }).catch(() => []),
+      );
       setNotice("Agent mappings generated.");
     } catch (requestError) {
       setError(requestError.message);
@@ -380,6 +394,7 @@ function ReviewMapping() {
       ? applyFieldValueEdit({
           apiClient: api,
           taskId,
+          runId: reviewMappingRunId,
           field,
           mappedValue: changes.mapped_value,
           reviewItemsByFieldId: proposalReviewItemsByFieldId,
@@ -703,6 +718,7 @@ function ReviewMapping() {
   const showProfileMemoryControl = shouldShowProfileMemoryControl();
   const sourceSuggestionsByFieldId = getSourceSuggestionsByFieldId(taskCheckpoints);
   const proposalReviewItemsByFieldId = getProposalReviewItemsByFieldId(reviewItems);
+  const reviewMappingRunId = getReviewMappingRunId(task);
   const reviewFields = buildProposalBackedReviewFields(
     fields,
     proposalReviewItemsByFieldId,
