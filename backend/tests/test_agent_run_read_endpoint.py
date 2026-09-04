@@ -10,7 +10,14 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.main import app
-from app.models import AgentProposal, AgentRun, FormField, Profile, Task
+from app.models import (
+    AgentProposal,
+    AgentReviewDecision,
+    AgentRun,
+    FormField,
+    Profile,
+    Task,
+)
 from app.services.agent_runtime.tool_runtime import AgentTool, ToolExecutionContext, ToolRuntime
 
 
@@ -175,6 +182,71 @@ def test_get_agent_run_review_items_prefers_persisted_proposals() -> None:
         ]
         assert payload[0]["proposed_value"] == "proposal@example.com"
         assert payload[1]["proposed_value"] == "legacy@example.com"
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_agent_run_review_item_decision_persists_decision_and_syncs_field() -> None:
+    client, session = build_environment()
+    task = create_task(session)
+    field = FormField(
+        task_id=task.id,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        mapped_profile_key="email",
+        mapped_value="legacy@example.com",
+        confidence=0.5,
+    )
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review proposal-backed queue.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+        pending_review_count=1,
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"task-{task.id}-field-primary",
+        run=run,
+        proposal_type="field_value",
+        target_type="form_field",
+        target_ref="1",
+        proposed_value="proposal@example.com",
+        rationale="Persisted proposal wins.",
+        confidence=0.42,
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([field, run, proposal])
+    session.flush()
+    proposal.target_ref = str(field.id)
+    session.commit()
+
+    try:
+        response = client.post(
+            f"/agent-runs/task-{task.id}/review-items/{proposal.id}/decision",
+            json={"decision": "approved", "reviewer_note": "looks right"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["proposal_id"] == proposal.id
+        decision = session.get(AgentReviewDecision, f"decision-{proposal.id}")
+        assert decision is not None
+        assert decision.decision == "approved"
+        assert decision.reviewer_note == "looks right"
+        session.refresh(proposal)
+        session.refresh(field)
+        session.refresh(run)
+        assert proposal.status == "APPROVED"
+        assert field.mapped_value == "proposal@example.com"
+        assert field.confidence == 1.0
+        assert run.pending_review_count == 0
     finally:
         app.dependency_overrides.clear()
         session.close()

@@ -1,18 +1,35 @@
 """Agent runtime API endpoints."""
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from sqlalchemy import select
-
 from app.models import AgentRun, FormField, TaskCheckpoint
 from app.routers.workflows import _to_governed_compact_state
-from app.services.agent_runtime.review_queue import load_or_create_task_review_proposals
-from app.services.agent_runtime.schemas import Proposal
+from app.services.agent_runtime.review_queue import (
+    apply_review_decision_to_field_target,
+    load_or_create_task_review_proposals,
+    persist_review_decision,
+    resolve_task_review_item_target,
+)
+from app.services.agent_runtime.schemas import (
+    Proposal,
+    ReviewDecision,
+    ReviewDecisionValue,
+)
 from app.services.agent_runtime.state_store import restore_governed_runtime_state
 
 router = APIRouter(prefix="/agent-runs", tags=["agent-runs"])
+
+
+class AgentRunReviewDecisionRequest(BaseModel):
+    decision: ReviewDecisionValue
+    edited_value: Any = None
+    reviewer_note: str | None = None
 
 
 @router.get("/{run_id}", status_code=status.HTTP_200_OK)
@@ -70,3 +87,50 @@ def list_agent_run_review_items(
     )
     db.commit()
     return proposals
+
+
+@router.post(
+    "/{run_id}/review-items/{proposal_id}/decision",
+    response_model=ReviewDecision,
+)
+def apply_agent_run_review_item_decision(
+    run_id: str,
+    proposal_id: str,
+    request: AgentRunReviewDecisionRequest,
+    db: Session = Depends(get_db),
+) -> ReviewDecision:
+    """Persist a proposal review decision through the AgentRun boundary."""
+
+    run = db.get(AgentRun, run_id)
+    if run is None or run.task is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No agent run state found for {run_id}.",
+        )
+    target = resolve_task_review_item_target(db, task=run.task, proposal_id=proposal_id)
+    if target is None or target.proposal is None or target.proposal.run_id != run_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Review item not found",
+        )
+    if request.decision == "edited" and request.edited_value is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="edited_value is required for edited decisions",
+        )
+
+    apply_review_decision_to_field_target(
+        target,
+        decision=request.decision,
+        edited_value=request.edited_value,
+    )
+    decision = ReviewDecision(
+        id=f"decision-{proposal_id}",
+        proposal_id=proposal_id,
+        decision=request.decision,
+        edited_value=request.edited_value,
+        reviewer_note=request.reviewer_note,
+    )
+    persist_review_decision(db, decision=decision)
+    db.commit()
+    return decision
