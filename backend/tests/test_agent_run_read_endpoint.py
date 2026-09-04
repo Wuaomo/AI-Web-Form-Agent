@@ -10,7 +10,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.main import app
-from app.models import Profile, Task
+from app.models import AgentProposal, AgentRun, FormField, Profile, Task
 from app.services.agent_runtime.tool_runtime import AgentTool, ToolExecutionContext, ToolRuntime
 
 
@@ -120,6 +120,61 @@ def test_get_agent_run_returns_404_for_missing_run() -> None:
 
         assert response.status_code == 404
         assert response.json()["detail"] == "No agent run state found for missing-run."
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_get_agent_run_review_items_prefers_persisted_proposals() -> None:
+    client, session = build_environment()
+    task = create_task(session)
+    field = FormField(
+        task_id=task.id,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        mapped_profile_key="email",
+        mapped_value="legacy@example.com",
+        confidence=0.99,
+    )
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review proposal-backed queue.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"task-{task.id}-field-999",
+        run=run,
+        proposal_type="field_value",
+        target_type="form_field",
+        target_ref="999",
+        proposed_value="proposal@example.com",
+        rationale="Persisted proposal wins.",
+        confidence=0.42,
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([field, run, proposal])
+    session.commit()
+
+    try:
+        response = client.get(f"/agent-runs/task-{task.id}/review-items")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert [item["id"] for item in payload] == [
+            proposal.id,
+            f"task-{task.id}-field-{field.id}",
+            f"task-{task.id}-field-{field.id}-memory-mapping",
+        ]
+        assert payload[0]["proposed_value"] == "proposal@example.com"
+        assert payload[1]["proposed_value"] == "legacy@example.com"
     finally:
         app.dependency_overrides.clear()
         session.close()
