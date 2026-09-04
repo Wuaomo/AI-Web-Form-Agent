@@ -136,6 +136,28 @@ test("workflow runtime API client uses correct paths", async () => {
   }
 });
 
+test("agent run API client uses primary read boundary", async () => {
+  clearApiCache();
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, method: options.method || "GET" });
+    return jsonResponse({ run_id: "task-7", status: "COMPLETED" });
+  };
+
+  try {
+    const result = await api.getAgentRun("task-7");
+
+    assert.deepEqual(result, { run_id: "task-7", status: "COMPLETED" });
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0].url.endsWith("/agent-runs/task-7"));
+    assert.equal(calls[0].method, "GET");
+  } finally {
+    clearApiCache();
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("proposal review API client uses task review item path", async () => {
   clearApiCache();
   const originalFetch = globalThis.fetch;

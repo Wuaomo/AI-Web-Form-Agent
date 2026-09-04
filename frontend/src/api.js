@@ -84,6 +84,7 @@ export const api = {
     });
   },
   getGovernedWorkflowState: (taskId) => request(`/workflows/${taskId}/governed`),
+  getAgentRun: (runId) => request(`/agent-runs/${runId}`),
   getWorkflowState: (taskId) => request(`/workflows/${taskId}`),
   reviewWorkflow: (taskId, reviewData = {}) =>
     request(`/workflows/${taskId}/review`, {
