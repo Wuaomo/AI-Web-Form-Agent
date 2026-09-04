@@ -50,6 +50,7 @@ Phase 11 Agent Runtime API primary boundary audit completed; remaining migration
 
 | Boundary | Classification | Audit result |
 | --- | --- | --- |
+| `/agent-runs/{run_id}` | primary read boundary | Planned compact AgentRun read boundary for Run Cockpit migration; backend endpoint coverage follows in Phase 12. |
 | `/workflows/{task_id}/governed/start` | primary | Generic governed AgentRun preparation boundary for no-key demo paths. |
 | `/workflows/{task_id}/governed` | primary | Restores compact governed runtime state for Run Cockpit. |
 | `/workflows/{task_id}/governed/review-items/{item_id}/decision` | primary | Writes AgentReviewDecision for proposal-backed review decisions. |

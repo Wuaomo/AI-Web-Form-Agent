@@ -84,6 +84,7 @@ def test_section_21_validation_audit_indexes_runtime_api_boundaries() -> None:
 
     assert "## Runtime API Boundary Matrix" in text
     for boundary, classification in [
+        ("/agent-runs/{run_id}", "primary read boundary"),
         ("/workflows/{task_id}/governed/start", "primary"),
         ("/workflows/{task_id}/governed", "primary"),
         ("/workflows/{task_id}/governed/review-items/{item_id}/decision", "primary"),
