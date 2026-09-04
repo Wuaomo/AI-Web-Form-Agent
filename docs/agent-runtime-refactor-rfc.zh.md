@@ -1056,9 +1056,17 @@ and frontend still reads governed workflow endpoint first. 这仍是 read bounda
 `/agent-runs/{run_id}/review-items/{item_id}/decision` 现在通过 AgentRun API
 暴露 proposal-backed review read/write。remaining gaps include legacy `/tasks/{task_id}/review-items` fallback,
 FormField sync compatibility, workflow-specific endpoints, old security
-questionnaire graph fallback, and Review Mapping still reading the task review
-endpoint before the AgentRun client helper is wired in. 这仍是 Review Queue API
+questionnaire graph fallback. 这仍是 Review Queue API
 边界薄切片，不是整体 runtime refactor 完成声明。
+
+当前补充状态（2026-09-04）：Review Mapping AgentRun Review Queue client helper thin slice completed; remaining migration gaps documented。
+Review Mapping now reads AgentRun review items first when `agent_run_id` or
+`agent_runtime.run_id` is present, then falls back to legacy
+`/tasks/{task_id}/review-items`。FormField sync compatibility 继续保留；
+remaining gaps include legacy `/tasks/{task_id}/review-items` fallback,
+workflow-specific endpoints, old security questionnaire graph fallback, and the
+legacy `/tasks` facade. 这仍是前端 client wiring 薄切片，不是整体 runtime
+refactor 完成声明。
 
 ## 22. 不算完成的状态
 

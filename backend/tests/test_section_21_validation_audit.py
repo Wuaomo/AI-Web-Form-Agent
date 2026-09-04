@@ -17,6 +17,10 @@ REVIEW_QUEUE_STATUS = (
     "Review Queue primary AgentRun API boundary thin slice completed; "
     "remaining migration gaps documented"
 )
+REVIEW_MAPPING_CLIENT_STATUS = (
+    "Review Mapping AgentRun Review Queue client helper thin slice completed; "
+    "remaining migration gaps documented"
+)
 
 
 def test_section_21_validation_audit_indexes_runtime_object_evidence() -> None:
@@ -139,7 +143,7 @@ def test_section_21_validation_audit_indexes_frontend_runtime_boundaries() -> No
     for surface, priority in [
         ("Task Detail", "Run Cockpit/generic governed state first"),
         ("Run Cockpit", "governed endpoint state before task facade fallback"),
-        ("Review Mapping", "proposal-backed review items before FormField fallback"),
+        ("Review Mapping", "AgentRun review items before legacy task fallback"),
     ]:
         assert f"| {surface} | {priority} |" in text
 
@@ -206,6 +210,23 @@ def test_review_queue_primary_agent_run_boundary_status_is_reflected() -> None:
         assert REVIEW_QUEUE_STATUS in text
         assert "`/agent-runs/{run_id}/review-items`" in text
         assert "`/agent-runs/{run_id}/review-items/{item_id}/decision`" in text
+        assert "legacy `/tasks/{task_id}/review-items` fallback" in text
+        assert "FormField sync" in text
+        assert "runtime refactor complete" not in text.lower()
+
+
+def test_review_mapping_agent_run_client_status_is_reflected() -> None:
+    """Verify docs record Review Mapping AgentRun-first review client wiring."""
+
+    for path in [
+        REPO_ROOT / "README.md",
+        REPO_ROOT / "docs" / "roadmap" / "00-ai-engineer-alignment-roadmap.md",
+        REPO_ROOT / "docs" / "agent-runtime-refactor-rfc.zh.md",
+        AUDIT_DOC,
+    ]:
+        text = path.read_text(encoding="utf-8")
+        assert REVIEW_MAPPING_CLIENT_STATUS in text
+        assert "Review Mapping now reads AgentRun review items first" in text
         assert "legacy `/tasks/{task_id}/review-items` fallback" in text
         assert "FormField sync" in text
         assert "runtime refactor complete" not in text.lower()

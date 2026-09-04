@@ -8,6 +8,7 @@ and remaining gaps; it does not mark full refactor completion.
 Phase 11 Agent Runtime API primary boundary audit completed; remaining migration gaps documented.
 Phase 12 Agent Runtime API read boundary thin slice completed; remaining migration gaps documented.
 Review Queue primary AgentRun API boundary thin slice completed; remaining migration gaps documented.
+Review Mapping AgentRun Review Queue client helper thin slice completed; remaining migration gaps documented.
 
 ## Runtime Object Persistence Matrix
 
@@ -78,7 +79,7 @@ Review Queue primary AgentRun API boundary thin slice completed; remaining migra
 | --- | --- | --- |
 | Task Detail | Run Cockpit/generic governed state first | `frontend/src/pages/TaskDetail.jsx`, `frontend/src/runCockpitPresentation.test.js::shouldShowLegacyWorkflowRuntimePanel hides legacy panel when Run Cockpit has runtime state` |
 | Run Cockpit | governed endpoint state before task facade fallback | `frontend/src/runCockpitPresentation.test.js::resolveRunCockpitRuntime prefers endpoint state over task facade state` |
-| Review Mapping | proposal-backed review items before FormField fallback | `frontend/src/reviewMappingPresentation.test.js::proposal-backed review fields prefer proposal value status and evidence` |
+| Review Mapping | AgentRun review items before legacy task fallback | `frontend/src/reviewMappingActions.test.js::review mapping resolves AgentRun review items before task fallback`, `frontend/src/reviewMappingActions.test.js::review item decisions prefer AgentRun review boundary with task fallback` |
 
 ## Compatibility Paths Kept
 
@@ -94,4 +95,5 @@ Review Queue primary AgentRun API boundary thin slice completed; remaining migra
 - workflow-specific endpoints remain for template, compatibility, and older workflow paths.
 - old security questionnaire graph fallback remains until generic runtime parity is complete.
 - frontend still reads governed workflow endpoint first before the new AgentRun read helper is wired into Run Cockpit.
-- Review Mapping page still reads the legacy task review endpoint before the new AgentRun Review Queue client helper is wired in.
+- Review Mapping now reads AgentRun review items first when `agent_run_id` or `agent_runtime.run_id` is present, then falls back to legacy `/tasks/{task_id}/review-items`.
+- Review Mapping still keeps legacy `/tasks/{task_id}/review-items` fallback and FormField sync compatibility during migration.
