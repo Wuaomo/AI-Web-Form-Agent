@@ -45,6 +45,18 @@ and remaining gaps; it does not mark the full runtime refactor complete.
 | External read-only tools | covered | `backend/tests/test_agent_runtime_external_tools.py::test_external_readonly_output_becomes_compact_tool_evidence` keeps raw output in `ToolResult.output_json` while producing compact `EvidenceItem` summaries for UI use. |
 | Backend persistence | covered | `backend/tests/test_workflow_runtime_endpoint.py::test_governed_start_persists_tool_calls_and_results` proves raw `AgentToolResult.output_json` is persisted for backend recovery, and `::test_governed_get_restores_compact_state_from_db_when_memory_state_is_missing` proves compact restore omits raw markers. |
 
+## Runtime API Boundary Matrix
+
+| Boundary | Classification | Audit result |
+| --- | --- | --- |
+| `/workflows/{task_id}/governed/start` | primary | Generic governed AgentRun preparation boundary for no-key demo paths. |
+| `/workflows/{task_id}/governed` | primary | Restores compact governed runtime state for Run Cockpit. |
+| `/workflows/{task_id}/governed/review-items/{item_id}/decision` | primary | Writes AgentReviewDecision for proposal-backed review decisions. |
+| `/tasks` | legacy facade | Lists task shells with compact AgentRun facade state only. |
+| `/tasks/{task_id}` | legacy facade | Returns legacy task detail with compact `agent_runtime`, not raw tool results. |
+| `/tasks/{task_id}/review-items` | compatibility fallback | Prefers persisted AgentProposal rows, then derives legacy FormField/checkpoint items when needed. |
+| `/workflows/*` | workflow-specific compatibility | Workflow-template and old graph endpoints remain during migration. |
+
 ## Compatibility Paths Kept
 
 - `/tasks` task detail and list facades.

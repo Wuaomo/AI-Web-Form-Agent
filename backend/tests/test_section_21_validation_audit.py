@@ -73,6 +73,24 @@ def test_section_21_validation_audit_indexes_raw_output_exposure() -> None:
         assert f"| {boundary} |" in text
 
 
+def test_section_21_validation_audit_indexes_runtime_api_boundaries() -> None:
+    """Verify primary and legacy runtime API boundaries are explicitly indexed."""
+
+    text = AUDIT_DOC.read_text(encoding="utf-8")
+
+    assert "## Runtime API Boundary Matrix" in text
+    for boundary, classification in [
+        ("/workflows/{task_id}/governed/start", "primary"),
+        ("/workflows/{task_id}/governed", "primary"),
+        ("/workflows/{task_id}/governed/review-items/{item_id}/decision", "primary"),
+        ("/tasks", "legacy facade"),
+        ("/tasks/{task_id}", "legacy facade"),
+        ("/tasks/{task_id}/review-items", "compatibility fallback"),
+        ("/workflows/*", "workflow-specific compatibility"),
+    ]:
+        assert f"| `{boundary}` | {classification} |" in text
+
+
 def test_section_21_validation_status_is_reflected_in_primary_docs() -> None:
     """Verify primary docs record the final audit status without completion claims."""
 
