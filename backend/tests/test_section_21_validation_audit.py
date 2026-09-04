@@ -112,6 +112,20 @@ def test_section_21_validation_audit_indexes_task_workflow_facade_evidence() -> 
         assert f"| `{boundary}` | {evidence} |" in text
 
 
+def test_section_21_validation_audit_indexes_frontend_runtime_boundaries() -> None:
+    """Verify frontend runtime boundary evidence is tied to UI surfaces."""
+
+    text = AUDIT_DOC.read_text(encoding="utf-8")
+
+    assert "## Frontend Runtime Boundary Evidence Matrix" in text
+    for surface, priority in [
+        ("Task Detail", "Run Cockpit/generic governed state first"),
+        ("Run Cockpit", "governed endpoint state before task facade fallback"),
+        ("Review Mapping", "proposal-backed review items before FormField fallback"),
+    ]:
+        assert f"| {surface} | {priority} |" in text
+
+
 def test_section_21_validation_status_is_reflected_in_primary_docs() -> None:
     """Verify primary docs record the final audit status without completion claims."""
 

@@ -66,6 +66,14 @@ and remaining gaps; it does not mark the full runtime refactor complete.
 | `/tasks/{task_id}/extract-page` | records runtime output while keeping the task facade compact | `backend/tests/test_task_mapping_endpoint.py::test_extract_page_persists_runtime_call_without_raw_task_facade_output` |
 | `/workflows/{task_id}/governed` | restores compact state from persisted AgentRun data | `backend/tests/test_workflow_runtime_endpoint.py::test_governed_get_restores_compact_state_from_db_when_memory_state_is_missing` |
 
+## Frontend Runtime Boundary Evidence Matrix
+
+| Surface | Priority | Coverage |
+| --- | --- | --- |
+| Task Detail | Run Cockpit/generic governed state first | `frontend/src/pages/TaskDetail.jsx`, `frontend/src/runCockpitPresentation.test.js::shouldShowLegacyWorkflowRuntimePanel hides legacy panel when Run Cockpit has runtime state` |
+| Run Cockpit | governed endpoint state before task facade fallback | `frontend/src/runCockpitPresentation.test.js::resolveRunCockpitRuntime prefers endpoint state over task facade state` |
+| Review Mapping | proposal-backed review items before FormField fallback | `frontend/src/reviewMappingPresentation.test.js::proposal-backed review fields prefer proposal value status and evidence` |
+
 ## Compatibility Paths Kept
 
 - `/tasks` task detail and list facades.
