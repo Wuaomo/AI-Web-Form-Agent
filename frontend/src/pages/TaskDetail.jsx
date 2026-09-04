@@ -65,10 +65,10 @@ import {
   getRunCockpitPlanSteps,
   getRunCockpitToolCalls,
   getRunCockpitVerificationDetails,
-  resolveRunCockpitRuntime,
   shouldShowLegacyWorkflowRuntimePanel,
   shouldShowRunCockpit,
 } from "../runCockpitPresentation";
+import { loadRunCockpitRuntime } from "../runCockpitActions";
 import { getExtractionData, getSummaryData } from "../webExtractionPresentation";
 import {
   usesGovernedDemoPath,
@@ -137,17 +137,6 @@ function TaskDetail() {
     }
   }
 
-  async function getGovernedWorkflowRuntimeOrNull(currentTaskId) {
-    try {
-      return await api.getGovernedWorkflowState(currentTaskId);
-    } catch (requestError) {
-      if (requestError.status === 404) {
-        return null;
-      }
-      throw requestError;
-    }
-  }
-
   useEffect(() => {
     if (
       location.state?.notice ||
@@ -179,9 +168,8 @@ function TaskDetail() {
       getTaskPlanOrNull(taskId),
       api.listApprovals({ taskId }).catch(() => []),
       api.getTaskAgentSteps(taskId).catch(() => []),
-      getGovernedWorkflowRuntimeOrNull(taskId),
     ])
-      .then(async ([taskResult, screenshotItems, profileItems, providerItems, logItems, usageResult, checkpointItems, jobItems, verificationItems, reviewItems, traceItems, planResult, approvalItems, agentStepItems, governedRuntimeState]) => {
+      .then(async ([taskResult, screenshotItems, profileItems, providerItems, logItems, usageResult, checkpointItems, jobItems, verificationItems, reviewItems, traceItems, planResult, approvalItems, agentStepItems]) => {
         setTask(taskResult);
         setScreenshots(screenshotItems);
         setProfiles(profileItems);
@@ -196,7 +184,13 @@ function TaskDetail() {
         setTaskPlan(planResult);
         setApprovalRequests(approvalItems);
         setAgentSteps(agentStepItems);
-        setGovernedRuntime(resolveRunCockpitRuntime(taskResult, governedRuntimeState));
+        setGovernedRuntime(
+          await loadRunCockpitRuntime({
+            apiClient: api,
+            taskId,
+            task: taskResult,
+          }),
+        );
         setSelectedLlmProvider(getSavedLlmProvider(providerItems));
 
         const runtimeState = await getWorkflowRuntimeOrNull(
@@ -214,7 +208,7 @@ function TaskDetail() {
   }, [taskId]);
 
   async function refreshTaskData(nextTask = null) {
-    const [taskResult, screenshotItems, logItems, usageResult, checkpointItems, jobItems, verificationItems, reviewItems, traceItems, planResult, approvalItems, agentStepItems, governedRuntimeState] = await Promise.all([
+    const [taskResult, screenshotItems, logItems, usageResult, checkpointItems, jobItems, verificationItems, reviewItems, traceItems, planResult, approvalItems, agentStepItems] = await Promise.all([
       nextTask ? Promise.resolve(nextTask) : api.getTask(taskId),
       api.listTaskScreenshots(taskId),
       api.listTaskLogs(taskId),
@@ -227,7 +221,6 @@ function TaskDetail() {
       getTaskPlanOrNull(taskId),
       api.listApprovals({ taskId }).catch(() => []),
       api.getTaskAgentSteps(taskId).catch(() => []),
-      getGovernedWorkflowRuntimeOrNull(taskId),
     ]);
     setTask(taskResult);
     setScreenshots(screenshotItems);
@@ -241,7 +234,13 @@ function TaskDetail() {
     setTaskPlan(planResult);
     setApprovalRequests(approvalItems);
     setAgentSteps(agentStepItems);
-    setGovernedRuntime(resolveRunCockpitRuntime(taskResult, governedRuntimeState));
+    setGovernedRuntime(
+      await loadRunCockpitRuntime({
+        apiClient: api,
+        taskId,
+        task: taskResult,
+      }),
+    );
   }
 
   async function runAgentReview(role) {
