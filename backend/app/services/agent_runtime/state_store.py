@@ -241,14 +241,14 @@ def restore_governed_runtime_state(
     db: Session,
     *,
     task: Task,
+    run_id: str | None = None,
 ) -> dict[str, Any] | None:
     """Return a compact raw-state equivalent from persisted run/plan rows."""
 
-    run = db.execute(
-        select(AgentRun)
-        .where(AgentRun.legacy_task_id == task.id)
-        .order_by(AgentRun.updated_at.desc())
-    ).scalars().first()
+    query = select(AgentRun).where(AgentRun.legacy_task_id == task.id)
+    if run_id is not None:
+        query = query.where(AgentRun.id == run_id)
+    run = db.execute(query.order_by(AgentRun.updated_at.desc())).scalars().first()
     if run is None:
         return None
 
