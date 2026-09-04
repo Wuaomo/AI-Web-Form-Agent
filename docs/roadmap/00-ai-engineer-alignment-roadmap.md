@@ -171,6 +171,8 @@ Still missing from the runtime refactor direction:
   paths, old security questionnaire graph fallback, and internal browser paths
   that still rely on compact convergence state rather than a pure Agent Runtime
   API boundary.
+- Phase 11 Agent Runtime API primary boundary audit completed; remaining migration gaps documented. Remaining gaps include the legacy `/tasks` facade,
+  workflow-specific endpoints, and old security questionnaire graph fallback.
 
 ## Post-Portfolio Extensions
 

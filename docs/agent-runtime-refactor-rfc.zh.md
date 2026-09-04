@@ -1039,6 +1039,11 @@ legacy `/tasks` 和 workflow-specific 兼容路径、旧 security questionnaire 
 fallback，以及部分内部浏览器路径的 compact AgentToolCall/AgentToolResult
 convergence 说明。
 
+当前补充状态（2026-09-04）：Phase 11 Agent Runtime API primary boundary audit completed; remaining migration gaps documented。
+remaining gaps include the legacy `/tasks` facade, workflow-specific endpoints,
+and old security questionnaire graph fallback. 这仍是边界审计，不是整体 runtime
+refactor 完成声明。
+
 ## 22. 不算完成的状态
 
 以下状态不能称为“整体重构完成”：

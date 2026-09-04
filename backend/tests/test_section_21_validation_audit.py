@@ -5,6 +5,10 @@ import re
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AUDIT_DOC = REPO_ROOT / "docs" / "section-21-validation-audit.md"
 FINAL_STATUS = "section 21 validation audit completed; remaining gaps documented"
+PHASE_11_STATUS = (
+    "Phase 11 Agent Runtime API primary boundary audit completed; "
+    "remaining migration gaps documented"
+)
 
 
 def test_section_21_validation_audit_indexes_runtime_object_evidence() -> None:
@@ -136,4 +140,21 @@ def test_section_21_validation_status_is_reflected_in_primary_docs() -> None:
     ]:
         text = path.read_text(encoding="utf-8")
         assert FINAL_STATUS in text
+        assert "runtime refactor complete" not in text.lower()
+
+
+def test_phase_11_runtime_boundary_status_is_reflected_in_primary_docs() -> None:
+    """Verify primary docs record Phase 11 boundary status and remaining gaps."""
+
+    for path in [
+        REPO_ROOT / "README.md",
+        REPO_ROOT / "docs" / "roadmap" / "00-ai-engineer-alignment-roadmap.md",
+        REPO_ROOT / "docs" / "agent-runtime-refactor-rfc.zh.md",
+        AUDIT_DOC,
+    ]:
+        text = path.read_text(encoding="utf-8")
+        assert PHASE_11_STATUS in text
+        assert "legacy `/tasks` facade" in text
+        assert "workflow-specific endpoints" in text
+        assert "old security questionnaire graph fallback" in text
         assert "runtime refactor complete" not in text.lower()

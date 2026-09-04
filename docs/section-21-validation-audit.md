@@ -4,7 +4,8 @@ Date: 2026-09-03
 
 Scope: RFC section 21 validation only. Current status: section 21 validation
 audit completed; remaining gaps documented. This audit records current evidence
-and remaining gaps; it does not mark the full runtime refactor complete.
+and remaining gaps; it does not mark full refactor completion.
+Phase 11 Agent Runtime API primary boundary audit completed; remaining migration gaps documented.
 
 ## Runtime Object Persistence Matrix
 
@@ -81,3 +82,9 @@ and remaining gaps; it does not mark the full runtime refactor complete.
 - Legacy review items when no persisted `AgentProposal` exists.
 - Explicit approval endpoints for final submit and policy gates.
 - Old security questionnaire graph fallback.
+
+## Remaining Migration Gaps
+
+- The legacy `/tasks` facade remains the compatibility shell for task detail and list views.
+- workflow-specific endpoints remain for template, compatibility, and older workflow paths.
+- old security questionnaire graph fallback remains until generic runtime parity is complete.
