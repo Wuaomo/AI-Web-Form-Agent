@@ -91,6 +91,27 @@ def test_section_21_validation_audit_indexes_runtime_api_boundaries() -> None:
         assert f"| `{boundary}` | {classification} |" in text
 
 
+def test_section_21_validation_audit_indexes_task_workflow_facade_evidence() -> None:
+    """Verify task and workflow facade evidence is pinned to endpoint coverage."""
+
+    text = AUDIT_DOC.read_text(encoding="utf-8")
+
+    assert "## Task And Workflow Endpoint Evidence Matrix" in text
+    for boundary, evidence in [
+        ("/tasks/{task_id}", "compact `agent_runtime` without raw `tool_results`"),
+        ("/tasks", "compact list facade without raw `tool_results`"),
+        (
+            "/tasks/{task_id}/extract-page",
+            "records runtime output while keeping the task facade compact",
+        ),
+        (
+            "/workflows/{task_id}/governed",
+            "restores compact state from persisted AgentRun data",
+        ),
+    ]:
+        assert f"| `{boundary}` | {evidence} |" in text
+
+
 def test_section_21_validation_status_is_reflected_in_primary_docs() -> None:
     """Verify primary docs record the final audit status without completion claims."""
 

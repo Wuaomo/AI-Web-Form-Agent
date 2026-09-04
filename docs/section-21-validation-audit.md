@@ -57,6 +57,15 @@ and remaining gaps; it does not mark the full runtime refactor complete.
 | `/tasks/{task_id}/review-items` | compatibility fallback | Prefers persisted AgentProposal rows, then derives legacy FormField/checkpoint items when needed. |
 | `/workflows/*` | workflow-specific compatibility | Workflow-template and old graph endpoints remain during migration. |
 
+## Task And Workflow Endpoint Evidence Matrix
+
+| Boundary | Evidence | Coverage |
+| --- | --- | --- |
+| `/tasks/{task_id}` | compact `agent_runtime` without raw `tool_results` | `backend/tests/test_task_mapping_endpoint.py::test_get_task_includes_compact_agent_runtime_state` |
+| `/tasks` | compact list facade without raw `tool_results` | `backend/tests/test_task_mapping_endpoint.py::test_list_tasks_includes_compact_agent_runtime_state` |
+| `/tasks/{task_id}/extract-page` | records runtime output while keeping the task facade compact | `backend/tests/test_task_mapping_endpoint.py::test_extract_page_persists_runtime_call_without_raw_task_facade_output` |
+| `/workflows/{task_id}/governed` | restores compact state from persisted AgentRun data | `backend/tests/test_workflow_runtime_endpoint.py::test_governed_get_restores_compact_state_from_db_when_memory_state_is_missing` |
+
 ## Compatibility Paths Kept
 
 - `/tasks` task detail and list facades.
