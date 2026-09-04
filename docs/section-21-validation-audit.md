@@ -1,6 +1,6 @@
 # Section 21 Validation Audit
 
-Date: 2026-09-03
+Date: 2026-09-04
 
 Scope: RFC section 21 validation only. Current status: section 21 validation
 audit completed; remaining gaps documented. This audit records current evidence
@@ -9,6 +9,7 @@ Phase 11 Agent Runtime API primary boundary audit completed; remaining migration
 Phase 12 Agent Runtime API read boundary thin slice completed; remaining migration gaps documented.
 Review Queue primary AgentRun API boundary thin slice completed; remaining migration gaps documented.
 Review Mapping AgentRun Review Queue client helper thin slice completed; remaining migration gaps documented.
+Run Cockpit AgentRun read helper thin slice completed; remaining migration gaps documented.
 
 ## Runtime Object Persistence Matrix
 
@@ -33,7 +34,7 @@ Review Mapping AgentRun Review Queue client helper thin slice completed; remaini
 | Internal browser read/write Tool Runtime path | partial | `backend/tests/test_agent_runtime_tool_runtime.py`, `backend/tests/test_task_mapping_endpoint.py::test_analyze_persists_extract_form_runtime_call`, `::test_fill_persists_runtime_tool_call_result`, `backend/tests/test_confirm_submit.py::test_confirm_submit_records_submit_runtime_tool_call` | Legacy endpoints still exist; some paths record compact convergence state rather than being pure Agent Runtime API calls. |
 | Browser write and submit governance | covered | `backend/tests/test_agent_runtime_tool_runtime.py::test_tool_runtime_pauses_review_required_tools_before_handler`, `::test_tool_runtime_pauses_submit_tools_before_handler`, `backend/tests/test_confirm_submit.py::test_confirm_submit_first_request_creates_approval_and_returns_409` | Browser click/navigation proposals are display-only until executable action parity is built. |
 | Review Queue primary proposal entry | covered | `backend/tests/test_task_mapping_endpoint.py::test_review_items_restore_persisted_proposals_before_deriving_from_fields`, `frontend/src/reviewMappingPresentation.test.js` | Legacy `/tasks` review items and FormField sync remain compatibility fallbacks. |
-| Run Cockpit compact state | covered | `backend/tests/test_workflow_runtime_endpoint.py::test_governed_get_restores_compact_state_from_db_when_memory_state_is_missing`, `frontend/src/runCockpitPresentation.test.js` | Advanced/debug raw state remains backend-only. |
+| Run Cockpit compact state | covered | `backend/tests/test_workflow_runtime_endpoint.py::test_governed_get_restores_compact_state_from_db_when_memory_state_is_missing`, `frontend/src/runCockpitPresentation.test.js`, `frontend/src/runCockpitActions.test.js` | Advanced/debug raw state remains backend-only. |
 | No-key deterministic demos and benchmark replay | covered | `backend/tests/test_workflow_runtime_endpoint.py::test_governed_start_keeps_demo_paths_no_key_deterministic`, `backend/tests/test_benchmark_endpoint.py::test_run_benchmark_full_workflow_runs_without_provider`, `::test_run_benchmark_runtime_runs_without_provider` | Generic demo preparation and benchmark replay are covered; legacy fallback remains documented separately. |
 | Read-only external tools | covered | `backend/tests/test_agent_runtime_external_tools.py` | External connector execution remains adapter-driven and allowlisted only. |
 | External write tools | covered | `backend/tests/test_agent_runtime_external_tools.py::test_external_adapter_rejects_write_capable_mcp_tools`, `::test_external_adapter_rejects_write_capable_openapi_operations`, `frontend/src/reviewMappingPresentation.test.js::buildReviewQueueCompactItems guards external write proposals` | External writes are not executable; only compact display guards exist. |
@@ -77,9 +78,13 @@ Review Mapping AgentRun Review Queue client helper thin slice completed; remaini
 
 | Surface | Priority | Coverage |
 | --- | --- | --- |
-| Task Detail | Run Cockpit/generic governed state first | `frontend/src/pages/TaskDetail.jsx`, `frontend/src/runCockpitPresentation.test.js::shouldShowLegacyWorkflowRuntimePanel hides legacy panel when Run Cockpit has runtime state` |
-| Run Cockpit | governed endpoint state before task facade fallback | `frontend/src/runCockpitPresentation.test.js::resolveRunCockpitRuntime prefers endpoint state over task facade state` |
+| Task Detail | Run Cockpit AgentRun state first | `frontend/src/pages/TaskDetail.jsx`, `frontend/src/runCockpitActions.test.js::run cockpit reads AgentRun compact state before governed workflow fallback` |
+| Run Cockpit | AgentRun compact state before governed workflow and task facade fallback | `frontend/src/runCockpitActions.test.js::run cockpit reads AgentRun compact state before governed workflow fallback`, `::run cockpit falls back to governed workflow when AgentRun read fails`, `::run cockpit falls back to task facade when primary reads fail` |
 | Review Mapping | AgentRun review items before legacy task fallback | `frontend/src/reviewMappingActions.test.js::review mapping resolves AgentRun review items before task fallback`, `frontend/src/reviewMappingActions.test.js::review item decisions prefer AgentRun review boundary with task fallback` |
+
+Run Cockpit now reads AgentRun compact state first when `agent_run_id` or
+`agent_runtime.run_id` is present, then uses the governed workflow fallback,
+then the task facade fallback.
 
 ## Compatibility Paths Kept
 
@@ -94,6 +99,5 @@ Review Mapping AgentRun Review Queue client helper thin slice completed; remaini
 - The legacy `/tasks` facade remains the compatibility shell for task detail and list views.
 - workflow-specific endpoints remain for template, compatibility, and older workflow paths.
 - old security questionnaire graph fallback remains until generic runtime parity is complete.
-- frontend still reads governed workflow endpoint first before the new AgentRun read helper is wired into Run Cockpit.
 - Review Mapping now reads AgentRun review items first when `agent_run_id` or `agent_runtime.run_id` is present, then falls back to legacy `/tasks/{task_id}/review-items`.
 - Review Mapping still keeps legacy `/tasks/{task_id}/review-items` fallback and FormField sync compatibility during migration.

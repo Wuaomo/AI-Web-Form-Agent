@@ -1048,8 +1048,8 @@ refactor 完成声明。
 `/agent-runs/{run_id}` 现在返回 compact AgentRun state，不暴露 raw
 `tool_results` / `output_json`。remaining gaps include the legacy `/tasks`
 facade, workflow-specific endpoints, old security questionnaire graph fallback,
-and frontend still reads governed workflow endpoint first. 这仍是 read boundary
-薄切片，不是整体 runtime refactor 完成声明。
+and frontend compatibility paths. 这仍是 read boundary 薄切片，不是整体
+runtime refactor 完成声明。
 
 当前补充状态（2026-09-04）：Review Queue primary AgentRun API boundary thin slice completed; remaining migration gaps documented。
 `/agent-runs/{run_id}/review-items` 和
@@ -1067,6 +1067,14 @@ remaining gaps include legacy `/tasks/{task_id}/review-items` fallback,
 workflow-specific endpoints, old security questionnaire graph fallback, and the
 legacy `/tasks` facade. 这仍是前端 client wiring 薄切片，不是整体 runtime
 refactor 完成声明。
+
+当前补充状态（2026-09-04）：Run Cockpit AgentRun read helper thin slice completed; remaining migration gaps documented。
+Run Cockpit now reads AgentRun compact state first when `agent_run_id` or
+`agent_runtime.run_id` is present, then uses the governed workflow fallback,
+then the task facade fallback. remaining gaps include the legacy `/tasks`
+facade, workflow-specific endpoints, old security questionnaire graph fallback,
+and legacy `/tasks/{task_id}/review-items` fallback. 这仍是前端 read helper
+薄切片，不是整体 runtime refactor 完成声明。
 
 ## 22. 不算完成的状态
 
