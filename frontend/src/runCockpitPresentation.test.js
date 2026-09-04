@@ -103,6 +103,23 @@ test("resolveRunCockpitRuntime prefers endpoint state over task facade state", (
   assert.deepEqual(runtime, { status: "COMPLETED", planner_mode: "deterministic" });
 });
 
+test("resolveRunCockpitRuntime prefers AgentRun state over governed and task facade state", () => {
+  const runtime = resolveRunCockpitRuntime(
+    {
+      agent_run_id: "run-7",
+      agent_runtime: { status: "TASK_FACADE", planner_mode: "deterministic" },
+    },
+    { status: "GOVERNED", planner_mode: "deterministic" },
+    { run_id: "run-7", status: "AGENT_RUN", planner_mode: "deterministic" },
+  );
+
+  assert.deepEqual(runtime, {
+    run_id: "run-7",
+    status: "AGENT_RUN",
+    planner_mode: "deterministic",
+  });
+});
+
 test("shouldShowLegacyWorkflowRuntimePanel hides legacy panel when Run Cockpit has runtime state", () => {
   assert.equal(
     shouldShowLegacyWorkflowRuntimePanel(
