@@ -6,6 +6,7 @@ Scope: RFC section 21 validation only. Current status: section 21 validation
 audit completed; remaining gaps documented. This audit records current evidence
 and remaining gaps; it does not mark full refactor completion.
 Phase 11 Agent Runtime API primary boundary audit completed; remaining migration gaps documented.
+Phase 12 Agent Runtime API read boundary thin slice completed; remaining migration gaps documented.
 
 ## Runtime Object Persistence Matrix
 
@@ -50,7 +51,7 @@ Phase 11 Agent Runtime API primary boundary audit completed; remaining migration
 
 | Boundary | Classification | Audit result |
 | --- | --- | --- |
-| `/agent-runs/{run_id}` | primary read boundary | Planned compact AgentRun read boundary for Run Cockpit migration; backend endpoint coverage follows in Phase 12. |
+| `/agent-runs/{run_id}` | primary read boundary | Returns compact AgentRun state from persisted runtime rows without raw `tool_results` / `output_json`. |
 | `/workflows/{task_id}/governed/start` | primary | Generic governed AgentRun preparation boundary for no-key demo paths. |
 | `/workflows/{task_id}/governed` | primary | Restores compact governed runtime state for Run Cockpit. |
 | `/workflows/{task_id}/governed/review-items/{item_id}/decision` | primary | Writes AgentReviewDecision for proposal-backed review decisions. |
@@ -89,3 +90,4 @@ Phase 11 Agent Runtime API primary boundary audit completed; remaining migration
 - The legacy `/tasks` facade remains the compatibility shell for task detail and list views.
 - workflow-specific endpoints remain for template, compatibility, and older workflow paths.
 - old security questionnaire graph fallback remains until generic runtime parity is complete.
+- frontend still reads governed workflow endpoint first before the new AgentRun read helper is wired into Run Cockpit.

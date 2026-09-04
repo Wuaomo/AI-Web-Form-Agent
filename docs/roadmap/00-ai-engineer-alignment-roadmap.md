@@ -173,6 +173,7 @@ Still missing from the runtime refactor direction:
   API boundary.
 - Phase 11 Agent Runtime API primary boundary audit completed; remaining migration gaps documented. Remaining gaps include the legacy `/tasks` facade,
   workflow-specific endpoints, and old security questionnaire graph fallback.
+- Phase 12 Agent Runtime API read boundary thin slice completed; remaining migration gaps documented. `/agent-runs/{run_id}` now returns compact AgentRun state without raw tool output. Remaining gaps include the legacy `/tasks` facade, workflow-specific endpoints, old security questionnaire graph fallback, and frontend still reads governed workflow endpoint first.
 
 ## Post-Portfolio Extensions
 

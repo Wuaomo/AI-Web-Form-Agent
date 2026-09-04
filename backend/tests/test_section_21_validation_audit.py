@@ -9,6 +9,10 @@ PHASE_11_STATUS = (
     "Phase 11 Agent Runtime API primary boundary audit completed; "
     "remaining migration gaps documented"
 )
+PHASE_12_STATUS = (
+    "Phase 12 Agent Runtime API read boundary thin slice completed; "
+    "remaining migration gaps documented"
+)
 
 
 def test_section_21_validation_audit_indexes_runtime_object_evidence() -> None:
@@ -158,4 +162,23 @@ def test_phase_11_runtime_boundary_status_is_reflected_in_primary_docs() -> None
         assert "legacy `/tasks` facade" in text
         assert "workflow-specific endpoints" in text
         assert "old security questionnaire graph fallback" in text
+        assert "runtime refactor complete" not in text.lower()
+
+
+def test_phase_12_agent_run_read_boundary_status_is_reflected_in_primary_docs() -> None:
+    """Verify primary docs record the AgentRun read boundary without completion claims."""
+
+    for path in [
+        REPO_ROOT / "README.md",
+        REPO_ROOT / "docs" / "roadmap" / "00-ai-engineer-alignment-roadmap.md",
+        REPO_ROOT / "docs" / "agent-runtime-refactor-rfc.zh.md",
+        AUDIT_DOC,
+    ]:
+        text = path.read_text(encoding="utf-8")
+        assert PHASE_12_STATUS in text
+        assert "`/agent-runs/{run_id}`" in text
+        assert "legacy `/tasks` facade" in text
+        assert "workflow-specific endpoints" in text
+        assert "old security questionnaire graph fallback" in text
+        assert "frontend still reads governed workflow endpoint first" in text
         assert "runtime refactor complete" not in text.lower()
