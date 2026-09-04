@@ -206,6 +206,40 @@ test("proposal review API client posts review decisions", async () => {
   }
 });
 
+test("agent run proposal review API client uses primary review queue boundary", async () => {
+  clearApiCache();
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, method: options.method || "GET", body: options.body });
+    if (options.method === "POST") {
+      return jsonResponse({ id: "decision-run-item" });
+    }
+    return jsonResponse([{ id: "run-item" }]);
+  };
+
+  try {
+    const items = await api.listAgentRunReviewItems("task-7");
+    const decision = await api.reviewAgentRunItem("task-7", "run-item", {
+      decision: "approved",
+    });
+
+    assert.deepEqual(items, [{ id: "run-item" }]);
+    assert.deepEqual(decision, { id: "decision-run-item" });
+    assert.equal(calls.length, 2);
+    assert.ok(calls[0].url.endsWith("/agent-runs/task-7/review-items"));
+    assert.equal(calls[0].method, "GET");
+    assert.ok(
+      calls[1].url.endsWith("/agent-runs/task-7/review-items/run-item/decision"),
+    );
+    assert.equal(calls[1].method, "POST");
+    assert.equal(JSON.parse(calls[1].body).decision, "approved");
+  } finally {
+    clearApiCache();
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("structured API errors preserve detail payload", async () => {
   clearApiCache();
   const originalFetch = globalThis.fetch;
