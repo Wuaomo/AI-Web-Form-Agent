@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { loadRunCockpitRuntime } from "./runCockpitActions.js";
+import {
+  loadRunCockpitRuntime,
+  startRunCockpitRuntime,
+} from "./runCockpitActions.js";
 
 function fakeApi(overrides = {}) {
   const calls = [];
@@ -14,6 +17,10 @@ function fakeApi(overrides = {}) {
     getGovernedWorkflowState: async (taskId) => {
       calls.push({ name: "getGovernedWorkflowState", taskId });
       return { status: "GOVERNED", planner_mode: "deterministic" };
+    },
+    startGovernedWorkflow: async (taskId, options) => {
+      calls.push({ name: "startGovernedWorkflow", taskId, options });
+      return { status: "STARTED", planner_mode: "deterministic" };
     },
     ...overrides,
   };
@@ -86,4 +93,30 @@ test("run cockpit falls back to task facade when primary reads fail", async () =
     status: "TASK_FACADE",
     planner_mode: "deterministic",
   });
+});
+
+test("started run cockpit state uses refreshed AgentRun runtime for follow-up navigation", async () => {
+  const apiClient = fakeApi();
+
+  const runtime = await startRunCockpitRuntime({
+    apiClient,
+    taskId: 7,
+    task: { status: "CREATED" },
+    refreshTaskData: async () => ({
+      governedRuntime: {
+        run_id: "run-7",
+        status: "WAITING_REVIEW",
+        planner_mode: "deterministic",
+      },
+    }),
+  });
+
+  assert.equal(runtime.status, "WAITING_REVIEW");
+  assert.deepEqual(apiClient.calls, [
+    {
+      name: "startGovernedWorkflow",
+      taskId: 7,
+      options: { plannerMode: "deterministic" },
+    },
+  ]);
 });

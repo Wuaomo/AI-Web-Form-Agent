@@ -21,3 +21,17 @@ export async function loadRunCockpitRuntime({ apiClient, taskId, task }) {
     return resolveRunCockpitRuntime(task);
   }
 }
+
+export async function startRunCockpitRuntime({
+  apiClient,
+  taskId,
+  task,
+  refreshTaskData,
+}) {
+  const startRuntime = await apiClient.startGovernedWorkflow(taskId, {
+    plannerMode: "deterministic",
+  });
+  const refreshed = refreshTaskData ? await refreshTaskData() : null;
+  if (refreshed?.governedRuntime) return refreshed.governedRuntime;
+  return resolveRunCockpitRuntime(refreshed?.task || task, startRuntime);
+}

@@ -68,7 +68,10 @@ import {
   shouldShowLegacyWorkflowRuntimePanel,
   shouldShowRunCockpit,
 } from "../runCockpitPresentation";
-import { loadRunCockpitRuntime } from "../runCockpitActions";
+import {
+  loadRunCockpitRuntime,
+  startRunCockpitRuntime,
+} from "../runCockpitActions";
 import { getExtractionData, getSummaryData } from "../webExtractionPresentation";
 import {
   usesGovernedDemoPath,
@@ -234,13 +237,16 @@ function TaskDetail() {
     setTaskPlan(planResult);
     setApprovalRequests(approvalItems);
     setAgentSteps(agentStepItems);
-    setGovernedRuntime(
-      await loadRunCockpitRuntime({
-        apiClient: api,
-        taskId,
-        task: taskResult,
-      }),
-    );
+    const nextGovernedRuntime = await loadRunCockpitRuntime({
+      apiClient: api,
+      taskId,
+      task: taskResult,
+    });
+    setGovernedRuntime(nextGovernedRuntime);
+    return {
+      task: taskResult,
+      governedRuntime: nextGovernedRuntime,
+    };
   }
 
   async function runAgentReview(role) {
@@ -280,12 +286,14 @@ function TaskDetail() {
     setError("");
     setNotice("");
     try {
-      const runtimeState = await api.startGovernedWorkflow(taskId, {
-        plannerMode: "deterministic",
+      const runtimeState = await startRunCockpitRuntime({
+        apiClient: api,
+        taskId,
+        task,
+        refreshTaskData,
       });
       setGovernedRuntime(runtimeState);
-      await refreshTaskData();
-      if (runtimeState.status === "WAITING_REVIEW") {
+      if (runtimeState?.status === "WAITING_REVIEW") {
         navigate(`/tasks/${taskId}/review-mapping`);
         return;
       }

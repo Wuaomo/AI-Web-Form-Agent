@@ -84,7 +84,9 @@ Run Cockpit AgentRun read helper thin slice completed; remaining migration gaps 
 
 Run Cockpit now reads AgentRun compact state first when `agent_run_id` or
 `agent_runtime.run_id` is present, then uses the governed workflow fallback,
-then the task facade fallback.
+then the task facade fallback. Task Detail also uses the refreshed Run Cockpit
+runtime state after starting a governed run before deciding whether to navigate
+to Review Mapping.
 
 ## Compatibility Paths Kept
 
