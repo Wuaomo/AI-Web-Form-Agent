@@ -67,6 +67,21 @@ test("run cockpit falls back to governed workflow when AgentRun read fails", asy
   ]);
 });
 
+test("run cockpit reads governed workflow when no AgentRun id exists", async () => {
+  const apiClient = fakeApi();
+
+  const runtime = await loadRunCockpitRuntime({
+    apiClient,
+    taskId: 7,
+    task: { status: "CREATED" },
+  });
+
+  assert.deepEqual(runtime, { status: "GOVERNED", planner_mode: "deterministic" });
+  assert.deepEqual(apiClient.calls, [
+    { name: "getGovernedWorkflowState", taskId: 7 },
+  ]);
+});
+
 test("run cockpit falls back to task facade when primary reads fail", async () => {
   const apiClient = fakeApi({
     getAgentRun: async (runId) => {
