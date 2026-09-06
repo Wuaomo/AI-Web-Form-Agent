@@ -11,6 +11,7 @@ Review Queue primary AgentRun API boundary thin slice completed; remaining migra
 Review Mapping AgentRun Review Queue client helper thin slice completed; remaining migration gaps documented.
 Review Mapping AgentRun field edit and decision fallback coverage tightened.
 Run Cockpit AgentRun read helper thin slice completed; remaining migration gaps documented.
+Run Cockpit no-run-id governed workflow coverage tightened.
 Task Detail static review affordance now uses Run Cockpit AgentRun-first compact
 review state before stale task status.
 Phase A frontend primary AgentRun boundary audit completed; no production code
@@ -85,7 +86,7 @@ overall runtime refactor.
 | Surface | Priority | Coverage |
 | --- | --- | --- |
 | Task Detail | Run Cockpit AgentRun state first | `frontend/src/pages/TaskDetail.jsx`, `frontend/src/runCockpitActions.test.js::run cockpit reads AgentRun compact state before governed workflow fallback`, `frontend/src/taskRunState.test.js::getTaskRunState uses Run Cockpit review state before stale task status`, `frontend/src/taskRunState.test.js::getTaskRunState uses pending Run Cockpit review count before stale task status` |
-| Run Cockpit | AgentRun compact state before governed workflow and task facade fallback | `frontend/src/runCockpitActions.test.js::run cockpit reads AgentRun compact state before governed workflow fallback`, `::run cockpit falls back to governed workflow when AgentRun read fails`, `::run cockpit falls back to task facade when primary reads fail` |
+| Run Cockpit | AgentRun compact state before governed workflow and task facade fallback | `frontend/src/runCockpitActions.test.js::run cockpit reads AgentRun compact state before governed workflow fallback`, `::run cockpit falls back to governed workflow when AgentRun read fails`, `::run cockpit reads governed workflow when no AgentRun id exists`, `::run cockpit falls back to task facade when primary reads fail` |
 | Review Mapping | AgentRun review items before legacy task fallback | `frontend/src/reviewMappingActions.test.js::review mapping resolves AgentRun review items before task fallback`, `frontend/src/reviewMappingActions.test.js::review item decisions prefer AgentRun review boundary with task fallback`, `frontend/src/reviewMappingActions.test.js::field edits prefer AgentRun review boundary when a run id exists`, `frontend/src/reviewMappingActions.test.js::review item decisions fall back to task review when AgentRun review fails` |
 
 ## Phase A Frontend Boundary Audit
@@ -100,6 +101,8 @@ slice updated evidence only.
   state before deciding whether to open Review Mapping.
 - Run Cockpit reads `/agent-runs/{run_id}` first, then falls back to
   `/workflows/{task_id}/governed`, then the compact task facade.
+- Run Cockpit without an AgentRun id has focused coverage for the governed
+  workflow fallback path.
 - Review Mapping reads and writes AgentRun review items first when a run id is
   present, then falls back to legacy task review items.
 - Field edits backed by proposals now have focused coverage for the AgentRun

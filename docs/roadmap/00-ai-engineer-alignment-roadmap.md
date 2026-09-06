@@ -180,6 +180,7 @@ Still missing from the runtime refactor direction:
 - Task Detail governed-run start navigation now uses the refreshed Run Cockpit runtime state, so a `WAITING_REVIEW` AgentRun compact state routes to Review Mapping even when the start endpoint response is stale. Remaining gaps are unchanged.
 - Phase A frontend primary AgentRun boundary audit completed; existing frontend coverage proves Task Detail, Run Cockpit, and Review Mapping use AgentRun-first compact runtime/review boundaries with governed workflow, task facade, and legacy review fallbacks preserved. This closes Phase A frontend boundary only, not the overall runtime refactor.
 - Review Mapping AgentRun boundary coverage tightened for proposal-backed field edits and AgentRun decision failure fallback; compatibility fallbacks remain migration gaps.
+- Run Cockpit coverage tightened for the no-run-id governed workflow path; this remains frontend boundary evidence, not overall runtime refactor completion.
 
 ## Post-Portfolio Extensions
 
