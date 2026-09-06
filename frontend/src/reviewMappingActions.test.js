@@ -138,6 +138,32 @@ test("field edits use generic review item decisions when a proposal exists", asy
   ]);
 });
 
+test("field edits prefer AgentRun review boundary when a run id exists", async () => {
+  const apiClient = fakeApi();
+  const field = { id: 4, mapped_value: "old@example.com" };
+  const reviewItemsByFieldId = new Map([
+    [4, { id: "run-7-field-4", target_type: "form_field" }],
+  ]);
+
+  await applyFieldValueEdit({
+    apiClient,
+    taskId: 7,
+    runId: "run-7",
+    field,
+    mappedValue: "ada@example.com",
+    reviewItemsByFieldId,
+  });
+
+  assert.deepEqual(apiClient.calls, [
+    {
+      name: "reviewAgentRunItem",
+      runId: "run-7",
+      itemId: "run-7-field-4",
+      decision: { decision: "edited", edited_value: "ada@example.com" },
+    },
+  ]);
+});
+
 test("generic field edits preserve blank strings as edited values", async () => {
   const apiClient = fakeApi();
   const field = { id: 4, mapped_value: "old@example.com" };
