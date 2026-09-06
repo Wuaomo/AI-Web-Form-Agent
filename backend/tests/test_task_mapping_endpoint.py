@@ -119,6 +119,7 @@ def save_two_pending_tool_created_proposals(
             {
                 "tool_call_id": f"task-{task.id}:map_fields",
                 "status": "SUCCEEDED",
+                "output_json": {"raw_output_json": "do not expose"},
                 "created_proposals": [
                     {
                         "id": proposal_id,
@@ -257,6 +258,8 @@ def test_get_task_includes_compact_agent_runtime_state(
     assert payload["agent_runtime"]["pending_review_count"] == 2
     assert payload["agent_runtime"]["tool_result_count"] == 1
     assert "tool_results" not in payload["agent_runtime"]
+    assert "output_json" not in json.dumps(payload)
+    assert "raw_output_json" not in json.dumps(payload)
 
 
 def test_list_tasks_includes_compact_agent_runtime_state(
@@ -278,6 +281,8 @@ def test_list_tasks_includes_compact_agent_runtime_state(
     assert payload["agent_runtime"]["pending_review_count"] == 2
     assert payload["agent_runtime"]["tool_result_count"] == 1
     assert "tool_results" not in payload["agent_runtime"]
+    assert "output_json" not in json.dumps(payload)
+    assert "raw_output_json" not in json.dumps(payload)
 
 
 def test_extract_page_persists_runtime_call_without_raw_task_facade_output(
