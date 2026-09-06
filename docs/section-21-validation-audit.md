@@ -1,6 +1,6 @@
 # Section 21 Validation Audit
 
-Date: 2026-09-04
+Date: 2026-09-06
 
 Scope: RFC section 21 validation only. Current status: section 21 validation
 audit completed; remaining gaps documented. This audit records current evidence
@@ -12,6 +12,9 @@ Review Mapping AgentRun Review Queue client helper thin slice completed; remaini
 Run Cockpit AgentRun read helper thin slice completed; remaining migration gaps documented.
 Task Detail static review affordance now uses Run Cockpit AgentRun-first compact
 review state before stale task status.
+Phase A frontend primary AgentRun boundary audit completed; no production code
+changes were needed. This closes Phase A frontend boundary only, not the
+overall runtime refactor.
 
 ## Runtime Object Persistence Matrix
 
@@ -84,6 +87,25 @@ review state before stale task status.
 | Run Cockpit | AgentRun compact state before governed workflow and task facade fallback | `frontend/src/runCockpitActions.test.js::run cockpit reads AgentRun compact state before governed workflow fallback`, `::run cockpit falls back to governed workflow when AgentRun read fails`, `::run cockpit falls back to task facade when primary reads fail` |
 | Review Mapping | AgentRun review items before legacy task fallback | `frontend/src/reviewMappingActions.test.js::review mapping resolves AgentRun review items before task fallback`, `frontend/src/reviewMappingActions.test.js::review item decisions prefer AgentRun review boundary with task fallback` |
 
+## Phase A Frontend Boundary Audit
+
+Status: completed for the frontend primary AgentRun boundary. The audit found
+existing coverage for the required AgentRun-first read/review flows, so this
+slice updated evidence only.
+
+- Task Detail primary review affordance is driven by compact Run Cockpit runtime
+  review state before stale legacy task status.
+- Task Detail governed-run start navigation uses refreshed Run Cockpit runtime
+  state before deciding whether to open Review Mapping.
+- Run Cockpit reads `/agent-runs/{run_id}` first, then falls back to
+  `/workflows/{task_id}/governed`, then the compact task facade.
+- Review Mapping reads and writes AgentRun review items first when a run id is
+  present, then falls back to legacy task review items.
+- Legacy task status, governed workflow, task facade, FormField sync, and
+  legacy review-item compatibility paths remain documented migration fallbacks.
+- Frontend compact helpers keep raw `tool_results` / `output_json` out of the
+  primary UI; raw trace/page JSON remains behind advanced/debug disclosure.
+
 Run Cockpit now reads AgentRun compact state first when `agent_run_id` or
 `agent_runtime.run_id` is present, then uses the governed workflow fallback,
 then the task facade fallback. Task Detail also uses the refreshed Run Cockpit
@@ -107,3 +129,5 @@ as review-ready before stale legacy task status.
 - old security questionnaire graph fallback remains until generic runtime parity is complete.
 - Review Mapping now reads AgentRun review items first when `agent_run_id` or `agent_runtime.run_id` is present, then falls back to legacy `/tasks/{task_id}/review-items`.
 - Review Mapping still keeps legacy `/tasks/{task_id}/review-items` fallback and FormField sync compatibility during migration.
+- Phase A closes only the frontend AgentRun boundary. Backend compatibility
+  paths and broader runtime migration gaps remain.
