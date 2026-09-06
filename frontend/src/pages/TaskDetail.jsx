@@ -444,7 +444,7 @@ function TaskDetail() {
   );
   const llmUnavailable = mappingMode === "llm" && !selectedProvider?.configured;
   const missingRequiredFields = task?.form_fields.filter(needsRequiredInput) || [];
-  const runState = getTaskRunState(task, taskCheckpoints);
+  const runState = getTaskRunState(task, taskCheckpoints, governedRuntime);
   const runSummaryItems = getVisibleRunSummaryItems(task);
   const newestJob = getNewestJob(taskJobs);
   const newestJobSummary = newestJob ? summarizeJob(newestJob) : null;

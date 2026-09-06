@@ -10,6 +10,8 @@ Phase 12 Agent Runtime API read boundary thin slice completed; remaining migrati
 Review Queue primary AgentRun API boundary thin slice completed; remaining migration gaps documented.
 Review Mapping AgentRun Review Queue client helper thin slice completed; remaining migration gaps documented.
 Run Cockpit AgentRun read helper thin slice completed; remaining migration gaps documented.
+Task Detail static review affordance now uses Run Cockpit AgentRun-first compact
+review state before stale task status.
 
 ## Runtime Object Persistence Matrix
 
@@ -78,7 +80,7 @@ Run Cockpit AgentRun read helper thin slice completed; remaining migration gaps 
 
 | Surface | Priority | Coverage |
 | --- | --- | --- |
-| Task Detail | Run Cockpit AgentRun state first | `frontend/src/pages/TaskDetail.jsx`, `frontend/src/runCockpitActions.test.js::run cockpit reads AgentRun compact state before governed workflow fallback` |
+| Task Detail | Run Cockpit AgentRun state first | `frontend/src/pages/TaskDetail.jsx`, `frontend/src/runCockpitActions.test.js::run cockpit reads AgentRun compact state before governed workflow fallback`, `frontend/src/taskRunState.test.js::getTaskRunState uses Run Cockpit review state before stale task status`, `frontend/src/taskRunState.test.js::getTaskRunState uses pending Run Cockpit review count before stale task status` |
 | Run Cockpit | AgentRun compact state before governed workflow and task facade fallback | `frontend/src/runCockpitActions.test.js::run cockpit reads AgentRun compact state before governed workflow fallback`, `::run cockpit falls back to governed workflow when AgentRun read fails`, `::run cockpit falls back to task facade when primary reads fail` |
 | Review Mapping | AgentRun review items before legacy task fallback | `frontend/src/reviewMappingActions.test.js::review mapping resolves AgentRun review items before task fallback`, `frontend/src/reviewMappingActions.test.js::review item decisions prefer AgentRun review boundary with task fallback` |
 
@@ -86,7 +88,9 @@ Run Cockpit now reads AgentRun compact state first when `agent_run_id` or
 `agent_runtime.run_id` is present, then uses the governed workflow fallback,
 then the task facade fallback. Task Detail also uses the refreshed Run Cockpit
 runtime state after starting a governed run before deciding whether to navigate
-to Review Mapping.
+to Review Mapping. Task Detail's static primary action also treats compact
+runtime `WAITING_REVIEW`, `interrupt_at: review`, or `pending_review_count > 0`
+as review-ready before stale legacy task status.
 
 ## Compatibility Paths Kept
 
