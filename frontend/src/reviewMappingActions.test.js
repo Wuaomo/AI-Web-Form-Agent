@@ -112,6 +112,45 @@ test("review item decisions prefer AgentRun review boundary with task fallback",
   ]);
 });
 
+test("review item decisions fall back to task review when AgentRun review fails", async () => {
+  const apiClient = {
+    ...fakeApi(),
+    reviewAgentRunItem: async (runId, itemId, decision) => {
+      apiClient.calls.push({
+        name: "reviewAgentRunItem",
+        runId,
+        itemId,
+        decision,
+      });
+      throw new Error("missing run");
+    },
+  };
+  const reviewItem = { id: "proposal-7", status: "PENDING" };
+
+  await applyReviewItemDecision({
+    apiClient,
+    taskId: 7,
+    runId: "run-7",
+    reviewItem,
+    decision: "approved",
+  });
+
+  assert.deepEqual(apiClient.calls, [
+    {
+      name: "reviewAgentRunItem",
+      runId: "run-7",
+      itemId: "proposal-7",
+      decision: { decision: "approved" },
+    },
+    {
+      name: "reviewTaskItem",
+      taskId: 7,
+      itemId: "proposal-7",
+      decision: { decision: "approved" },
+    },
+  ]);
+});
+
 test("field edits use generic review item decisions when a proposal exists", async () => {
   const apiClient = fakeApi();
   const field = { id: 4, mapped_value: "old@example.com" };
