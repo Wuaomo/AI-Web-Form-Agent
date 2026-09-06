@@ -124,8 +124,11 @@ def test_section_21_validation_audit_indexes_task_workflow_facade_evidence() -> 
 
     assert "## Task And Workflow Endpoint Evidence Matrix" in text
     for boundary, evidence in [
-        ("/tasks/{task_id}", "compact `agent_runtime` without raw `tool_results`"),
-        ("/tasks", "compact list facade without raw `tool_results`"),
+        (
+            "/tasks/{task_id}",
+            "compact `agent_runtime` without raw `tool_results` / `output_json`",
+        ),
+        ("/tasks", "compact list facade without raw `tool_results` / `output_json`"),
         (
             "/tasks/{task_id}/extract-page",
             "records runtime output while keeping the task facade compact",
