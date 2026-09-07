@@ -29,6 +29,7 @@ from app.services.workflow_memory import (
 from app.workflow_constants import WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE
 
 ACTION_FIELD_TYPES = {"button", "file", "submit", "reset", "image"}
+RAW_PROPOSAL_VALUE_KEYS = {"tool_results", "output_json", "raw_output_json"}
 
 
 @dataclass(frozen=True)
@@ -435,7 +436,13 @@ def _proposal_from_row(row: AgentProposal) -> Proposal:
 
 def _compact_proposed_value(value: Any) -> Any:
     if isinstance(value, dict):
-        return {key: item for key, item in value.items() if key != "tool_results"}
+        return {
+            key: _compact_proposed_value(item)
+            for key, item in value.items()
+            if key not in RAW_PROPOSAL_VALUE_KEYS
+        }
+    if isinstance(value, list):
+        return [_compact_proposed_value(item) for item in value]
     return value
 
 

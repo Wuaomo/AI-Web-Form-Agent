@@ -187,6 +187,60 @@ def test_get_agent_run_review_items_prefers_persisted_proposals() -> None:
         session.close()
 
 
+def test_get_agent_run_review_items_strips_nested_raw_tool_payloads() -> None:
+    client, session = build_environment()
+    task = create_task(session)
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review compact action proposal.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"task-{task.id}-browser-action",
+        run=run,
+        proposal_type="browser_click",
+        target_type="browser_action",
+        target_ref="#continue",
+        proposed_value={
+            "action": "click",
+            "selector": "#continue",
+            "payload": {
+                "tool_results": [{"output_json": {"raw_output_json": "do not expose"}}],
+            },
+        },
+        rationale="Compact browser action.",
+        confidence=None,
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+
+    try:
+        response = client.get(f"/agent-runs/task-{task.id}/review-items")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload[0]["proposed_value"] == {
+            "action": "click",
+            "selector": "#continue",
+            "payload": {},
+        }
+        serialized = json.dumps(payload)
+        assert "tool_results" not in serialized
+        assert "output_json" not in serialized
+        assert "raw_output_json" not in serialized
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
 def test_agent_run_review_item_decision_persists_decision_and_syncs_field() -> None:
     client, session = build_environment()
     task = create_task(session)
@@ -246,6 +300,69 @@ def test_agent_run_review_item_decision_persists_decision_and_syncs_field() -> N
         assert proposal.status == "APPROVED"
         assert field.mapped_value == "proposal@example.com"
         assert field.confidence == 1.0
+        assert run.pending_review_count == 0
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_agent_run_review_item_decision_keeps_non_field_proposals_runtime_only() -> None:
+    client, session = build_environment()
+    task = create_task(session)
+    field = FormField(
+        task_id=task.id,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        mapped_profile_key="email",
+        mapped_value="legacy@example.com",
+        confidence=0.5,
+    )
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review memory proposal.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+        pending_review_count=1,
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"task-{task.id}-memory-write",
+        run=run,
+        proposal_type="memory_write",
+        target_type="workflow_memory",
+        target_ref=str(field.id),
+        proposed_value="email",
+        rationale="Save reusable mapping.",
+        confidence=0.5,
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([field, run, proposal])
+    session.commit()
+
+    try:
+        response = client.post(
+            f"/agent-runs/task-{task.id}/review-items/{proposal.id}/decision",
+            json={"decision": "edited", "edited_value": "contact_email"},
+        )
+
+        assert response.status_code == 200
+        decision = session.get(AgentReviewDecision, f"decision-{proposal.id}")
+        assert decision is not None
+        assert decision.decision == "edited"
+        session.refresh(proposal)
+        session.refresh(field)
+        session.refresh(run)
+        assert proposal.status == "EDITED"
+        assert proposal.proposed_value == "contact_email"
+        assert field.mapped_profile_key == "email"
+        assert field.mapped_value == "legacy@example.com"
+        assert field.confidence == 0.5
         assert run.pending_review_count == 0
     finally:
         app.dependency_overrides.clear()
