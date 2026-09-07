@@ -19,6 +19,7 @@ from app.services.form_extractor import extract_form_analysis
 from app.services.page_extractor import extract_page
 from app.services.browser_executor import (
     fill_form_and_capture_screenshot,
+    open_url_and_capture_screenshot,
     submit_form_and_capture_screenshot,
 )
 from app.services.agent_runtime.review_queue import build_task_review_proposals
@@ -102,6 +103,26 @@ EXTRACT_PAGE_OUTPUT_SCHEMA: dict[str, Any] = {
     },
 }
 
+CAPTURE_SCREENSHOT_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["task_id", "url", "profile_id", "stage"],
+    "properties": {
+        "task_id": {"type": "integer"},
+        "url": {"type": "string"},
+        "profile_id": {"type": "integer"},
+        "stage": {"type": "string"},
+    },
+}
+
+CAPTURE_SCREENSHOT_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["screenshot_id", "stage"],
+    "properties": {
+        "screenshot_id": {"type": "integer"},
+        "stage": {"type": "string"},
+    },
+}
+
 FILL_FORM_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": ["task_id", "url", "profile_id", "fields"],
@@ -151,6 +172,7 @@ def build_default_tool_runtime(
     map_fields_by_rules_handler=map_fields_by_rules,
     map_fields_with_llm_result_handler=map_fields_with_llm_result,
     extract_page_handler=extract_page,
+    capture_screenshot_handler=open_url_and_capture_screenshot,
     fill_form_handler=fill_form_and_capture_screenshot,
     submit_form_handler=submit_form_and_capture_screenshot,
 ) -> ToolRuntime:
@@ -177,6 +199,25 @@ def build_default_tool_runtime(
     ) -> dict[str, Any]:
         result = await extract_page_handler(tool_input["url"], tool_input["profile_id"])
         return _page_extraction_to_dict(result)
+
+    async def run_capture_screenshot(
+        context: ToolExecutionContext,
+        tool_input: dict[str, Any],
+    ) -> dict[str, Any]:
+        screenshot = await capture_screenshot_handler(
+            task_id=tool_input["task_id"],
+            url=tool_input["url"],
+            profile_id=tool_input["profile_id"],
+            stage=tool_input["stage"],
+            db=context.metadata.get("db"),
+        )
+        sink = context.metadata.get("capture_screenshot_result")
+        if isinstance(sink, dict):
+            sink["screenshot"] = screenshot
+        return {
+            "screenshot_id": _int_id(screenshot),
+            "stage": tool_input["stage"],
+        }
 
     async def run_map_fields(
         context: ToolExecutionContext,
@@ -320,6 +361,19 @@ def build_default_tool_runtime(
                 handler=run_extract_page,
             )
         )
+    runtime.register(
+        AgentTool(
+            name="capture_screenshot",
+            description="Capture a browser screenshot for review or debugging.",
+            input_schema=CAPTURE_SCREENSHOT_INPUT_SCHEMA,
+            output_schema=CAPTURE_SCREENSHOT_OUTPUT_SCHEMA,
+            risk_level="low",
+            mutates_browser=False,
+            mutates_external_system=False,
+            trace_phase="browser",
+            handler=run_capture_screenshot,
+        )
+    )
     for name in ("map_fields", "generate_field_mappings"):
         runtime.register(
             AgentTool(
@@ -401,6 +455,43 @@ async def execute_fill_form_runtime_tool(
         fill_result.get("screenshot"),
         fill_result.get("verification_data", []),
     )
+
+
+async def execute_capture_screenshot_runtime_tool(
+    *,
+    db: Any,
+    task: Any,
+    stage: str,
+    capture_screenshot_handler=open_url_and_capture_screenshot,
+) -> tuple[Any, Any]:
+    """Run the capture_screenshot browser-read tool for a legacy task."""
+
+    capture_result: dict[str, Any] = {}
+    tool_call_id = f"task-{task.id}:capture_screenshot"
+    tool_result = await build_default_tool_runtime(
+        capture_screenshot_handler=capture_screenshot_handler
+    ).execute(
+        tool_call_id=tool_call_id,
+        tool_name="capture_screenshot",
+        tool_input={
+            "task_id": task.id,
+            "url": task.url,
+            "profile_id": task.profile_id,
+            "stage": stage,
+        },
+        context=ToolExecutionContext(
+            run_id=f"task-{task.id}",
+            plan_step_id="capture_screenshot",
+            metadata={
+                "db": db,
+                "task_id": task.id,
+                "capture_screenshot_result": capture_result,
+            },
+        ),
+    )
+    if tool_result.status != "SUCCEEDED":
+        raise RuntimeError(tool_result.error or "Runtime capture_screenshot failed")
+    return tool_result, capture_result.get("screenshot")
 
 
 async def execute_submit_form_runtime_tool(
@@ -545,6 +636,7 @@ __all__ = [
     "SUBMIT_FORM_INPUT_SCHEMA",
     "SUBMIT_FORM_OUTPUT_SCHEMA",
     "build_default_tool_runtime",
+    "execute_capture_screenshot_runtime_tool",
     "execute_fill_form_runtime_tool",
     "execute_submit_form_runtime_tool",
 ]

@@ -119,6 +119,7 @@ from app.services.agent_runtime.state_store import (
 )
 from app.services.agent_runtime.tools import (
     build_default_tool_runtime,
+    execute_capture_screenshot_runtime_tool,
     execute_fill_form_runtime_tool,
     execute_submit_form_runtime_tool,
 )
@@ -714,6 +715,51 @@ def save_extract_page_runtime_state(db: Session, *, task: Task, tool_result: Any
     )
 
 
+def save_capture_screenshot_runtime_state(
+    db: Session,
+    *,
+    task: Task,
+    tool_result: Any,
+    stage: str,
+) -> None:
+    """Persist compact runtime state for a legacy screenshot browser read."""
+
+    save_governed_runtime_state(
+        db,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": task.description or "Capture browser screenshot.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": task.status,
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:screenshot-plan:1",
+                "version": 1,
+                "goal": task.description or "Capture browser screenshot.",
+                "steps": [
+                    {
+                        "step_id": "capture_screenshot",
+                        "tool_name": "capture_screenshot",
+                        "reason": "Capture a browser screenshot.",
+                        "input_json": {"task_id": task.id, "stage": stage},
+                        "risk_level": "low",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "tool_results": [tool_result.model_dump(mode="json")],
+        },
+    )
+
+
 async def execute_extract_page_runtime(db: Session, task: Task) -> Any:
     """Run the read-only extract_page runtime tool for one legacy task."""
 
@@ -1144,12 +1190,17 @@ async def capture_task_screenshot(
     """Open the task URL and capture a screenshot for browser testing."""
 
     task = get_task_or_404(task_id, db)
-    screenshot = await open_url_and_capture_screenshot(
-        task_id=task.id,
-        url=task.url,
-        profile_id=task.profile_id,
-        stage="page_opened",
+    tool_result, screenshot = await execute_capture_screenshot_runtime_tool(
         db=db,
+        task=task,
+        stage="page_opened",
+        capture_screenshot_handler=open_url_and_capture_screenshot,
+    )
+    save_capture_screenshot_runtime_state(
+        db,
+        task=task,
+        tool_result=tool_result,
+        stage="page_opened",
     )
     db.commit()
     db.refresh(screenshot)

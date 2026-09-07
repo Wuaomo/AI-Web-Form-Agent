@@ -2842,6 +2842,49 @@ def test_list_screenshots_omits_missing_files(
     assert [item["stage"] for item in response.json()] == ["existing"]
 
 
+def test_capture_screenshot_persists_runtime_call(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify legacy screenshot capture records a runtime tool call."""
+
+    client, session = test_environment
+    task = create_task_without_fields(session)
+
+    async def fake_capture(
+        *,
+        task_id: int,
+        url: str,
+        profile_id: int,
+        stage: str,
+        db: Session,
+    ) -> Screenshot:
+        screenshot = Screenshot(
+            task_id=task_id,
+            file_path="screenshots/page.png",
+            stage=stage,
+        )
+        db.add(screenshot)
+        db.flush()
+        return screenshot
+
+    with patch(
+        "app.routers.tasks.open_url_and_capture_screenshot",
+        side_effect=fake_capture,
+    ):
+        response = client.post(f"/tasks/{task.id}/screenshots")
+
+    assert response.status_code == 201
+    call = session.get(AgentToolCall, f"task-{task.id}:capture_screenshot")
+    assert call is not None
+    assert call.tool_name == "capture_screenshot"
+    result = session.get(AgentToolResult, f"task-{task.id}:capture_screenshot")
+    assert result is not None
+    assert result.output_json == {
+        "screenshot_id": response.json()["id"],
+        "stage": "page_opened",
+    }
+
+
 def test_confirm_mapping_respects_do_not_save_policy(
     test_environment: tuple[TestClient, Session],
 ) -> None:
