@@ -11,8 +11,16 @@ import re
 
 from dataclasses import dataclass, field
 
-from app.services.form_extractor import ExtractedFormAnalysis
-from app.services.page_extractor import PageExtractionResult
+from app.services.agent_runtime.tool_runtime import ToolExecutionContext, ToolRuntime
+from app.services.agent_runtime.tools import build_default_tool_runtime
+from app.services.form_extractor import ExtractedFormAnalysis, ExtractedFormField
+from app.services.page_extractor import (
+    ExtractedForm,
+    ExtractedHeading,
+    ExtractedLink,
+    ExtractedTable,
+    PageExtractionResult,
+)
 from app.workflow_constants import (
     WORKFLOW_TYPE_FORM_FILL,
     WORKFLOW_TYPE_JOB_RESEARCH_SUMMARY,
@@ -382,25 +390,112 @@ async def analyze_page_intake(
     url: str,
     profile_id: int,
     user_goal: str = "",
+    runtime: ToolRuntime | None = None,
 ) -> PageIntakeResult:
     """Open a page, extract form and content data, then run intake analysis.
 
-    Orchestrates FormExtractor and PageExtractor, then delegates to
+    Orchestrates browser read tools through Tool Runtime, then delegates to
     build_page_intake_result for deterministic classification.
 
     Does not swallow exceptions, write to the database, capture screenshots,
     or call any LLM provider.
     """
 
-    from app.services.form_extractor import extract_form_analysis
-    from app.services.page_extractor import extract_page
+    active_runtime = runtime or build_default_tool_runtime()
+    tool_input = {"url": url, "profile_id": profile_id}
+    context = ToolExecutionContext()
+    form_result = await active_runtime.execute(
+        tool_call_id="page-intake:extract_form",
+        tool_name="extract_form",
+        tool_input=tool_input,
+        context=context,
+    )
+    _raise_failed_tool(form_result, "extract_form")
+    page_result = await active_runtime.execute(
+        tool_call_id="page-intake:extract_page",
+        tool_name="extract_page",
+        tool_input=tool_input,
+        context=context,
+    )
+    _raise_failed_tool(page_result, "extract_page")
 
-    form_analysis = await extract_form_analysis(url, profile_id)
-    page = await extract_page(url, profile_id)
+    form_analysis = _form_analysis_from_runtime_output(form_result.output_json)
+    page = _page_from_runtime_output(page_result.output_json)
 
     return build_page_intake_result(
         url=url,
         page=page,
         form_analysis=form_analysis,
         user_goal=user_goal,
+    )
+
+
+def _raise_failed_tool(tool_result: object, tool_name: str) -> None:
+    if getattr(tool_result, "status", None) != "SUCCEEDED":
+        raise RuntimeError(getattr(tool_result, "error", None) or f"{tool_name} failed")
+
+
+def _form_analysis_from_runtime_output(output: dict) -> ExtractedFormAnalysis:
+    return ExtractedFormAnalysis(
+        fields=[
+            ExtractedFormField(
+                element_ref=str(field.get("element_ref") or ""),
+                form_title=field.get("form_title"),
+                section_title=field.get("section_title"),
+                label=field.get("label"),
+                selector=str(field.get("selector") or ""),
+                field_type=str(field.get("field_type") or "text"),
+                placeholder=field.get("placeholder"),
+                name=field.get("name"),
+                html_id=field.get("html_id"),
+                current_value=field.get("current_value"),
+                required=bool(field.get("required")),
+                options=field.get("options") or [],
+            )
+            for field in output.get("fields", [])
+            if isinstance(field, dict)
+        ],
+        login_required=bool(output.get("login_required")),
+    )
+
+
+def _page_from_runtime_output(output: dict) -> PageExtractionResult:
+    return PageExtractionResult(
+        title=str(output.get("title") or ""),
+        headings=[
+            ExtractedHeading(
+                level=int(heading.get("level") or 1),
+                text=str(heading.get("text") or ""),
+            )
+            for heading in output.get("headings", [])
+            if isinstance(heading, dict)
+        ],
+        main_text_blocks=[
+            str(block) for block in output.get("main_text_blocks", [])
+        ],
+        links=[
+            ExtractedLink(
+                text=str(link.get("text") or ""),
+                href=str(link.get("href") or ""),
+            )
+            for link in output.get("links", [])
+            if isinstance(link, dict)
+        ],
+        tables=[
+            ExtractedTable(
+                headers=list(table.get("headers") or []),
+                rows=list(table.get("rows") or []),
+            )
+            for table in output.get("tables", [])
+            if isinstance(table, dict)
+        ],
+        forms=[
+            ExtractedForm(
+                action=form.get("action"),
+                method=str(form.get("method") or "GET"),
+                field_count=int(form.get("field_count") or 0),
+            )
+            for form in output.get("forms", [])
+            if isinstance(form, dict)
+        ],
     )
