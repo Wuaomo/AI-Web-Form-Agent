@@ -194,12 +194,13 @@ Still missing from the runtime refactor direction:
   not overall runtime refactor completion.
 - Overall runtime refactor Stage 2, Primary API Boundary Hardening, is closed
   by focused backend/frontend/API evidence. Stage 3, Tool Runtime Coverage, has
-  started with page intake now routing `extract_form` and `extract_page`
-  browser reads through the existing Tool Runtime. Remaining gaps still include
-  legacy workflow-specific compatibility paths, old security questionnaire graph
-  fallback, and backend paths that rely on compact convergence state rather than
-  pure Agent Runtime API calls. This is not an overall runtime refactor
-  completion claim.
+  started with page intake routing `extract_form` / `extract_page` browser reads
+  through Tool Runtime, and legacy synchronous LLM mapping now routing through
+  the existing `map_fields` runtime tool. Remaining gaps still include legacy
+  workflow-specific compatibility paths, old security questionnaire graph
+  fallback, async job LLM mapping, and backend paths that rely on compact
+  convergence state rather than pure Agent Runtime API calls. This is not an
+  overall runtime refactor completion claim.
 
 ## Post-Portfolio Extensions
 
