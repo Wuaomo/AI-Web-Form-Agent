@@ -203,6 +203,16 @@ Still missing from the runtime refactor direction:
   fixture helpers, and backend paths that intentionally remain compact
   convergence state rather than pure Agent Runtime API calls. This is not an
   overall runtime refactor completion claim.
+- Stage 4A, Tool Runtime Governance Coverage Sweep, is closed for
+  already-runtime-backed backend product paths. Read tools (`extract_form`,
+  `extract_page`, `capture_screenshot`), mapping (`map_fields` rules/LLM),
+  browser write (`fill_form`), high-risk submit (`submit_form`), and
+  `AgentToolCall.governance_decision_json` persistence now have focused
+  governance evidence. Page extraction and job-summary prerequisite screenshots
+  now route through the `capture_screenshot` runtime tool instead of directly
+  calling the screenshot helper. Compatibility facades remain compact and do
+  not expose raw output. This is Stage 4A evidence, not Stage 4 overall
+  completion.
 
 ## Post-Portfolio Extensions
 

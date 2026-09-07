@@ -1095,6 +1095,16 @@ benchmark/test fixture helpers, and the old security questionnaire graph
 fallback. 这仍不是整体 runtime refactor 完成声明；下一阶段可以开始 Stage 4
 Governance Everywhere 的薄切片。
 
+当前补充状态（2026-09-07）：Stage 4A Tool Runtime Governance Coverage Sweep
+completed for already-runtime-backed backend product paths. `extract_form`、
+`extract_page`、`capture_screenshot`、`map_fields` rules/LLM、`fill_form`、
+`submit_form` 和 `AgentToolCall.governance_decision_json` persistence 都有
+focused governance evidence。Page extraction 和 job-summary prerequisite
+extraction 的 screenshot side effect now routes through `capture_screenshot`
+Tool Runtime and persists `ALLOW` governance evidence. Compatibility facades
+仍保持 compact，不暴露 raw `tool_results` / `output_json`。这只是 Stage 4A
+governance coverage sweep，不是 Stage 4 整体 Governance Everywhere 完成声明。
+
 ## 22. 不算完成的状态
 
 以下状态不能称为“整体重构完成”：
