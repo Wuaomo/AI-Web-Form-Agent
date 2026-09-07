@@ -1,5 +1,6 @@
 """Tests for job worker service to ensure proper job execution and retry behavior."""
 
+from types import SimpleNamespace
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from sqlalchemy import create_engine
@@ -183,6 +184,58 @@ def test_execute_job_rules_mapping_persists_runtime_call(db_session):
     assert call.tool_name == "map_fields"
     result = db.get(AgentToolResult, f"task-{task.id}:map_fields")
     assert result is not None
+    assert result.output_json["mapped_count"] == 1
+
+
+def test_execute_job_llm_mapping_persists_runtime_call(db_session):
+    """Verify async LLM mapping records the runtime tool call/result."""
+
+    from app.models import Job
+    from app.services.job_worker import execute_job
+
+    db, task_id = db_session
+    task = db.get(Task, task_id)
+    task.status = "ANALYZING"
+    task.workflow_status = "ANALYZING"
+    field = FormField(
+        task_id=task_id,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        required=True,
+        mapped_profile_key="email",
+        mapped_value="ada@example.com",
+        confidence=0.91,
+    )
+    db.add(field)
+    job = Job(
+        task_id=task_id,
+        job_type=JOB_TYPE_MAP_FIELDS,
+        status=JOB_STATUS_RUNNING,
+        attempts=1,
+        max_attempts=3,
+        payload={"mode": "llm", "provider": "deepseek"},
+    )
+    db.add(job)
+    db.commit()
+
+    with (
+        patch("app.services.llm_provider_config.resolve_llm_provider", return_value="deepseek"),
+        patch("app.services.llm_provider_config.is_provider_configured", return_value=True),
+        patch("app.services.field_mapper.map_fields_with_llm", return_value=[field]),
+        patch(
+            "app.services.field_mapper.map_fields_with_llm_result",
+            return_value=SimpleNamespace(fields=[field], retrieval_suggestions=[]),
+        ),
+    ):
+        execute_job(db=db, job=job)
+
+    call = db.get(AgentToolCall, f"task-{task.id}:map_fields")
+    assert call is not None
+    assert call.tool_name == "map_fields"
+    result = db.get(AgentToolResult, f"task-{task.id}:map_fields")
+    assert result is not None
+    assert result.output_json["mode"] == "llm"
     assert result.output_json["mapped_count"] == 1
 
 

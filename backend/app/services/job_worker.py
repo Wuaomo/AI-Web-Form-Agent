@@ -326,7 +326,7 @@ def _execute_map_stage(db: Session, job: Job) -> None:
         raise ValueError(f"Task {job.task_id} not found")
 
     from app.routers.tasks import save_map_fields_runtime_state
-    from app.services.field_mapper import map_fields_by_rules, map_fields_with_llm
+    from app.services.field_mapper import map_fields_by_rules, map_fields_with_llm_result
     from app.services.agent_runtime.tool_runtime import ToolExecutionContext
     from app.services.agent_runtime.tools import build_default_tool_runtime
     from app.services.checkpoint_service import write_checkpoint
@@ -345,18 +345,36 @@ def _execute_map_stage(db: Session, job: Job) -> None:
     selected_provider = provider
 
     try:
+        import asyncio
+
         if mode == "llm":
             selected_provider = resolve_llm_provider(provider)
             if not is_provider_configured(selected_provider):
                 raise ValueError(f"LLM provider {selected_provider} is not configured")
-            fields = map_fields_with_llm(job.task_id, db, provider=selected_provider)
-            field_count = len(fields)
-            mapped_count = sum(1 for f in fields if f.mapped_profile_key)
-            source_suggestions = []
-            tool_result = None
+            tool_result = asyncio.run(
+                build_default_tool_runtime(
+                    map_fields_with_llm_result_handler=map_fields_with_llm_result,
+                ).execute(
+                    tool_call_id=f"task-{task.id}:map_fields",
+                    tool_name="map_fields",
+                    tool_input={
+                        "task_id": task.id,
+                        "mode": "llm",
+                        "provider": selected_provider,
+                    },
+                    context=ToolExecutionContext(
+                        run_id=f"task-{task.id}",
+                        plan_step_id="map_fields",
+                        metadata={"db": db, "task_id": task.id},
+                    ),
+                )
+            )
+            if tool_result.status != "SUCCEEDED":
+                raise RuntimeError(tool_result.error or "Runtime map_fields failed")
+            field_count = tool_result.output_json["field_count"]
+            mapped_count = tool_result.output_json["mapped_count"]
+            source_suggestions = tool_result.output_json.get("source_suggestions") or []
         else:
-            import asyncio
-
             tool_result = asyncio.run(
                 build_default_tool_runtime(
                     map_fields_by_rules_handler=map_fields_by_rules,
