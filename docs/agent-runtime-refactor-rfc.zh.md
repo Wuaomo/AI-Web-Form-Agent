@@ -1085,6 +1085,16 @@ workflow-specific endpoints, old security questionnaire graph fallback, and the
 legacy `/tasks` facade. 这仍是 backend boundary evidence，不是整体 runtime
 refactor 完成声明。
 
+当前补充状态（2026-09-07）：Stage 3 Tool Runtime Coverage backend legacy path
+audit closed for audited product runtime surfaces. Page intake browser reads,
+legacy analyze, login-and-analyze, rules mapping, LLM mapping, page extraction,
+screenshot capture, fill, submit, and generic verification persistence now
+route through Tool Runtime or persist compact runtime state. Remaining gaps are
+compatibility surfaces: legacy `/tasks` facades, workflow-specific endpoints,
+benchmark/test fixture helpers, and the old security questionnaire graph
+fallback. 这仍不是整体 runtime refactor 完成声明；下一阶段可以开始 Stage 4
+Governance Everywhere 的薄切片。
+
 ## 22. 不算完成的状态
 
 以下状态不能称为“整体重构完成”：

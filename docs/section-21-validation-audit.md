@@ -22,7 +22,8 @@ evidence sweep, not the overall runtime refactor.
 
 ## Overall Runtime Refactor Stage Status
 
-Current stage: Stage 3, Tool Runtime Coverage, started after Stage 2 closure.
+Current stage: Stage 3 backend legacy Tool Runtime Coverage audit is closed;
+Stage 4 was not started in this slice.
 
 Stage 2, Primary API Boundary Hardening, has focused test evidence for:
 
@@ -33,22 +34,27 @@ Stage 2, Primary API Boundary Hardening, has focused test evidence for:
 - FormField synchronization limited to field proposals;
 - raw `tool_results`, `output_json`, and `raw_output_json` staying out of primary API/UI boundaries.
 
-Stage 3 has three small Tool Runtime coverage slices:
+Stage 3 has four small Tool Runtime coverage slices:
 `analyze_page_intake()` now runs `extract_form` and `extract_page` through the
 existing Tool Runtime instead of calling browser extraction services directly.
 Legacy synchronous LLM mapping now runs through the existing `map_fields`
 runtime tool instead of directly calling the LLM mapper from the endpoint.
 Async job LLM mapping now uses the same `map_fields` runtime tool instead of
-calling the legacy mapper directly from the worker.
+calling the legacy mapper directly from the worker. Legacy screenshot capture
+now runs through the `capture_screenshot` runtime tool instead of directly
+calling the browser executor from the endpoint.
 Evidence:
 `backend/tests/test_page_intake_service.py::test_analyze_page_intake_uses_tool_runtime_for_browser_reads`,
 `backend/tests/test_task_mapping_endpoint.py::test_llm_mapping_persists_map_fields_runtime_call`,
-`backend/tests/test_job_worker.py::test_execute_job_llm_mapping_persists_runtime_call`.
+`backend/tests/test_job_worker.py::test_execute_job_llm_mapping_persists_runtime_call`,
+`backend/tests/test_task_mapping_endpoint.py::test_capture_screenshot_persists_runtime_call`.
 
-The overall runtime refactor is still not complete. Remaining gaps include
-legacy workflow-specific compatibility paths, the old security questionnaire
-graph fallback, and further audit of backend paths that still depend on compact
-convergence state rather than pure Agent Runtime API calls.
+Stage 3 backend legacy path audit is now closed for the audited product runtime
+surfaces: form extraction, page extraction, field mapping rules/LLM, browser
+fill/submit, verification persistence, and screenshot capture. The overall
+runtime refactor is still not complete. Remaining gaps are compatibility
+surfaces: legacy `/tasks` facades, workflow-specific endpoints, benchmark/test
+fixture helpers, and the old security questionnaire graph fallback.
 
 ## Runtime Object Persistence Matrix
 
@@ -70,7 +76,7 @@ convergence state rather than pure Agent Runtime API calls.
 | --- | --- | --- | --- |
 | Runtime object persistence | covered | `backend/tests/test_section_21_validation_audit.py`, `backend/tests/test_database_migrations.py`, `backend/tests/test_workflow_runtime_endpoint.py` | Governance decisions are persisted as compact JSON on tool calls, not as a standalone table. |
 | Generic governed graph demo path | partial | `backend/tests/test_workflow_runtime_endpoint.py::test_governed_start_form_fill_pauses_with_review_proposals`, `::test_governed_start_vendor_onboarding_maps_custom_profile_fields`, `::test_governed_start_security_questionnaire_uses_source_answer_proposals` | Generic graph is primary for demo preparation; old security questionnaire graph remains as fallback. |
-| Internal browser read/write Tool Runtime path | partial | `backend/tests/test_agent_runtime_tool_runtime.py`, `backend/tests/test_page_intake_service.py::test_analyze_page_intake_uses_tool_runtime_for_browser_reads`, `backend/tests/test_task_mapping_endpoint.py::test_analyze_persists_extract_form_runtime_call`, `::test_rules_mapping_persists_map_fields_runtime_call`, `::test_llm_mapping_persists_map_fields_runtime_call`, `::test_fill_persists_runtime_tool_call_result`, `backend/tests/test_job_worker.py::test_execute_job_llm_mapping_persists_runtime_call`, `backend/tests/test_confirm_submit.py::test_confirm_submit_records_submit_runtime_tool_call` | Legacy endpoints still exist; some paths record compact convergence state rather than being pure Agent Runtime API calls. |
+| Internal browser read/write Tool Runtime path | partial | `backend/tests/test_agent_runtime_tool_runtime.py`, `backend/tests/test_page_intake_service.py::test_analyze_page_intake_uses_tool_runtime_for_browser_reads`, `backend/tests/test_task_mapping_endpoint.py::test_analyze_persists_extract_form_runtime_call`, `::test_rules_mapping_persists_map_fields_runtime_call`, `::test_llm_mapping_persists_map_fields_runtime_call`, `::test_capture_screenshot_persists_runtime_call`, `::test_fill_persists_runtime_tool_call_result`, `backend/tests/test_job_worker.py::test_execute_job_llm_mapping_persists_runtime_call`, `backend/tests/test_confirm_submit.py::test_confirm_submit_records_submit_runtime_tool_call` | Legacy endpoints still exist; some paths record compact convergence state rather than being pure Agent Runtime API calls. |
 | Browser write and submit governance | covered | `backend/tests/test_agent_runtime_tool_runtime.py::test_tool_runtime_pauses_review_required_tools_before_handler`, `::test_tool_runtime_pauses_submit_tools_before_handler`, `backend/tests/test_confirm_submit.py::test_confirm_submit_first_request_creates_approval_and_returns_409` | Browser click/navigation proposals are display-only until executable action parity is built. |
 | Review Queue primary proposal entry | covered | `backend/tests/test_task_mapping_endpoint.py::test_review_items_restore_persisted_proposals_before_deriving_from_fields`, `frontend/src/reviewMappingPresentation.test.js` | Legacy `/tasks` review items and FormField sync remain compatibility fallbacks. |
 | Run Cockpit compact state | covered | `backend/tests/test_workflow_runtime_endpoint.py::test_governed_get_restores_compact_state_from_db_when_memory_state_is_missing`, `frontend/src/runCockpitPresentation.test.js`, `frontend/src/runCockpitActions.test.js` | Advanced/debug raw state remains backend-only. |
@@ -176,15 +182,16 @@ review proposal compaction helper, and added focused endpoint coverage.
 
 ## Stage 3 Tool Runtime Coverage Audit
 
-Status: in progress. This slice found one real legacy backend gap and fixed it
-without changing the no-key deterministic rules path.
+Status: backend legacy path audit closed. This audit found one additional real
+legacy backend gap and fixed it without changing the no-key deterministic rules
+path.
 
 - Already wrapped or covered: page intake browser reads, legacy analyze,
-  login-and-analyze, rules mapping, page extraction, fill, submit, and generic
-  verification persistence.
-- Fixed in this slice: synchronous legacy LLM mapping and async job LLM mapping
-  now execute through the existing `map_fields` runtime tool and persist compact
-  `AgentToolCall` / `AgentToolResult` evidence.
+  login-and-analyze, rules mapping, LLM mapping, page extraction, fill, submit,
+  and generic verification persistence.
+- Fixed in this slice: legacy screenshot capture now executes through the
+  `capture_screenshot` runtime tool and persists compact `AgentToolCall` /
+  `AgentToolResult` evidence.
 - Still legacy by design: `/tasks` remains a compatibility facade,
   workflow-specific endpoints remain, old security questionnaire graph fallback
   remains, and benchmark internals still use direct fixture helpers for local
@@ -204,6 +211,7 @@ without changing the no-key deterministic rules path.
 - workflow-specific endpoints remain for template, compatibility, and older workflow paths.
 - old security questionnaire graph fallback remains until generic runtime parity is complete.
 - Async and synchronous legacy LLM mapping are now covered by Tool Runtime.
+- Legacy screenshot capture is now covered by Tool Runtime.
 - Review Mapping now reads AgentRun review items first when `agent_run_id` or `agent_runtime.run_id` is present, then falls back to legacy `/tasks/{task_id}/review-items`.
 - Review Mapping still keeps legacy `/tasks/{task_id}/review-items` fallback and FormField sync compatibility during migration.
 - Phase A closes only the frontend AgentRun boundary. Backend compatibility

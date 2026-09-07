@@ -193,12 +193,14 @@ Still missing from the runtime refactor direction:
   fallback, and the legacy `/tasks` facade. This is backend boundary evidence,
   not overall runtime refactor completion.
 - Overall runtime refactor Stage 2, Primary API Boundary Hardening, is closed
-  by focused backend/frontend/API evidence. Stage 3, Tool Runtime Coverage, has
-  started with page intake routing `extract_form` / `extract_page` browser reads
-  through Tool Runtime, and legacy synchronous plus async job LLM mapping now
-  routing through the existing `map_fields` runtime tool. Remaining gaps still
-  include legacy workflow-specific compatibility paths, old security
-  questionnaire graph fallback, and backend paths that rely on compact
+  by focused backend/frontend/API evidence. Stage 3, Tool Runtime Coverage,
+  backend legacy path audit is closed for the audited product runtime surfaces:
+  page intake `extract_form` / `extract_page`, legacy analyze, rules and LLM
+  mapping, page extraction, screenshot capture, fill, submit, and generic
+  verification persistence now route through Tool Runtime or persist compact
+  runtime state. Remaining gaps still include legacy workflow-specific
+  compatibility paths, old security questionnaire graph fallback, benchmark/test
+  fixture helpers, and backend paths that intentionally remain compact
   convergence state rather than pure Agent Runtime API calls. This is not an
   overall runtime refactor completion claim.
 
