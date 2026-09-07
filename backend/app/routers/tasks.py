@@ -1289,12 +1289,11 @@ async def extract_task_page(
     try:
         tool_result = await execute_extract_page_runtime(db, task)
 
-        await open_url_and_capture_screenshot(
-            task_id=task.id,
-            url=task.url,
-            profile_id=task.profile_id,
-            stage="extracted",
+        capture_tool_result, _ = await execute_capture_screenshot_runtime_tool(
             db=db,
+            task=task,
+            stage="extracted",
+            capture_screenshot_handler=open_url_and_capture_screenshot,
         )
 
         extraction_output = tool_result.output_json
@@ -1310,6 +1309,12 @@ async def extract_task_page(
 
         apply_workflow_status(task, WORKFLOW_STATUS_COMPLETED, reason="extraction_completed")
         save_extract_page_runtime_state(db, task=task, tool_result=tool_result)
+        save_capture_screenshot_runtime_state(
+            db,
+            task=task,
+            tool_result=capture_tool_result,
+            stage="extracted",
+        )
         create_log(
             task_id=task.id,
             step=get_next_log_step(task.id, db),
@@ -1440,12 +1445,11 @@ async def generate_job_summary(
 
             extract_tool_result = await execute_extract_page_runtime(db, task)
 
-            await open_url_and_capture_screenshot(
-                task_id=task.id,
-                url=task.url,
-                profile_id=task.profile_id,
-                stage="extracted",
+            capture_tool_result, _ = await execute_capture_screenshot_runtime_tool(
                 db=db,
+                task=task,
+                stage="extracted",
+                capture_screenshot_handler=open_url_and_capture_screenshot,
             )
 
             extraction_data = extract_tool_result.output_json
@@ -1480,6 +1484,12 @@ async def generate_job_summary(
         apply_workflow_status(task, WORKFLOW_STATUS_COMPLETED, reason="summary_completed")
         if extract_tool_result is not None:
             save_extract_page_runtime_state(db, task=task, tool_result=extract_tool_result)
+            save_capture_screenshot_runtime_state(
+                db,
+                task=task,
+                tool_result=capture_tool_result,
+                stage="extracted",
+            )
         create_log(
             task_id=task.id,
             step=get_next_log_step(task.id, db),

@@ -314,13 +314,18 @@ def test_extract_page_persists_runtime_call_without_raw_task_facade_output(
     call = session.get(AgentToolCall, f"task-{task.id}:extract_page")
     assert call is not None
     assert call.tool_name == "extract_page"
+    assert call.governance_decision["decision"] == "ALLOW"
     result = session.get(AgentToolResult, f"task-{task.id}:extract_page")
     assert result is not None
     assert result.output_json["heading_count"] == 1
+    screenshot_call = session.get(AgentToolCall, f"task-{task.id}:capture_screenshot")
+    assert screenshot_call is not None
+    assert screenshot_call.tool_name == "capture_screenshot"
+    assert screenshot_call.governance_decision["decision"] == "ALLOW"
 
     task_response = client.get(f"/tasks/{task.id}")
     payload = task_response.json()
-    assert payload["agent_runtime"]["tool_result_count"] == 1
+    assert payload["agent_runtime"]["tool_result_count"] == 2
     assert "tool_results" not in payload["agent_runtime"]
     assert "main_text_blocks" not in payload["agent_runtime"]
 
@@ -354,9 +359,14 @@ def test_job_summary_page_extraction_persists_runtime_call(
     call = session.get(AgentToolCall, f"task-{task.id}:extract_page")
     assert call is not None
     assert call.tool_name == "extract_page"
+    assert call.governance_decision["decision"] == "ALLOW"
     result = session.get(AgentToolResult, f"task-{task.id}:extract_page")
     assert result is not None
     assert result.output_json["text_block_count"] == 1
+    screenshot_call = session.get(AgentToolCall, f"task-{task.id}:capture_screenshot")
+    assert screenshot_call is not None
+    assert screenshot_call.tool_name == "capture_screenshot"
+    assert screenshot_call.governance_decision["decision"] == "ALLOW"
 
 
 def test_review_items_returns_field_value_proposals(
@@ -2039,6 +2049,7 @@ def test_rules_mapping_persists_map_fields_runtime_call(
     assert call is not None
     assert call.tool_name == "map_fields"
     assert call.status == "SUCCEEDED"
+    assert call.governance_decision["decision"] == "RECORD_ONLY"
     result = session.get(AgentToolResult, f"task-{task.id}:map_fields")
     assert result is not None
     assert result.output_json["field_count"] == 1
@@ -2071,6 +2082,7 @@ def test_llm_mapping_persists_map_fields_runtime_call(
     assert call is not None
     assert call.tool_name == "map_fields"
     assert call.status == "SUCCEEDED"
+    assert call.governance_decision["decision"] == "RECORD_ONLY"
     result = session.get(AgentToolResult, f"task-{task.id}:map_fields")
     assert result is not None
     assert result.output_json["mode"] == "llm"
@@ -2753,6 +2765,7 @@ def test_login_and_analyze_persists_extract_form_runtime_call(
     assert call is not None
     assert call.tool_name == "extract_form"
     assert call.status == "SUCCEEDED"
+    assert call.governance_decision["decision"] == "ALLOW"
     result = session.get(AgentToolResult, f"task-{task.id}:extract_form")
     assert result is not None
     assert result.output_json["field_count"] == 1
@@ -2877,6 +2890,7 @@ def test_capture_screenshot_persists_runtime_call(
     call = session.get(AgentToolCall, f"task-{task.id}:capture_screenshot")
     assert call is not None
     assert call.tool_name == "capture_screenshot"
+    assert call.governance_decision["decision"] == "ALLOW"
     result = session.get(AgentToolResult, f"task-{task.id}:capture_screenshot")
     assert result is not None
     assert result.output_json == {

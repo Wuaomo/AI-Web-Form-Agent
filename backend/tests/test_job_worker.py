@@ -182,6 +182,7 @@ def test_execute_job_rules_mapping_persists_runtime_call(db_session):
     call = db.get(AgentToolCall, f"task-{task.id}:map_fields")
     assert call is not None
     assert call.tool_name == "map_fields"
+    assert call.governance_decision["decision"] == "RECORD_ONLY"
     result = db.get(AgentToolResult, f"task-{task.id}:map_fields")
     assert result is not None
     assert result.output_json["mapped_count"] == 1
@@ -233,6 +234,7 @@ def test_execute_job_llm_mapping_persists_runtime_call(db_session):
     call = db.get(AgentToolCall, f"task-{task.id}:map_fields")
     assert call is not None
     assert call.tool_name == "map_fields"
+    assert call.governance_decision["decision"] == "RECORD_ONLY"
     result = db.get(AgentToolResult, f"task-{task.id}:map_fields")
     assert result is not None
     assert result.output_json["mode"] == "llm"
