@@ -1553,13 +1553,34 @@ def map_task_fields(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=get_provider_setup_hint(selected_provider),
                 )
-            mapping_result = map_fields_with_llm_result(
-                task_id,
-                db,
-                provider=selected_provider,
+            tool_result = asyncio.run(
+                build_default_tool_runtime(
+                    map_fields_with_llm_result_handler=map_fields_with_llm_result,
+                ).execute(
+                    tool_call_id=f"task-{task.id}:map_fields",
+                    tool_name="map_fields",
+                    tool_input={
+                        "task_id": task.id,
+                        "mode": "llm",
+                        "provider": selected_provider,
+                    },
+                    context=ToolExecutionContext(
+                        run_id=f"task-{task.id}",
+                        plan_step_id="map_fields",
+                        metadata={"db": db, "task_id": task.id},
+                    ),
+                )
             )
-            fields = mapping_result.fields
-            retrieval_suggestions = mapping_result.retrieval_suggestions
+            if tool_result.status != "SUCCEEDED":
+                raise RuntimeError(tool_result.error or "Runtime map_fields failed")
+            fields = list(
+                db.scalars(
+                    select(FormField)
+                    .where(FormField.task_id == task_id)
+                    .order_by(FormField.id)
+                )
+            )
+            retrieval_suggestions = tool_result.output_json.get("retrieval_suggestions") or []
         else:
             tool_result = asyncio.run(
                 build_default_tool_runtime(
@@ -1613,7 +1634,7 @@ def map_task_fields(
             output=checkpoint_output,
             db=db,
         )
-        if mode == "rules":
+        if tool_result is not None:
             save_map_fields_runtime_state(db, task=task, tool_result=tool_result)
         db.commit()
         safe_finish_span(

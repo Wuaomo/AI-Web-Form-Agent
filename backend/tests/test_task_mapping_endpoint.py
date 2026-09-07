@@ -2045,6 +2045,40 @@ def test_rules_mapping_persists_map_fields_runtime_call(
     assert result.output_json["mapped_count"] == 1
 
 
+def test_llm_mapping_persists_map_fields_runtime_call(
+    test_environment: tuple[TestClient, Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify legacy LLM mapping also goes through the runtime tool."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_profile_key = "email"
+    field.mapped_value = "ada@example.com"
+    field.confidence = 0.8
+    session.commit()
+    monkeypatch.setattr(config, "DEEPSEEK_API_KEY", "test-deepseek-key")
+    suggestion = {"field_id": field.id, "source_type": "reviewed_memory"}
+
+    with patch(
+        "app.routers.tasks.map_fields_with_llm_result",
+        return_value=SimpleNamespace(fields=[field], retrieval_suggestions=[suggestion]),
+    ):
+        response = client.post(f"/tasks/{task.id}/map-fields?provider=deepseek")
+
+    assert response.status_code == 200
+    call = session.get(AgentToolCall, f"task-{task.id}:map_fields")
+    assert call is not None
+    assert call.tool_name == "map_fields"
+    assert call.status == "SUCCEEDED"
+    result = session.get(AgentToolResult, f"task-{task.id}:map_fields")
+    assert result is not None
+    assert result.output_json["mode"] == "llm"
+    assert result.output_json["field_count"] == 1
+    assert result.output_json["mapped_count"] == 1
+    assert result.output_json["retrieval_suggestions"] == [suggestion]
+
+
 def test_confirm_mapping_rejects_missing_required_values(
     test_environment: tuple[TestClient, Session],
 ) -> None:

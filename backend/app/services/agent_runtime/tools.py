@@ -14,6 +14,7 @@ from app.services.agent_runtime.tool_runtime import (
     ToolRuntime,
 )
 from app.services.field_mapper import map_fields_by_rules
+from app.services.field_mapper import map_fields_with_llm_result
 from app.services.form_extractor import extract_form_analysis
 from app.services.page_extractor import extract_page
 from app.services.browser_executor import (
@@ -51,6 +52,8 @@ MAP_FIELDS_INPUT_SCHEMA: dict[str, Any] = {
     "required": ["task_id"],
     "properties": {
         "task_id": {"type": "integer"},
+        "mode": {"type": "string"},
+        "provider": {"type": "string"},
     },
 }
 
@@ -146,6 +149,7 @@ def build_default_tool_runtime(
     *,
     extract_form_analysis_handler=extract_form_analysis,
     map_fields_by_rules_handler=map_fields_by_rules,
+    map_fields_with_llm_result_handler=map_fields_with_llm_result,
     extract_page_handler=extract_page,
     fill_form_handler=fill_form_and_capture_screenshot,
     submit_form_handler=submit_form_and_capture_screenshot,
@@ -179,10 +183,21 @@ def build_default_tool_runtime(
         tool_input: dict[str, Any],
     ) -> dict[str, Any]:
         db = context.metadata.get("db")
-        fields = map_fields_by_rules_handler(
-            tool_input["task_id"],
-            db=db,
-        )
+        mode = str(tool_input.get("mode") or "rules")
+        retrieval_suggestions: list[dict[str, object]] = []
+        if mode == "llm":
+            mapping_result = map_fields_with_llm_result_handler(
+                tool_input["task_id"],
+                db,
+                provider=tool_input.get("provider"),
+            )
+            fields = mapping_result.fields
+            retrieval_suggestions = mapping_result.retrieval_suggestions
+        else:
+            fields = map_fields_by_rules_handler(
+                tool_input["task_id"],
+                db=db,
+            )
         task = _task_from_context(context, tool_input["task_id"])
         source_suggestions = (
             apply_policy_answer_suggestions(fields=fields, db=db, task=task)
@@ -215,8 +230,9 @@ def build_default_tool_runtime(
                 for field in field_payload
                 if field["mapped_profile_key"] or field["mapped_value"]
             ),
-            "mode": "rules",
+            "mode": mode,
             "source_suggestions": source_suggestions,
+            "retrieval_suggestions": retrieval_suggestions,
             "_created_proposals": [
                 proposal.model_dump(mode="json") for proposal in proposals
             ],
