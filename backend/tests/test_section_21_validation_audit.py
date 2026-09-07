@@ -25,6 +25,10 @@ RUN_COCKPIT_CLIENT_STATUS = (
     "Run Cockpit AgentRun read helper thin slice completed; "
     "remaining migration gaps documented"
 )
+PHASE_B_BACKEND_STATUS = (
+    "Phase B backend AgentRun/review boundary evidence sweep completed; "
+    "remaining migration gaps documented"
+)
 
 
 def test_section_21_validation_audit_indexes_runtime_object_evidence() -> None:
@@ -252,4 +256,24 @@ def test_review_mapping_agent_run_client_status_is_reflected() -> None:
         assert "Review Mapping now reads AgentRun review items first" in text
         assert "legacy `/tasks/{task_id}/review-items` fallback" in text
         assert "FormField sync" in text
+        assert "runtime refactor complete" not in text.lower()
+
+
+def test_phase_b_backend_agent_run_review_boundary_status_is_reflected() -> None:
+    """Verify docs record backend AgentRun/review boundary evidence and gaps."""
+
+    for path in [
+        REPO_ROOT / "README.md",
+        REPO_ROOT / "docs" / "roadmap" / "00-ai-engineer-alignment-roadmap.md",
+        REPO_ROOT / "docs" / "agent-runtime-refactor-rfc.zh.md",
+        AUDIT_DOC,
+    ]:
+        text = path.read_text(encoding="utf-8")
+        assert PHASE_B_BACKEND_STATUS in text
+        assert "`/agent-runs/{run_id}`" in text
+        assert "`/agent-runs/{run_id}/review-items`" in text
+        assert "`/agent-runs/{run_id}/review-items/{item_id}/decision`" in text
+        assert "nested raw tool payloads" in text
+        assert "FormField sync" in text
+        assert "workflow-specific endpoints" in text
         assert "runtime refactor complete" not in text.lower()

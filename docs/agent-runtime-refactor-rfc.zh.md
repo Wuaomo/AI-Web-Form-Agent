@@ -1076,6 +1076,15 @@ facade, workflow-specific endpoints, old security questionnaire graph fallback,
 and legacy `/tasks/{task_id}/review-items` fallback. 这仍是前端 read helper
 薄切片，不是整体 runtime refactor 完成声明。
 
+当前补充状态（2026-09-07）：Phase B backend AgentRun/review boundary evidence sweep completed; remaining migration gaps documented。
+`/agent-runs/{run_id}` 继续返回 compact AgentRun state，不暴露 raw output；
+`/agent-runs/{run_id}/review-items` 会从 proposal value 中剥离 nested raw tool payloads；`/agent-runs/{run_id}/review-items/{item_id}/decision` 继续
+AgentReviewDecision-first 写入，并且只对 field proposals 做 FormField sync。
+remaining gaps include legacy `/tasks/{task_id}/review-items` fallback,
+workflow-specific endpoints, old security questionnaire graph fallback, and the
+legacy `/tasks` facade. 这仍是 backend boundary evidence，不是整体 runtime
+refactor 完成声明。
+
 ## 22. 不算完成的状态
 
 以下状态不能称为“整体重构完成”：

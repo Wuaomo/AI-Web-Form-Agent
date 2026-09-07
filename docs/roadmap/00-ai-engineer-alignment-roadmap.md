@@ -184,6 +184,14 @@ Still missing from the runtime refactor direction:
 - Legacy `/tasks` facade coverage tightened to prove compact `agent_runtime`
   hides raw `tool_results` / `output_json`; this remains compatibility facade
   evidence, not overall runtime refactor completion.
+- Phase B backend AgentRun/review boundary evidence sweep completed; remaining migration gaps documented. `/agent-runs/{run_id}` remains compact without raw
+  output; `/agent-runs/{run_id}/review-items` strips nested raw tool payloads
+  from proposal values; `/agent-runs/{run_id}/review-items/{item_id}/decision`
+  writes AgentReviewDecision first and keeps FormField sync limited to field
+  proposals. Remaining gaps include legacy `/tasks/{task_id}/review-items`
+  fallback, workflow-specific endpoints, old security questionnaire graph
+  fallback, and the legacy `/tasks` facade. This is backend boundary evidence,
+  not overall runtime refactor completion.
 
 ## Post-Portfolio Extensions
 

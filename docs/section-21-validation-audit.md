@@ -17,6 +17,8 @@ review state before stale task status.
 Phase A frontend primary AgentRun boundary audit completed; no production code
 changes were needed. This closes Phase A frontend boundary only, not the
 overall runtime refactor.
+Phase B backend AgentRun/review boundary evidence sweep completed; remaining migration gaps documented. This closes only the backend AgentRun/review boundary
+evidence sweep, not the overall runtime refactor.
 
 ## Runtime Object Persistence Matrix
 
@@ -53,7 +55,7 @@ overall runtime refactor.
 | --- | --- | --- |
 | Task facade | covered | `backend/tests/test_task_mapping_endpoint.py::test_get_task_includes_compact_agent_runtime_state`, `::test_list_tasks_includes_compact_agent_runtime_state`, `::test_extract_page_persists_runtime_call_without_raw_task_facade_output` assert `tool_results`, `output_json`, and raw page output stay out of `agent_runtime`. |
 | Run Cockpit | covered | `frontend/src/runCockpitPresentation.test.js::getRunCockpitToolCalls returns compact recent tool history` and `::getRunCockpitVerificationDetails returns compact evidence items` expose counts and compact evidence, not raw `output_json`. |
-| Review Queue | covered | `frontend/src/reviewMappingPresentation.test.js::buildReviewQueueCompactItems shows browser action proposals compactly` and `::buildReviewQueueCompactItems guards external write proposals` strip nested `tool_results`; `backend/tests/test_task_mapping_endpoint.py::test_review_items_show_external_write_without_raw_tool_results` strips backend proposal payloads. |
+| Review Queue | covered | `frontend/src/reviewMappingPresentation.test.js::buildReviewQueueCompactItems shows browser action proposals compactly` and `::buildReviewQueueCompactItems guards external write proposals` strip nested `tool_results`; `backend/tests/test_task_mapping_endpoint.py::test_review_items_show_external_write_without_raw_tool_results` and `backend/tests/test_agent_run_read_endpoint.py::test_get_agent_run_review_items_strips_nested_raw_tool_payloads` strip backend proposal payloads. |
 | External read-only tools | covered | `backend/tests/test_agent_runtime_external_tools.py::test_external_readonly_output_becomes_compact_tool_evidence` keeps raw output in `ToolResult.output_json` while producing compact `EvidenceItem` summaries for UI use. |
 | Backend persistence | covered | `backend/tests/test_workflow_runtime_endpoint.py::test_governed_start_persists_tool_calls_and_results` proves raw `AgentToolResult.output_json` is persisted for backend recovery, and `::test_governed_get_restores_compact_state_from_db_when_memory_state_is_missing` proves compact restore omits raw markers. |
 
@@ -62,7 +64,7 @@ overall runtime refactor.
 | Boundary | Classification | Audit result |
 | --- | --- | --- |
 | `/agent-runs/{run_id}` | primary read boundary | Returns compact AgentRun state from persisted runtime rows without raw `tool_results` / `output_json`. |
-| `/agent-runs/{run_id}/review-items` | primary review boundary | Returns proposal-backed Review Queue items through AgentRun while preserving legacy FormField/checkpoint backfill. |
+| `/agent-runs/{run_id}/review-items` | primary review boundary | Returns proposal-backed Review Queue items through AgentRun while preserving legacy FormField/checkpoint backfill and stripping nested raw tool payloads from proposal values. |
 | `/agent-runs/{run_id}/review-items/{item_id}/decision` | primary review boundary | Writes `AgentReviewDecision` through AgentRun and keeps FormField sync only for field proposals. |
 | `/workflows/{task_id}/governed/start` | primary | Generic governed AgentRun preparation boundary for no-key demo paths. |
 | `/workflows/{task_id}/governed` | primary | Restores compact governed runtime state for Run Cockpit. |
@@ -120,6 +122,26 @@ runtime state after starting a governed run before deciding whether to navigate
 to Review Mapping. Task Detail's static primary action also treats compact
 runtime `WAITING_REVIEW`, `interrupt_at: review`, or `pending_review_count > 0`
 as review-ready before stale legacy task status.
+
+## Phase B Backend Boundary Audit
+
+Status: completed for backend AgentRun/review boundary evidence. The sweep found
+one real compactness gap in nested proposal values, fixed it at the shared
+review proposal compaction helper, and added focused endpoint coverage.
+
+- `/agent-runs/{run_id}` has focused backend coverage for compact persisted
+  state without raw `tool_results`, `output_json`, or raw output markers.
+- `/agent-runs/{run_id}/review-items` now strips nested raw tool payloads from
+  persisted proposal values before returning proposal-backed review items.
+- `/agent-runs/{run_id}/review-items/{item_id}/decision` writes
+  `AgentReviewDecision` through the AgentRun boundary.
+- FormField sync remains limited to field proposals; non-field proposals such
+  as `memory_write` stay runtime-only.
+- Legacy `/tasks/{task_id}/review-items` fallback, FormField sync compatibility,
+  workflow-specific endpoints, old security questionnaire graph fallback, and
+  the legacy `/tasks` facade remain documented migration gaps.
+- This closes Phase B backend AgentRun/review boundary evidence only, not the
+  overall runtime refactor.
 
 ## Compatibility Paths Kept
 
