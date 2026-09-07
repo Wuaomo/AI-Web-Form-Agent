@@ -1,6 +1,6 @@
 # Section 21 Validation Audit
 
-Date: 2026-09-06
+Date: 2026-09-07
 
 Scope: RFC section 21 validation only. Current status: section 21 validation
 audit completed; remaining gaps documented. This audit records current evidence
@@ -19,6 +19,29 @@ changes were needed. This closes Phase A frontend boundary only, not the
 overall runtime refactor.
 Phase B backend AgentRun/review boundary evidence sweep completed; remaining migration gaps documented. This closes only the backend AgentRun/review boundary
 evidence sweep, not the overall runtime refactor.
+
+## Overall Runtime Refactor Stage Status
+
+Current stage: Stage 3, Tool Runtime Coverage, started after Stage 2 closure.
+
+Stage 2, Primary API Boundary Hardening, has focused test evidence for:
+
+- compact `/agent-runs/{run_id}` reads without raw tool output;
+- proposal-backed compact `/agent-runs/{run_id}/review-items` reads;
+- AgentRun-first `/agent-runs/{run_id}/review-items/{item_id}/decision` writes;
+- legacy `/tasks` and `/tasks/{task_id}/review-items` as compatibility facade/fallback paths;
+- FormField synchronization limited to field proposals;
+- raw `tool_results`, `output_json`, and `raw_output_json` staying out of primary API/UI boundaries.
+
+Stage 3 has started with one small Tool Runtime coverage slice:
+`analyze_page_intake()` now runs `extract_form` and `extract_page` through the
+existing Tool Runtime instead of calling browser extraction services directly.
+Evidence: `backend/tests/test_page_intake_service.py::test_analyze_page_intake_uses_tool_runtime_for_browser_reads`.
+
+The overall runtime refactor is still not complete. Remaining gaps include
+legacy workflow-specific compatibility paths, the old security questionnaire
+graph fallback, and further audit of backend paths that still depend on compact
+convergence state rather than pure Agent Runtime API calls.
 
 ## Runtime Object Persistence Matrix
 
@@ -40,7 +63,7 @@ evidence sweep, not the overall runtime refactor.
 | --- | --- | --- | --- |
 | Runtime object persistence | covered | `backend/tests/test_section_21_validation_audit.py`, `backend/tests/test_database_migrations.py`, `backend/tests/test_workflow_runtime_endpoint.py` | Governance decisions are persisted as compact JSON on tool calls, not as a standalone table. |
 | Generic governed graph demo path | partial | `backend/tests/test_workflow_runtime_endpoint.py::test_governed_start_form_fill_pauses_with_review_proposals`, `::test_governed_start_vendor_onboarding_maps_custom_profile_fields`, `::test_governed_start_security_questionnaire_uses_source_answer_proposals` | Generic graph is primary for demo preparation; old security questionnaire graph remains as fallback. |
-| Internal browser read/write Tool Runtime path | partial | `backend/tests/test_agent_runtime_tool_runtime.py`, `backend/tests/test_task_mapping_endpoint.py::test_analyze_persists_extract_form_runtime_call`, `::test_fill_persists_runtime_tool_call_result`, `backend/tests/test_confirm_submit.py::test_confirm_submit_records_submit_runtime_tool_call` | Legacy endpoints still exist; some paths record compact convergence state rather than being pure Agent Runtime API calls. |
+| Internal browser read/write Tool Runtime path | partial | `backend/tests/test_agent_runtime_tool_runtime.py`, `backend/tests/test_page_intake_service.py::test_analyze_page_intake_uses_tool_runtime_for_browser_reads`, `backend/tests/test_task_mapping_endpoint.py::test_analyze_persists_extract_form_runtime_call`, `::test_fill_persists_runtime_tool_call_result`, `backend/tests/test_confirm_submit.py::test_confirm_submit_records_submit_runtime_tool_call` | Legacy endpoints still exist; some paths record compact convergence state rather than being pure Agent Runtime API calls. |
 | Browser write and submit governance | covered | `backend/tests/test_agent_runtime_tool_runtime.py::test_tool_runtime_pauses_review_required_tools_before_handler`, `::test_tool_runtime_pauses_submit_tools_before_handler`, `backend/tests/test_confirm_submit.py::test_confirm_submit_first_request_creates_approval_and_returns_409` | Browser click/navigation proposals are display-only until executable action parity is built. |
 | Review Queue primary proposal entry | covered | `backend/tests/test_task_mapping_endpoint.py::test_review_items_restore_persisted_proposals_before_deriving_from_fields`, `frontend/src/reviewMappingPresentation.test.js` | Legacy `/tasks` review items and FormField sync remain compatibility fallbacks. |
 | Run Cockpit compact state | covered | `backend/tests/test_workflow_runtime_endpoint.py::test_governed_get_restores_compact_state_from_db_when_memory_state_is_missing`, `frontend/src/runCockpitPresentation.test.js`, `frontend/src/runCockpitActions.test.js` | Advanced/debug raw state remains backend-only. |

@@ -192,6 +192,14 @@ Still missing from the runtime refactor direction:
   fallback, workflow-specific endpoints, old security questionnaire graph
   fallback, and the legacy `/tasks` facade. This is backend boundary evidence,
   not overall runtime refactor completion.
+- Overall runtime refactor Stage 2, Primary API Boundary Hardening, is closed
+  by focused backend/frontend/API evidence. Stage 3, Tool Runtime Coverage, has
+  started with page intake now routing `extract_form` and `extract_page`
+  browser reads through the existing Tool Runtime. Remaining gaps still include
+  legacy workflow-specific compatibility paths, old security questionnaire graph
+  fallback, and backend paths that rely on compact convergence state rather than
+  pure Agent Runtime API calls. This is not an overall runtime refactor
+  completion claim.
 
 ## Post-Portfolio Extensions
 
