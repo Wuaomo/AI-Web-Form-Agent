@@ -462,7 +462,7 @@ async def apply_governed_review_item_decision(
         f"task-{task.id}"
     ) or restore_governed_runtime_state(db, task=task)
     if (
-        request.decision in {"approved", "edited", "rejected"}
+        request.decision in {"approved", "edited"}
         and target.proposal is not None
         and target.proposal.run.pending_review_count == 0
         and raw_state is not None

@@ -730,6 +730,120 @@ def test_governed_review_decision_resumes_persisted_state_after_memory_reset() -
     session.close()
 
 
+def test_governed_review_rejection_does_not_resume_paused_fill_form() -> None:
+    """Rejecting a proposal must not approve a paused browser write."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    field = FormField(
+        task_id=task.id,
+        label="Email address",
+        selector="#email",
+        field_type="email",
+        mapped_value="ada@example.com",
+        confidence=0.8,
+    )
+    session.add(field)
+    session.commit()
+
+    fields = [
+        {
+            "id": field.id,
+            "selector": field.selector,
+            "mapped_value": field.mapped_value,
+        }
+    ]
+    save_governed_runtime_state(
+        session,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "interrupt_at": "review",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": "Fill reviewed fields.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": "WAITING_REVIEW",
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:plan:1",
+                "version": 1,
+                "goal": "Fill reviewed fields.",
+                "steps": [
+                    {
+                        "step_id": "fill_form",
+                        "tool_name": "fill_form",
+                        "reason": "Fill reviewed browser fields.",
+                        "input_json": {
+                            "task_id": task.id,
+                            "url": task.url,
+                            "profile_id": task.profile_id,
+                            "fields": fields,
+                        },
+                        "risk_level": "medium",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "current_tool_call": {
+                "id": f"task-{task.id}:fill_form",
+                "run_id": f"task-{task.id}",
+                "plan_step_id": "fill_form",
+                "tool_name": "fill_form",
+                "input_json": {
+                    "task_id": task.id,
+                    "url": task.url,
+                    "profile_id": task.profile_id,
+                    "fields": fields,
+                },
+                "status": "WAITING_REVIEW",
+                "risk_level": "medium",
+                "governance_decision": {"decision": "REVIEW_REQUIRED"},
+            },
+        },
+    )
+    proposal = AgentProposal(
+        id=f"task-{task.id}-field-{field.id}",
+        run_id=f"task-{task.id}",
+        proposal_type="field_value",
+        target_type="form_field",
+        target_ref=str(field.id),
+        proposed_value="ada@example.com",
+        rationale="Review before fill.",
+        confidence=0.8,
+        risk_level="low",
+        status="PENDING",
+    )
+    run = session.get(AgentRun, f"task-{task.id}")
+    run.pending_review_count = 1
+    session.add(proposal)
+    session.commit()
+    _reset_governed_runtime_for_tests()
+
+    fill_form = AsyncMock(return_value=(SimpleNamespace(id=5), []))
+    runtime = build_default_tool_runtime(fill_form_handler=fill_form)
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        response = client.post(
+            f"/workflows/{task.id}/governed/review-items/{proposal.id}/decision",
+            json={"decision": "rejected"},
+        )
+
+    assert response.status_code == 200
+    fill_form.assert_not_awaited()
+    state_response = client.get(f"/workflows/{task.id}/governed")
+    assert state_response.status_code == 200
+    assert state_response.json()["status"] == "WAITING_REVIEW"
+    session.close()
+
+
 def test_governed_start_vendor_onboarding_maps_custom_profile_fields() -> None:
     """POST /governed/start maps vendor profile fields through generic runtime."""
 
