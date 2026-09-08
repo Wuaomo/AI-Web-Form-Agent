@@ -26,10 +26,14 @@ Stage 4B Governance Negative Coverage Sweep completed; two product runtime
 governance gaps were fixed and remaining compatibility gaps are documented.
 This closes only the Stage 4B negative enforcement sweep, not the overall
 Stage 4 governance refactor.
+Stage 4C Governed Browser Action Resume/Parity Sweep completed; two product
+runtime browser-write resume/parity gaps were fixed and remaining
+compatibility gaps are documented. This closes only Stage 4C, not the overall
+Stage 4 governance refactor.
 
 ## Overall Runtime Refactor Stage Status
 
-Current stage: Stage 4B Governance Negative Coverage Sweep is closed.
+Current stage: Stage 4C Governed Browser Action Resume/Parity Sweep is closed.
 Stage 4 overall is not complete.
 
 Stage 2, Primary API Boundary Hardening, has focused test evidence for:
@@ -104,6 +108,33 @@ Fixed in this slice:
 - Hardened sensitive browser mutation detection for real field objects passed
   by product runtime wrappers.
 
+Stage 4C governed browser action resume/parity sweep is now closed for the
+audited product runtime gaps:
+
+- Governed review decisions now resume paused browser writes only for
+  `approved` or `edited` decisions; `rejected` and `needs_more_evidence`
+  decisions cannot approve a paused `fill_form` tool call.
+- Legacy `/tasks/{task_id}/fill` now treats an approved or edited field
+  proposal as stale when its persisted `proposed_value` no longer matches the
+  current `FormField.mapped_value`, so changed browser writes require fresh
+  review.
+- Existing coverage confirms governed approval resume for `submit_form` is
+  only attempted from the explicit final-submit endpoint, and only when the
+  approved field snapshot and current selector/value snapshot still match.
+- Existing coverage confirms `fill_form` produces verification candidates and
+  persisted `AgentVerificationResult` evidence after execution.
+- Existing coverage confirms `form_submit` requires explicit final-submit
+  approval before execution and persists submit verification evidence.
+- Existing coverage confirms `browser_click` and `browser_navigation`
+  proposals remain compact display-only review items, not executable browser
+  tools.
+
+Fixed in this slice:
+
+- Removed `rejected` from governed review auto-resume decisions.
+- Made the field proposal browser-write gate compare approved proposal value
+  against the current mapped field value before allowing fill.
+
 ## Runtime Object Persistence Matrix
 
 | Runtime object | Validation | Evidence |
@@ -125,7 +156,7 @@ Fixed in this slice:
 | Runtime object persistence | covered | `backend/tests/test_section_21_validation_audit.py`, `backend/tests/test_database_migrations.py`, `backend/tests/test_workflow_runtime_endpoint.py` | Governance decisions are persisted as compact JSON on tool calls, not as a standalone table. |
 | Generic governed graph demo path | partial | `backend/tests/test_workflow_runtime_endpoint.py::test_governed_start_form_fill_pauses_with_review_proposals`, `::test_governed_start_vendor_onboarding_maps_custom_profile_fields`, `::test_governed_start_security_questionnaire_uses_source_answer_proposals` | Generic graph is primary for demo preparation; old security questionnaire graph remains as fallback. |
 | Internal browser read/write Tool Runtime path | partial | `backend/tests/test_agent_runtime_tool_runtime.py`, `backend/tests/test_page_intake_service.py::test_analyze_page_intake_uses_tool_runtime_for_browser_reads`, `backend/tests/test_task_mapping_endpoint.py::test_analyze_persists_extract_form_runtime_call`, `::test_login_and_analyze_persists_extract_form_runtime_call`, `::test_extract_page_persists_runtime_call_without_raw_task_facade_output`, `::test_job_summary_page_extraction_persists_runtime_call`, `::test_rules_mapping_persists_map_fields_runtime_call`, `::test_llm_mapping_persists_map_fields_runtime_call`, `::test_capture_screenshot_persists_runtime_call`, `::test_fill_persists_runtime_tool_call_result`, `backend/tests/test_job_worker.py::test_execute_job_rules_mapping_persists_runtime_call`, `::test_execute_job_llm_mapping_persists_runtime_call`, `::test_execute_fill_stage_persists_runtime_tool_call`, `backend/tests/test_confirm_submit.py::test_confirm_submit_records_submit_runtime_tool_call` | Legacy endpoints still exist; some paths record compact convergence state rather than being pure Agent Runtime API calls. |
-| Browser write and submit governance | covered | `backend/tests/test_agent_runtime_tool_runtime.py::test_tool_runtime_pauses_review_required_tools_before_handler`, `::test_tool_runtime_pauses_submit_tools_before_handler`, `backend/tests/test_confirm_submit.py::test_confirm_submit_first_request_creates_approval_and_returns_409` | Browser click/navigation proposals are display-only until executable action parity is built. |
+| Browser write and submit governance | covered | `backend/tests/test_agent_runtime_tool_runtime.py::test_tool_runtime_pauses_review_required_tools_before_handler`, `::test_tool_runtime_pauses_submit_tools_before_handler`, `backend/tests/test_workflow_runtime_endpoint.py::test_governed_review_rejection_does_not_resume_paused_fill_form`, `backend/tests/test_task_mapping_endpoint.py::test_fill_returns_409_when_approved_proposal_value_is_stale`, `backend/tests/test_confirm_submit.py::test_confirm_submit_first_request_creates_approval_and_returns_409` | Browser click/navigation proposals are display-only until executable action parity is built. |
 | Review Queue primary proposal entry | covered | `backend/tests/test_task_mapping_endpoint.py::test_review_items_restore_persisted_proposals_before_deriving_from_fields`, `frontend/src/reviewMappingPresentation.test.js` | Legacy `/tasks` review items and FormField sync remain compatibility fallbacks. |
 | Run Cockpit compact state | covered | `backend/tests/test_workflow_runtime_endpoint.py::test_governed_get_restores_compact_state_from_db_when_memory_state_is_missing`, `frontend/src/runCockpitPresentation.test.js`, `frontend/src/runCockpitActions.test.js` | Advanced/debug raw state remains backend-only. |
 | No-key deterministic demos and benchmark replay | covered | `backend/tests/test_workflow_runtime_endpoint.py::test_governed_start_keeps_demo_paths_no_key_deterministic`, `backend/tests/test_benchmark_endpoint.py::test_run_benchmark_full_workflow_runs_without_provider`, `::test_run_benchmark_runtime_runs_without_provider` | Generic demo preparation and benchmark replay are covered; legacy fallback remains documented separately. |
@@ -296,6 +327,34 @@ runtime paths. This is not the overall Stage 4 governance refactor.
   compatibility endpoints that do not execute dangerous actions, and the old
   security questionnaire graph fallback.
 
+## Stage 4C Governed Browser Action Resume/Parity Sweep
+
+Status: completed for governed browser action resume/parity in audited product
+runtime paths. This is not the overall Stage 4 governance refactor.
+
+- Fixed: `rejected` governed review decisions no longer trigger
+  `resume_governed_runtime_from_review`, so they cannot approve or execute a
+  paused `fill_form` browser write.
+- Fixed: approved or edited field proposals cannot be reused after the mapped
+  field value changes; stale fill proposals block `/tasks/{task_id}/fill`
+  before browser execution.
+- Already covered: `needs_more_evidence` decisions do not resume governed
+  review pauses.
+- Already covered: governed submit approval resume is limited to
+  `submit_form`, starts only from `/tasks/{task_id}/confirm-submit`, and skips
+  stale field-value or selector snapshots.
+- Already covered: legacy `/tasks/{task_id}/fill` and async fill jobs execute
+  through the same `split_fields_by_browser_write_review` and Tool Runtime
+  gates.
+- Already covered: executed `fill_form` writes verification candidates and
+  persisted generic verification evidence; executed `submit_form` writes
+  submit verification evidence.
+- Already covered: `browser_click` and `browser_navigation` proposals are
+  display-only compact review items.
+- Kept out of scope: benchmark/test fixture helpers, compatibility facades that
+  do not execute dangerous browser actions, and the old security questionnaire
+  graph fallback unless it can bypass dangerous actions.
+
 ## Compatibility Paths Kept
 
 - `/tasks` task detail and list facades.
@@ -315,6 +374,8 @@ runtime paths. This is not the overall Stage 4 governance refactor.
   `capture_screenshot` Tool Runtime governance evidence.
 - Stage 4B closed the audited negative enforcement gaps for exact tool-call
   approvals and sensitive field-object browser inputs.
+- Stage 4C closed the audited browser action resume/parity gaps for rejected
+  governed review resume and stale field proposal fill approvals.
 - Review Mapping now reads AgentRun review items first when `agent_run_id` or `agent_runtime.run_id` is present, then falls back to legacy `/tasks/{task_id}/review-items`.
 - Review Mapping still keeps legacy `/tasks/{task_id}/review-items` fallback and FormField sync compatibility during migration.
 - Phase A closes only the frontend AgentRun boundary. Backend compatibility

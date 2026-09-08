@@ -1115,6 +1115,18 @@ external write tools、以及 sensitive/consent-like `memory_write` 不能绕过
 治理。这只是 Stage 4B negative enforcement sweep，不是 Stage 4 整体
 Governance Everywhere 完成声明。
 
+当前补充状态（2026-09-08）：Stage 4C Governed Browser Action Resume/Parity
+Sweep completed for audited product runtime browser-write resume/parity gaps.
+Rejected governed review decisions 不再触发 browser write resume，
+`needs_more_evidence` 继续保持 non-resuming；approved/edited field proposals
+在当前 mapped value 变化后不能复用旧批准执行 `/tasks/{task_id}/fill`。已有
+focused coverage 继续证明 governed `submit_form` resume 只能从 explicit
+final-submit endpoint 进入，并且 stale value/selector snapshot 会被跳过；
+`fill_form` 执行后会留下 verification candidates / generic verification
+evidence；`browser_click` / `browser_navigation` proposals 仍是 display-only。
+这只是 Stage 4C resume/parity sweep，不是 Stage 4 整体 Governance
+Everywhere 完成声明。
+
 ## 22. 不算完成的状态
 
 以下状态不能称为“整体重构完成”：

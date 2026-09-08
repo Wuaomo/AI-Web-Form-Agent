@@ -222,6 +222,15 @@ Still missing from the runtime refactor direction:
   tools stay unregistered/display-only, and sensitive or consent-like
   `memory_write` values are blocked or review-gated. This is Stage 4B negative
   enforcement evidence, not Stage 4 overall completion.
+- Stage 4C, Governed Browser Action Resume/Parity Sweep, is closed for audited
+  product runtime browser-write resume/parity gaps. Rejected governed review
+  decisions no longer trigger browser write resume, `needs_more_evidence`
+  remains non-resuming, and approved/edited field proposals cannot be reused
+  after the current mapped value changes. Existing focused coverage confirms
+  governed submit resume is explicit-final-submit-only with stale
+  value/selector snapshots rejected, `fill_form` persists verification
+  evidence, and browser click/navigation proposals remain display-only. This is
+  Stage 4C evidence, not Stage 4 overall completion.
 
 ## Post-Portfolio Extensions
 
