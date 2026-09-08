@@ -14,6 +14,8 @@ from app.models import (
     AgentProposal,
     AgentReviewDecision,
     AgentRun,
+    AgentToolCall,
+    AgentToolResult,
     ApprovalRequest,
     FormField,
     Task,
@@ -222,9 +224,11 @@ def split_fields_by_browser_write_review(
         field = fields_by_id.get(int(proposal.target_ref))
         if field is None:
             continue
-        if proposal.status not in {"APPROVED", "EDITED"} or str(
-            proposal.proposed_value
-        ) != str(field.mapped_value):
+        if (
+            proposal.status not in {"APPROVED", "EDITED"}
+            or str(proposal.proposed_value) != str(field.mapped_value)
+            or not _field_selector_matches_runtime_snapshot(db, proposal, field)
+        ):
             blocked_field_ids.add(field.id)
     blocked_fields = [
         field
@@ -237,6 +241,31 @@ def split_fields_by_browser_write_review(
         if field.id not in blocked_field_ids
     ]
     return allowed_fields, blocked_fields
+
+
+def _field_selector_matches_runtime_snapshot(
+    db: Session,
+    proposal: AgentProposal,
+    field: FormField,
+) -> bool:
+    """Return whether the current field still matches its runtime map snapshot."""
+
+    results = db.scalars(
+        select(AgentToolResult)
+        .join(AgentToolResult.tool_call)
+        .where(
+            AgentToolCall.run_id == proposal.run_id,
+            AgentToolCall.tool_name.in_(("map_fields", "generate_field_mappings")),
+        )
+        .order_by(AgentToolResult.created_at.desc())
+    )
+    for result in results:
+        for item in _dict_items(result.output_json.get("fields")):
+            field_id = item.get("id") or item.get("field_id")
+            if field_id == field.id:
+                selector = item.get("selector")
+                return not isinstance(selector, str) or selector == field.selector
+    return True
 
 
 def persist_submit_review_proposal(

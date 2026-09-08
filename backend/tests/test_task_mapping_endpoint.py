@@ -3123,6 +3123,84 @@ def test_fill_returns_409_when_approved_proposal_value_is_stale(
     fill_form.assert_not_awaited()
 
 
+def test_fill_returns_409_when_approved_proposal_selector_is_stale(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify approved runtime proposals cannot unlock changed selectors."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.selector = "#changed-contact"
+    field.mapped_profile_key = "email"
+    field.mapped_value = "approved@example.com"
+    field.confidence = 0.99
+    task.status = "READY_TO_FILL"
+    task.workflow_status = "READY_TO_FILL"
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review before fill.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"task-{task.id}-field-{field.id}",
+        run=run,
+        proposal_type="field_value",
+        target_type="form_field",
+        target_ref=str(field.id),
+        proposed_value="approved@example.com",
+        rationale="Review before fill.",
+        confidence=0.99,
+        risk_level="low",
+        status="APPROVED",
+    )
+    tool_call = AgentToolCall(
+        id=f"task-{task.id}:map_fields",
+        run=run,
+        tool_name="map_fields",
+        status="SUCCEEDED",
+        risk_level="medium",
+    )
+    tool_call.input_json = {}
+    tool_call.governance_decision = {"decision": "RECORD_ONLY"}
+    tool_result = AgentToolResult(
+        tool_call=tool_call,
+        status="SUCCEEDED",
+    )
+    tool_result.output_json = {
+        "fields": [
+            {
+                "id": field.id,
+                "selector": "#contact",
+                "mapped_value": "approved@example.com",
+            }
+        ]
+    }
+    tool_result.evidence_items = []
+    tool_result.created_proposals = []
+    tool_result.verification_candidates = []
+    session.add_all([run, proposal, tool_call, tool_result])
+    session.commit()
+
+    with patch(
+        "app.routers.tasks.fill_form_and_capture_screenshot",
+        new_callable=AsyncMock,
+    ) as fill_form:
+        fill_form.return_value = (SimpleNamespace(id=5), [])
+        response = client.post(f"/tasks/{task.id}/fill")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Required fields require approval before filling: Where can we reach you?"
+    )
+    fill_form.assert_not_awaited()
+
+
 def test_fill_can_retry_after_required_field_approval(
     test_environment: tuple[TestClient, Session],
 ) -> None:
