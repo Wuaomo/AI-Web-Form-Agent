@@ -471,6 +471,7 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
         filter_fillable_fields_by_policy,
         get_next_log_step,
         get_missing_required_fields,
+        is_fillable_field,
         missing_required_detail,
     )
     from app.services.agent_runtime.state_store import save_fill_form_runtime_state
@@ -541,6 +542,32 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
                 fill_form_handler=fill_form_and_capture_screenshot
             )
         )
+        required_field_ids = {
+            f.id
+            for f in filtered_fields
+            if f.required and is_fillable_field(f) and f.mapped_value
+        }
+        required_failures = [
+            v
+            for v in verification_data
+            if v.status == "FAILED" and v.field_id in required_field_ids
+        ]
+        if required_failures:
+            set_workflow_status(
+                task,
+                WORKFLOW_STATUS_FAILED,
+                reason="fill_verification_failed",
+            )
+            save_fill_form_runtime_state(
+                db,
+                task=task,
+                tool_result=tool_result,
+                verification_data=verification_data,
+            )
+            failure_details = ", ".join(f"field {v.field_id}" for v in required_failures)
+            raise RuntimeError(
+                f"Verification failed for required fields: {failure_details}"
+            )
         set_workflow_status(task, WORKFLOW_STATUS_WAITING_APPROVAL, reason="fill_completed")
         save_fill_form_runtime_state(
             db,

@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
 from app.models import (
+    AgentVerificationResult,
     AgentToolCall,
     AgentToolResult,
     FormField,
@@ -480,6 +481,73 @@ def test_execute_fill_stage_persists_runtime_tool_call(db_session):
         "screenshot_id": 9,
         "verification_count": 0,
     }
+
+
+def test_execute_fill_stage_blocks_required_verification_failure(db_session):
+    """Verify worker fill does not report success after required readback failure."""
+
+    from app.models import (
+        VERIFICATION_REASON_VALUE_MISMATCH,
+        VERIFICATION_STATUS_FAILED,
+    )
+    from app.services.browser_executor import FieldVerificationData
+    from app.services.job_worker import _execute_fill_stage
+
+    db, task_id = db_session
+    task = db.get(Task, task_id)
+    task.status = "READY_TO_FILL"
+    task.workflow_status = "READY_TO_FILL"
+    field = FormField(
+        task_id=task_id,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        required=True,
+        mapped_profile_key="email",
+        mapped_value="ada@example.com",
+        confidence=0.99,
+    )
+    job = Job(
+        task_id=task_id,
+        job_type=JOB_TYPE_FILL_FORM,
+        status=JOB_STATUS_RUNNING,
+        attempts=1,
+        max_attempts=3,
+    )
+    db.add_all([field, job])
+    db.commit()
+
+    verification_data = [
+        FieldVerificationData(
+            field_id=field.id,
+            selector="#email",
+            expected_value="ada@example.com",
+            actual_value="wrong@example.com",
+            status=VERIFICATION_STATUS_FAILED,
+            reason=VERIFICATION_REASON_VALUE_MISMATCH,
+        )
+    ]
+    with patch(
+        "app.services.browser_executor.fill_form_and_capture_screenshot",
+        new_callable=AsyncMock,
+    ) as fill_form:
+        fill_form.return_value = (SimpleNamespace(id=9), verification_data)
+        with pytest.raises(
+            RuntimeError,
+            match="Verification failed for required fields",
+        ):
+            _execute_fill_stage(db, job)
+
+    db.refresh(task)
+    assert task.status == "FAILED"
+    verification = db.get(
+        AgentVerificationResult,
+        f"task-{task_id}:fill_form:verification:0",
+    )
+    assert verification is not None
+    assert verification.status == VERIFICATION_STATUS_FAILED
+    assert verification.target_ref == str(field.id)
+    assert verification.reason == VERIFICATION_REASON_VALUE_MISMATCH
 
 
 def test_execute_benchmark_stage_passes_runtime_mode_and_db(db_session):
