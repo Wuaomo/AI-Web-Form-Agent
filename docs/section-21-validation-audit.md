@@ -52,13 +52,22 @@ endpoints as compatibility facades. Evidence:
 `test_governed_start_web_data_extract_runs_read_only_page_plan` and
 `test_governed_start_job_summary_runs_read_only_summary_plan`. This closes
 Stage 7 only, not the overall runtime refactor.
+Stage 8 Browser-Write Compatibility Runtime Migration Audit completed. The
+audit found no unsafe browser-write bypass in product paths, but did find that
+browser-write execution still has not migrated to a primary AgentRun continue
+boundary: `/tasks/{task_id}/fill`, async fill jobs, and
+`/tasks/{task_id}/confirm-submit` remain compatibility runtime centers. This
+closes the Stage 8 audit only; it does not close browser-write runtime
+migration or the overall runtime refactor.
 
 ## Overall Runtime Refactor Stage Status
 
-Current stage: Stage 7 Workflow-Specific Read Runtime Migration is closed for
-audited read-only product paths. Stage 6 boundary classification, Stage 5
-verification, and Stage 4 governance remain closed in their scoped senses. The
-overall runtime refactor is not complete.
+Current stage: Stage 8 Browser-Write Compatibility Runtime Migration Audit is
+closed as an audit only. Browser-write migration is not closed because
+execution still enters through legacy compatibility runtime centers. Stage 7
+read-only migration, Stage 6 boundary classification, Stage 5 verification, and
+Stage 4 governance remain closed in their scoped senses. The overall runtime
+refactor is not complete.
 
 Stage 2, Primary API Boundary Hardening, has focused test evidence for:
 
@@ -590,6 +599,56 @@ Evidence:
 - `backend/tests/test_workflow_runtime_endpoint.py::test_governed_start_job_summary_runs_read_only_summary_plan`
 - `backend/tests/test_section_21_validation_audit.py::test_stage_7_read_runtime_migration_status_is_reflected`
 
+## Stage 8 Browser-Write Compatibility Runtime Migration Audit
+
+Status: completed as an audit only. No production code changes were made. This
+does not close browser-write runtime migration or the overall runtime refactor.
+
+- Audited: `/tasks/{task_id}/fill` is still the browser-write runtime center
+  for the user fill action. It validates `READY_TO_FILL`, required mappings,
+  proposal approval freshness, policy approvals, and then calls
+  `execute_fill_form_runtime_tool`.
+- Audited: async fill jobs still bypass a primary AgentRun continue endpoint,
+  but they use the same `filter_fillable_fields_by_policy`,
+  `split_fields_by_browser_write_review`, `execute_fill_form_runtime_tool`, and
+  failed required verification gate as synchronous fill.
+- Audited: `/tasks/{task_id}/confirm-submit` is still the submit execution
+  center. It creates or requires explicit final-submit approval, rejects stale
+  approval snapshots, tries governed approval resume when a persisted
+  `submit_form` pause matches the current field/selector snapshot, and only
+  then falls back to `execute_submit_form_runtime_tool`.
+- Audited: governed runtime has review and approval resume state for paused
+  `fill_form` / `submit_form` tool calls through
+  `resume_governed_runtime_from_review`,
+  `resume_governed_runtime_from_approval`, and exact
+  `approved_tool_call_ids`.
+- Audited: `fill_form` and `submit_form` Tool Runtime coverage is complete for
+  current product browser writes: both tools are registered as browser-mutating
+  tools, require exact prior approval to execute, and persist compact
+  `AgentToolCall` / `AgentToolResult` state.
+- Audited: review, approval, stale-value, stale-selector, policy, and
+  verification gates are shared by the synchronous and async legacy fill paths;
+  submit has shared explicit approval plus stale snapshot checks before any
+  browser execution.
+- Audited: Run Cockpit can show browser-write AgentRun state through compact
+  restored plan, tool-call, governance, and verification summaries.
+- Audited: the task facade remains compact and does not expose raw
+  `output_json`, `tool_results`, or `raw_output_json`.
+- Audited: benchmark and test fixture helpers are evaluation support code, not
+  product runtime gaps.
+
+Migration conclusion:
+
+- Not migrated yet: there is no primary browser-write
+  `/agent-runs/{run_id}/continue` style boundary for reviewed fill execution,
+  async fill job continuation, or final submit execution.
+- Keep: legacy `/tasks/{task_id}/fill`, async fill jobs, and
+  `/tasks/{task_id}/confirm-submit` must remain compatibility endpoints until a
+  real AgentRun continue boundary owns browser-write execution.
+- Next thin slice: add a primary AgentRun continue/browser-write endpoint that
+  reuses the existing shared gates and Tool Runtime wrappers, then make legacy
+  `/tasks` write endpoints delegate to it.
+
 ## Compatibility Paths Kept
 
 - `/tasks` task detail and list facades.
@@ -600,6 +659,9 @@ Evidence:
 - Workflow-specific page extraction and job summary endpoints remain
   compatibility facades now that their audited read-only behavior is
   expressible as generic AgentRun planned tool steps.
+- `/tasks/{task_id}/fill`, async fill jobs, and
+  `/tasks/{task_id}/confirm-submit` remain browser-write compatibility runtime
+  centers until a primary AgentRun continue boundary owns the same execution.
 - Benchmark/test fixture helpers remain direct local evaluation helpers and are
   not product runtime boundaries.
 
@@ -638,6 +700,11 @@ Evidence:
 - Stage 7 closed the audited workflow-specific read runtime migration for page
   extraction and job summary by adding generic AgentRun read plans and a
   deterministic `generate_job_summary` Tool Runtime wrapper.
+- Stage 8 closed the browser-write compatibility runtime migration audit only.
+  No unsafe product runtime bypass was found, but browser-write migration is not
+  closed because `/tasks/{task_id}/fill`, async fill jobs, and
+  `/tasks/{task_id}/confirm-submit` still own execution instead of a primary
+  AgentRun continue boundary.
 - Review Mapping now reads AgentRun review items first when `agent_run_id` or `agent_runtime.run_id` is present, then falls back to legacy `/tasks/{task_id}/review-items`.
 - Review Mapping still keeps legacy `/tasks/{task_id}/review-items` fallback and FormField sync compatibility during migration.
 - Phase A closes only the frontend AgentRun boundary. Backend compatibility

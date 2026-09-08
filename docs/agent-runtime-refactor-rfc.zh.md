@@ -1181,6 +1181,16 @@ compatibility facade。证据：
 `test_governed_start_job_summary_runs_read_only_summary_plan`。这关闭 Stage 7
 read-only migration slice，不是整体 runtime refactor 完成声明。
 
+当前补充状态（2026-09-08）：Stage 8 Browser-Write Compatibility Runtime
+Migration Audit completed as an audit only. 本次审计没有发现 product
+browser-write safety/governance bypass：sync fill、async fill、final submit
+仍通过 Tool Runtime 和 shared review/approval、stale、policy、verification
+gates。但 browser-write migration 本身不能关闭，因为
+`/tasks/{task_id}/fill`、async fill jobs、`/tasks/{task_id}/confirm-submit`
+仍是 compatibility runtime centers，还没有迁到 primary
+`/agent-runs/{run_id}/continue` 类 AgentRun browser-write boundary。这不是整体
+runtime refactor 完成声明。
+
 ## 22. 不算完成的状态
 
 以下状态不能称为“整体重构完成”：

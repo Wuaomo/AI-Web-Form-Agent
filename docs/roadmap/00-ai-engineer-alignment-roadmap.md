@@ -278,6 +278,14 @@ Still missing from the runtime refactor direction:
   `test_governed_start_web_data_extract_runs_read_only_page_plan` and
   `test_governed_start_job_summary_runs_read_only_summary_plan`. This is not
   an overall runtime refactor completion claim.
+- Stage 8 Browser-Write Compatibility Runtime Migration Audit is closed as an
+  audit only. No unsafe product runtime bypass was found: sync fill, async
+  fill, and final submit still pass through Tool Runtime plus shared
+  review/approval, stale, policy, and verification gates. Browser-write
+  migration itself is not closed because `/tasks/{task_id}/fill`, async fill
+  jobs, and `/tasks/{task_id}/confirm-submit` remain compatibility runtime
+  centers instead of a primary AgentRun continue boundary. This is not an
+  overall runtime refactor completion claim.
 
 ## Post-Portfolio Extensions
 

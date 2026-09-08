@@ -295,6 +295,8 @@ This repository is intended to show a review-first agent architecture: AgentRun 
 
 Stage 7 Workflow-Specific Read Runtime Migration is closed for the audited read-only product paths. `/workflows/{task_id}/governed/start` now admits `web_data_extract` and `job_research_summary`, plans `extract_page`, `capture_screenshot`, and deterministic `generate_job_summary` as AgentRun tool steps, and keeps legacy `/tasks/{task_id}/extract-page` and `/tasks/{task_id}/job-summary` as compatibility facades. Evidence: `test_governed_start_web_data_extract_runs_read_only_page_plan` and `test_governed_start_job_summary_runs_read_only_summary_plan`. This is not an overall runtime refactor completion claim.
 
+Stage 8 Browser-Write Compatibility Runtime Migration Audit is closed as an audit only. No unsafe product runtime bypass was found for sync fill, async fill, or final submit: they still pass through Tool Runtime plus review/approval, stale, policy, and verification gates. Browser-write migration is not closed because `/tasks/{task_id}/fill`, async fill jobs, and `/tasks/{task_id}/confirm-submit` remain compatibility runtime centers until a primary AgentRun continue boundary owns that execution.
+
 ## Resume Bullets
 
 - Built a **review-first AI Browser Workflow Assistant** with FastAPI, React, Playwright, SQLite, optional LLM providers, reviewed memory, policy gates, trace observability, and benchmark evaluation.
