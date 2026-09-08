@@ -213,6 +213,15 @@ Still missing from the runtime refactor direction:
   calling the screenshot helper. Compatibility facades remain compact and do
   not expose raw output. This is Stage 4A evidence, not Stage 4 overall
   completion.
+- Stage 4B, Governance Negative Coverage Sweep, is closed for audited product
+  runtime enforcement gaps. `approved_tool_call_ids` now unlocks only the
+  matching `tool_call_id`, name-wide `approved_tool_names` no longer bypasses
+  governance, and sensitive browser mutation checks inspect real field-object
+  payloads before approved writes execute. Existing focused coverage confirms
+  unapproved `fill_form` / `submit_form` handlers stay paused, external write
+  tools stay unregistered/display-only, and sensitive or consent-like
+  `memory_write` values are blocked or review-gated. This is Stage 4B negative
+  enforcement evidence, not Stage 4 overall completion.
 
 ## Post-Portfolio Extensions
 

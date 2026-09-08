@@ -1105,6 +1105,16 @@ Tool Runtime and persists `ALLOW` governance evidence. Compatibility facades
 仍保持 compact，不暴露 raw `tool_results` / `output_json`。这只是 Stage 4A
 governance coverage sweep，不是 Stage 4 整体 Governance Everywhere 完成声明。
 
+当前补充状态（2026-09-08）：Stage 4B Governance Negative Coverage Sweep
+completed for audited product runtime enforcement gaps. `approved_tool_call_ids`
+现在只解锁完全匹配的 `tool_call_id`，name-wide `approved_tool_names` 不再能
+泛化放行同名后续工具调用；sensitive browser mutation checks 现在会检查真实
+field-object payloads，覆盖 legacy `fill_form` wrapper shape。已有 focused
+coverage 继续证明未审批 `fill_form`、未 explicit approval 的 `submit_form`、
+external write tools、以及 sensitive/consent-like `memory_write` 不能绕过
+治理。这只是 Stage 4B negative enforcement sweep，不是 Stage 4 整体
+Governance Everywhere 完成声明。
+
 ## 22. 不算完成的状态
 
 以下状态不能称为“整体重构完成”：

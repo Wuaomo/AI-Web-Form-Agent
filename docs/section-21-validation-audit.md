@@ -1,6 +1,6 @@
 # Section 21 Validation Audit
 
-Date: 2026-09-07
+Date: 2026-09-08
 
 Scope: RFC section 21 validation only. Current status: section 21 validation
 audit completed; remaining gaps documented. This audit records current evidence
@@ -22,11 +22,15 @@ evidence sweep, not the overall runtime refactor.
 Stage 4A Tool Runtime Governance Coverage Sweep completed; one product runtime
 gap was fixed and remaining compatibility gaps are documented. This closes only
 the Stage 4A sweep, not the overall Stage 4 governance refactor.
+Stage 4B Governance Negative Coverage Sweep completed; two product runtime
+governance gaps were fixed and remaining compatibility gaps are documented.
+This closes only the Stage 4B negative enforcement sweep, not the overall
+Stage 4 governance refactor.
 
 ## Overall Runtime Refactor Stage Status
 
-Current stage: Stage 4A Tool Runtime Governance Coverage Sweep is closed.
-Stage 4B can start next; Stage 4 overall is not complete.
+Current stage: Stage 4B Governance Negative Coverage Sweep is closed.
+Stage 4 overall is not complete.
 
 Stage 2, Primary API Boundary Hardening, has focused test evidence for:
 
@@ -70,6 +74,35 @@ through the `capture_screenshot` runtime tool and persist the `ALLOW`
 governance decision. Compatibility facades remain compact and do not expose raw
 tool output. Benchmark/test fixture helpers and the old security questionnaire
 graph fallback remain outside this product runtime sweep.
+
+Stage 4B negative governance enforcement sweep is now closed for the audited
+product runtime gaps:
+
+- `ToolRuntime` pause/block behavior blocks handlers for `BLOCKED`,
+  `REVIEW_REQUIRED`, and `APPROVAL_REQUIRED`.
+- `approved_tool_call_ids` now unlocks only the exact matching
+  `tool_call_id`; name-wide `approved_tool_names` no longer bypasses
+  governance for future calls.
+- Browser mutation governance now inspects real field-object payloads as well
+  as dict/list payloads before allowing approved writes, so password, OTP,
+  payment, CAPTCHA, token, and consent-like browser inputs are blocked at the
+  shared runtime enforcement point.
+- `fill_form` without review and `submit_form` without explicit final-submit
+  approval do not execute their browser handlers.
+- External write tools remain unregistered through the MCP/OpenAPI read-only
+  adapter path; `external_api_write` proposals stay display-only and compact.
+- `memory_write` sensitive values are blocked and consent-like values require
+  review/approval tied to the exact proposed action.
+- Legacy compatibility endpoints remain, but audited fill/submit/review
+  facades route through the same runtime gates or stop before dangerous browser
+  execution.
+
+Fixed in this slice:
+
+- Removed name-wide runtime approval via `approved_tool_names`; only exact
+  `approved_tool_call_ids` can advance a paused tool call.
+- Hardened sensitive browser mutation detection for real field objects passed
+  by product runtime wrappers.
 
 ## Runtime Object Persistence Matrix
 
@@ -241,6 +274,28 @@ Fixed in this slice:
   route the screenshot side effect through `capture_screenshot` Tool Runtime and
   persist compact governance evidence.
 
+## Stage 4B Governance Negative Coverage Sweep
+
+Status: completed for negative governance enforcement in audited product
+runtime paths. This is not the overall Stage 4 governance refactor.
+
+- Fixed: exact tool-call approval is enforced by `approved_tool_call_ids`;
+  `approved_tool_names` no longer grants broad approval for same-named future
+  calls.
+- Fixed: sensitive browser mutation checks inspect real field-object payloads,
+  covering the legacy `fill_form` wrapper shape in addition to dict/list inputs.
+- Already covered: unapproved `fill_form` and `submit_form` calls pause before
+  handlers execute; final submit creates/persists an approval and returns 409
+  until explicit approval.
+- Already covered: external write-capable MCP/OpenAPI tools reject
+  registration; `external_api_write` proposals are compact display-only items.
+- Already covered: sensitive memory writes are blocked, consent-like writes
+  require exact-action approval, and governed review decisions do not write
+  workflow memory directly.
+- Kept out of scope: benchmark/test fixture helpers, workflow-template
+  compatibility endpoints that do not execute dangerous actions, and the old
+  security questionnaire graph fallback.
+
 ## Compatibility Paths Kept
 
 - `/tasks` task detail and list facades.
@@ -258,6 +313,8 @@ Fixed in this slice:
 - Legacy screenshot capture is now covered by Tool Runtime.
 - Page extraction and job-summary prerequisite screenshots are now covered by
   `capture_screenshot` Tool Runtime governance evidence.
+- Stage 4B closed the audited negative enforcement gaps for exact tool-call
+  approvals and sensitive field-object browser inputs.
 - Review Mapping now reads AgentRun review items first when `agent_run_id` or `agent_runtime.run_id` is present, then falls back to legacy `/tasks/{task_id}/review-items`.
 - Review Mapping still keeps legacy `/tasks/{task_id}/review-items` fallback and FormField sync compatibility during migration.
 - Phase A closes only the frontend AgentRun boundary. Backend compatibility
