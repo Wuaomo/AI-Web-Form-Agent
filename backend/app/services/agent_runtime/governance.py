@@ -169,8 +169,7 @@ def _has_prior_approval(
     if tool_call_id is not None and tool_call_id in approved_ids:
         return True
 
-    approved_tools = context.metadata.get("approved_tool_names", [])
-    return tool.name in approved_tools
+    return False
 
 
 __all__ = ["GovernanceEngine"]
