@@ -1127,6 +1127,20 @@ evidence；`browser_click` / `browser_navigation` proposals 仍是 display-only�
 这只是 Stage 4C resume/parity sweep，不是 Stage 4 整体 Governance
 Everywhere 完成声明。
 
+当前补充状态（2026-09-08）：Stage 4D Governance Closure Audit completed for
+true product runtime enforcement paths. Runtime-backed approved/edited fill
+proposals 现在会检查 latest persisted `map_fields` selector snapshot，当前
+selector 变化后不能复用旧 review approval 执行 `/tasks/{task_id}/fill`。
+closure audit 确认 browser fill/submit product paths 都经过 Tool Runtime 和
+shared review/approval/stale gates；rejected / needs_more_evidence 不能 resume
+browser writes；sensitive browser inputs 继续 blocked 或 gated；legacy
+`/tasks` fill/submit facade 不能绕过 governed/runtime gates；async fill 与
+sync fill 使用同一个 gate；`browser_click` / `browser_navigation` 仍然只是
+display-only proposals；old security questionnaire graph fallback 的
+`fill_browser` node 不执行 Playwright 或 BrowserExecutor dangerous actions。
+这关闭 Stage 4 governance for true product runtime enforcement paths，不是
+整体 runtime refactor 完成声明。
+
 ## 22. 不算完成的状态
 
 以下状态不能称为“整体重构完成”：

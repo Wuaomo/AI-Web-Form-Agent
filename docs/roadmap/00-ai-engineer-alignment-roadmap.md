@@ -231,6 +231,18 @@ Still missing from the runtime refactor direction:
   value/selector snapshots rejected, `fill_form` persists verification
   evidence, and browser click/navigation proposals remain display-only. This is
   Stage 4C evidence, not Stage 4 overall completion.
+- Stage 4D, Governance Closure Audit, is closed for true product runtime
+  enforcement paths. Runtime-backed approved/edited fill proposals now reject
+  stale selector snapshots, so changed selectors cannot reuse old review
+  approval. The closure audit confirms browser fill/submit product paths route
+  through Tool Runtime plus shared review/approval/stale gates, rejected and
+  needs-more-evidence decisions cannot resume browser writes, sensitive browser
+  inputs remain blocked or gated, legacy `/tasks` fill/submit facades do not
+  bypass governed/runtime gates, async fill uses the same gate as sync fill,
+  browser click/navigation proposals remain display-only, and the old security
+  questionnaire graph fallback does not execute dangerous browser actions. This
+  closes Stage 4 governance for true product runtime enforcement paths, not the
+  overall runtime refactor.
 
 ## Post-Portfolio Extensions
 
