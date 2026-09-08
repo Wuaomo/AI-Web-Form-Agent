@@ -207,22 +207,25 @@ def split_fields_by_browser_write_review(
     """Separate fields allowed for browser write from proposal-blocked fields."""
 
     fields_by_id = {field.id: field for field in fields}
-    blocked_field_ids = {
-        int(proposal.target_ref)
-        for proposal in db.scalars(
-            select(AgentProposal)
-            .join(AgentRun)
-            .where(
-                AgentRun.legacy_task_id == task.id,
-                AgentProposal.target_type == "form_field",
-                AgentProposal.target_ref.in_(
-                    [str(field_id) for field_id in fields_by_id]
-                ),
-                AgentProposal.status.notin_(["APPROVED", "EDITED"]),
-            )
+    blocked_field_ids = set()
+    for proposal in db.scalars(
+        select(AgentProposal)
+        .join(AgentRun)
+        .where(
+            AgentRun.legacy_task_id == task.id,
+            AgentProposal.target_type == "form_field",
+            AgentProposal.target_ref.in_([str(field_id) for field_id in fields_by_id]),
         )
-        if proposal.target_ref.isdigit()
-    }
+    ):
+        if not proposal.target_ref.isdigit():
+            continue
+        field = fields_by_id.get(int(proposal.target_ref))
+        if field is None:
+            continue
+        if proposal.status not in {"APPROVED", "EDITED"} or str(
+            proposal.proposed_value
+        ) != str(field.mapped_value):
+            blocked_field_ids.add(field.id)
     blocked_fields = [
         field
         for field in fields
