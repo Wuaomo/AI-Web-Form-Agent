@@ -40,8 +40,10 @@ from app.services.agent_runtime.state_store import (
 )
 from app.workflow_constants import (
     WORKFLOW_TYPE_FORM_FILL,
+    WORKFLOW_TYPE_JOB_RESEARCH_SUMMARY,
     WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
     WORKFLOW_TYPE_VENDOR_ONBOARDING,
+    WORKFLOW_TYPE_WEB_DATA_EXTRACT,
 )
 from app.workflow_templates import list_workflow_templates
 
@@ -104,8 +106,10 @@ def _ensure_governed_workflow(task: Task) -> None:
 def _governed_workflow_types() -> set[str]:
     return {
         WORKFLOW_TYPE_FORM_FILL,
+        WORKFLOW_TYPE_JOB_RESEARCH_SUMMARY,
         WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
         WORKFLOW_TYPE_VENDOR_ONBOARDING,
+        WORKFLOW_TYPE_WEB_DATA_EXTRACT,
     }
 
 

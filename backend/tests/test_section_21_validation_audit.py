@@ -30,6 +30,7 @@ PHASE_B_BACKEND_STATUS = (
     "remaining migration gaps documented"
 )
 STAGE_6_STATUS = "Stage 6 Compatibility Runtime Boundary Retirement Sweep"
+STAGE_7_STATUS = "Stage 7 Workflow-Specific Read Runtime Migration"
 
 
 def test_section_21_validation_audit_indexes_runtime_object_evidence() -> None:
@@ -120,8 +121,8 @@ def test_section_21_validation_audit_indexes_runtime_api_boundaries() -> None:
         ("/workflows/templates", "workflow-template endpoint"),
         ("/workflows/{task_id}/start", "old security questionnaire graph fallback"),
         ("/workflows/{task_id}/review", "old security questionnaire graph fallback"),
-        ("/tasks/{task_id}/extract-page", "workflow-specific compatibility runtime"),
-        ("/tasks/{task_id}/job-summary", "workflow-specific compatibility runtime"),
+        ("/tasks/{task_id}/extract-page", "read-only compatibility facade"),
+        ("/tasks/{task_id}/job-summary", "read-only compatibility facade"),
         ("/tasks/{task_id}/fill", "legacy browser-write compatibility runtime"),
         ("/tasks/{task_id}/confirm-submit", "legacy submit compatibility runtime"),
     ]:
@@ -140,6 +141,22 @@ def test_stage_6_boundary_classification_status_is_reflected() -> None:
         text = path.read_text(encoding="utf-8")
         assert STAGE_6_STATUS in text
         assert "boundary classification" in text
+        assert "runtime refactor complete" not in text.lower()
+
+
+def test_stage_7_read_runtime_migration_status_is_reflected() -> None:
+    """Verify Stage 7 documents read-runtime migration without completion claims."""
+
+    for path in [
+        REPO_ROOT / "README.md",
+        REPO_ROOT / "docs" / "roadmap" / "00-ai-engineer-alignment-roadmap.md",
+        REPO_ROOT / "docs" / "agent-runtime-refactor-rfc.zh.md",
+        AUDIT_DOC,
+    ]:
+        text = path.read_text(encoding="utf-8")
+        assert STAGE_7_STATUS in text
+        assert "test_governed_start_web_data_extract_runs_read_only_page_plan" in text
+        assert "test_governed_start_job_summary_runs_read_only_summary_plan" in text
         assert "runtime refactor complete" not in text.lower()
 
 

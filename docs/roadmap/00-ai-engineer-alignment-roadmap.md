@@ -255,7 +255,7 @@ Still missing from the runtime refactor direction:
   verification node is skeleton-only, but it does not execute dangerous browser
   actions. This closes Stage 5 for governed runtime verification trust paths,
   not the overall runtime refactor.
-- Stage 6, Compatibility Runtime Boundary Retirement Sweep, is closed for
+- Stage 6 Compatibility Runtime Boundary Retirement Sweep is closed for
   runtime boundary classification. The audit found no production code gap:
   `/agent-runs/*` and `/workflows/{task_id}/governed*` remain primary
   AgentRun/governed boundaries; `/tasks` stays a compact legacy facade;
@@ -268,6 +268,16 @@ Still missing from the runtime refactor direction:
   fallback only; benchmark/test fixture helpers are not product runtime gaps.
   This closes Stage 6 boundary classification only, not the overall runtime
   refactor.
+- Stage 7 Workflow-Specific Read Runtime Migration is closed for audited
+  read-only product paths. `/workflows/{task_id}/governed/start` now admits
+  `web_data_extract` and `job_research_summary`, expresses page extraction,
+  screenshot capture, and deterministic job summary as AgentRun planned tool
+  steps, and persists compact runtime evidence. Legacy
+  `/tasks/{task_id}/extract-page` and `/tasks/{task_id}/job-summary` remain
+  compatibility facades. Evidence:
+  `test_governed_start_web_data_extract_runs_read_only_page_plan` and
+  `test_governed_start_job_summary_runs_read_only_summary_plan`. This is not
+  an overall runtime refactor completion claim.
 
 ## Post-Portfolio Extensions
 

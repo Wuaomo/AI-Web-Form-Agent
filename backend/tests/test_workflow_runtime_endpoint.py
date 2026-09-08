@@ -140,6 +140,20 @@ def create_web_data_extract_task(session: Session, profile: Profile) -> Task:
     return task
 
 
+def create_job_research_summary_task(session: Session, profile: Profile) -> Task:
+    task = Task(
+        url="https://example.com/job",
+        profile_id=profile.id,
+        workflow_type="job_research_summary",
+        description="Research the AI engineer role.",
+        status="READY",
+        workflow_status="READY",
+    )
+    session.add(task)
+    session.commit()
+    return task
+
+
 def create_governed_proposal(
     session: Session,
     task: Task,
@@ -349,6 +363,109 @@ def test_governed_start_keeps_deterministic_mode_without_openai_key() -> None:
     assert payload["planner_mode"] == "deterministic"
     assert payload["plan"]["created_by"] == "deterministic"
     assert payload["status"] == "COMPLETED"
+    session.close()
+
+
+def test_governed_start_web_data_extract_runs_read_only_page_plan() -> None:
+    """POST /governed/start expresses page extraction as AgentRun read steps."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_web_data_extract_task(session, profile)
+    page_result = SimpleNamespace(
+        title="Research page",
+        headings=[SimpleNamespace(level=1, text="Overview")],
+        main_text_blocks=["Long research paragraph."],
+        links=[],
+        tables=[],
+        forms=[],
+    )
+    runtime = build_default_tool_runtime(
+        extract_page_handler=AsyncMock(return_value=page_result),
+        capture_screenshot_handler=AsyncMock(return_value=None),
+    )
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workflow_type"] == "web_data_extract"
+    assert payload["status"] == "COMPLETED"
+    assert [step["step_id"] for step in payload["plan"]["steps"]] == [
+        "extract_page",
+        "capture_screenshot",
+    ]
+
+    tool_names = [
+        row[0]
+        for row in session.execute(
+            text(
+                """
+                SELECT tool_name
+                FROM agent_tool_calls
+                WHERE run_id = :run_id
+                ORDER BY plan_step_id
+                """
+            ),
+            {"run_id": f"task-{task.id}"},
+        )
+    ]
+    assert tool_names == ["capture_screenshot", "extract_page"]
+    session.close()
+
+
+def test_governed_start_job_summary_runs_read_only_summary_plan() -> None:
+    """POST /governed/start expresses prerequisite extraction and summary as tools."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_job_research_summary_task(session, profile)
+    page_result = SimpleNamespace(
+        title="AI Engineer",
+        headings=[SimpleNamespace(level=1, text="Requirements")],
+        main_text_blocks=["Requirements include Python and 3 years experience."],
+        links=[],
+        tables=[],
+        forms=[],
+    )
+    runtime = build_default_tool_runtime(
+        extract_page_handler=AsyncMock(return_value=page_result),
+        capture_screenshot_handler=AsyncMock(return_value=None),
+    )
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workflow_type"] == "job_research_summary"
+    assert payload["status"] == "COMPLETED"
+    assert [step["step_id"] for step in payload["plan"]["steps"]] == [
+        "extract_page",
+        "capture_screenshot",
+        "generate_job_summary",
+    ]
+
+    summary = session.execute(
+        text(
+            """
+            SELECT output_json
+            FROM agent_tool_results
+            WHERE tool_call_id = :tool_call_id
+            """
+        ),
+        {"tool_call_id": f"task-{task.id}:generate_job_summary"},
+    ).scalar_one()
+    assert "Python" in json.loads(summary)["key_requirements"]
     session.close()
 
 

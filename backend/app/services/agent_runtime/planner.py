@@ -7,6 +7,10 @@ from typing import Any, Protocol
 from app.services.agent_runtime.schemas import AgentPlan, PlannedToolCall, RunMode
 from app.services.agent_runtime.tool_runtime import ToolRuntime
 from app.services.llm_client import get_llm_client
+from app.workflow_constants import (
+    WORKFLOW_TYPE_JOB_RESEARCH_SUMMARY,
+    WORKFLOW_TYPE_WEB_DATA_EXTRACT,
+)
 
 
 STRUCTURED_PLANNER_SCHEMA: dict[str, Any] = {
@@ -183,6 +187,25 @@ class AgentPlanner:
 def default_plan_steps(context: dict[str, Any]) -> list[dict[str, Any]]:
     """Return the local no-key default plan."""
 
+    workflow_type = context.get("workflow_type")
+    if workflow_type == WORKFLOW_TYPE_WEB_DATA_EXTRACT:
+        return _page_read_plan_steps(context)
+    if workflow_type == WORKFLOW_TYPE_JOB_RESEARCH_SUMMARY:
+        return [
+            *_page_read_plan_steps(context),
+            {
+                "step_id": "generate_job_summary",
+                "tool_name": "generate_job_summary",
+                "reason": "Generate a deterministic research summary from extracted page content.",
+                "input_json": {
+                    "task_id": context.get("task_id"),
+                    "goal": context.get("goal") or "",
+                },
+                "risk_level": "low",
+                "expected_evidence": ["summary", "key_requirements"],
+                "depends_on": ["extract_page"],
+            },
+        ]
     return [
         {
             "step_id": "extract_form",
@@ -204,6 +227,37 @@ def default_plan_steps(context: dict[str, Any]) -> list[dict[str, Any]]:
             "risk_level": "medium",
             "expected_evidence": ["mapped_count"],
             "depends_on": ["extract_form"],
+        },
+    ]
+
+
+def _page_read_plan_steps(context: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "step_id": "extract_page",
+            "tool_name": "extract_page",
+            "reason": "Extract structured page content.",
+            "input_json": {
+                "task_id": context.get("task_id"),
+                "url": context.get("target_url") or "",
+                "profile_id": context.get("profile_id"),
+            },
+            "risk_level": "low",
+            "expected_evidence": ["title", "heading_count", "text_block_count"],
+        },
+        {
+            "step_id": "capture_screenshot",
+            "tool_name": "capture_screenshot",
+            "reason": "Capture a browser screenshot for review evidence.",
+            "input_json": {
+                "task_id": context.get("task_id"),
+                "url": context.get("target_url") or "",
+                "profile_id": context.get("profile_id"),
+                "stage": "extracted",
+            },
+            "risk_level": "low",
+            "expected_evidence": ["screenshot_id"],
+            "depends_on": ["extract_page"],
         },
     ]
 

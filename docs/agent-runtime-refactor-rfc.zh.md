@@ -1155,8 +1155,8 @@ security questionnaire graph fallback 的 verification node 仍是 skeleton-only
 这关闭 Stage 5 for governed runtime verification trust paths，不是整体 runtime
 refactor 完成声明。
 
-当前补充状态（2026-09-08）：Stage 6 Compatibility Runtime Boundary
-Retirement Sweep completed for runtime boundary classification. 本次审计没有发现
+当前补充状态（2026-09-08）：Stage 6 Compatibility Runtime Boundary Retirement Sweep
+completed for runtime boundary classification. 本次审计没有发现
 需要修改 production code 的真实 runtime boundary gap：`/agent-runs/*` 和
 `/workflows/{task_id}/governed*` 仍是 primary AgentRun / governed runtime
 边界；`/tasks` 仍是 compact legacy facade；`/tasks/{task_id}/review-items`
@@ -1169,6 +1169,17 @@ verification gates；old security questionnaire graph 仍只是 skeleton fallbac
 不作为真实 browser execution / verification trust path；benchmark/test
 fixture helpers 不算 product runtime gap。这关闭 Stage 6 boundary
 classification，不是整体 runtime refactor 完成声明。
+
+当前补充状态（2026-09-08）：Stage 7 Workflow-Specific Read Runtime Migration
+completed for audited read-only product paths. `/workflows/{task_id}/governed/start`
+现在支持 `web_data_extract` 和 `job_research_summary`，并把 page extraction、
+screenshot capture、deterministic `generate_job_summary` 表达为 AgentRun
+planned tool steps，同时持久化 compact runtime evidence。legacy
+`/tasks/{task_id}/extract-page` 和 `/tasks/{task_id}/job-summary` 保留为
+compatibility facade。证据：
+`test_governed_start_web_data_extract_runs_read_only_page_plan` 和
+`test_governed_start_job_summary_runs_read_only_summary_plan`。这关闭 Stage 7
+read-only migration slice，不是整体 runtime refactor 完成声明。
 
 ## 22. 不算完成的状态
 

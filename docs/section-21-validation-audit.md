@@ -44,13 +44,21 @@ runtime boundaries, legacy facades, compatibility fallbacks, workflow-template
 endpoints, old security questionnaire graph fallback, frontend read fallbacks,
 and benchmark/test fixture helpers. This closes Stage 6 boundary
 classification only, not the overall runtime refactor.
+Stage 7 Workflow-Specific Read Runtime Migration completed for audited
+read-only product paths. Governed AgentRun start now admits `web_data_extract`
+and `job_research_summary`, expresses page extraction, screenshot capture, and
+deterministic job summary as planned tool steps, and keeps legacy read
+endpoints as compatibility facades. Evidence:
+`test_governed_start_web_data_extract_runs_read_only_page_plan` and
+`test_governed_start_job_summary_runs_read_only_summary_plan`. This closes
+Stage 7 only, not the overall runtime refactor.
 
 ## Overall Runtime Refactor Stage Status
 
-Current stage: Stage 6 Compatibility Runtime Boundary Retirement Sweep is
-closed. Stage 5 verification is closed for governed runtime verification trust
-paths. Stage 4 governance is closed for true product runtime enforcement paths.
-The overall runtime refactor is not complete.
+Current stage: Stage 7 Workflow-Specific Read Runtime Migration is closed for
+audited read-only product paths. Stage 6 boundary classification, Stage 5
+verification, and Stage 4 governance remain closed in their scoped senses. The
+overall runtime refactor is not complete.
 
 Stage 2, Primary API Boundary Hardening, has focused test evidence for:
 
@@ -242,8 +250,8 @@ Fixed in this slice:
 | Criterion | Status | Evidence | Remaining gap |
 | --- | --- | --- | --- |
 | Runtime object persistence | covered | `backend/tests/test_section_21_validation_audit.py`, `backend/tests/test_database_migrations.py`, `backend/tests/test_workflow_runtime_endpoint.py` | Governance decisions are persisted as compact JSON on tool calls, not as a standalone table. |
-| Generic governed graph demo path | partial | `backend/tests/test_workflow_runtime_endpoint.py::test_governed_start_form_fill_pauses_with_review_proposals`, `::test_governed_start_vendor_onboarding_maps_custom_profile_fields`, `::test_governed_start_security_questionnaire_uses_source_answer_proposals` | Generic graph is primary for demo preparation; old security questionnaire graph remains as fallback. |
-| Internal browser read/write Tool Runtime path | partial | `backend/tests/test_agent_runtime_tool_runtime.py`, `backend/tests/test_page_intake_service.py::test_analyze_page_intake_uses_tool_runtime_for_browser_reads`, `backend/tests/test_task_mapping_endpoint.py::test_analyze_persists_extract_form_runtime_call`, `::test_login_and_analyze_persists_extract_form_runtime_call`, `::test_extract_page_persists_runtime_call_without_raw_task_facade_output`, `::test_job_summary_page_extraction_persists_runtime_call`, `::test_rules_mapping_persists_map_fields_runtime_call`, `::test_llm_mapping_persists_map_fields_runtime_call`, `::test_capture_screenshot_persists_runtime_call`, `::test_fill_persists_runtime_tool_call_result`, `backend/tests/test_job_worker.py::test_execute_job_rules_mapping_persists_runtime_call`, `::test_execute_job_llm_mapping_persists_runtime_call`, `::test_execute_fill_stage_persists_runtime_tool_call`, `backend/tests/test_confirm_submit.py::test_confirm_submit_records_submit_runtime_tool_call` | Legacy endpoints still exist; some paths record compact convergence state rather than being pure Agent Runtime API calls. |
+| Generic governed graph demo path | partial | `backend/tests/test_workflow_runtime_endpoint.py::test_governed_start_form_fill_pauses_with_review_proposals`, `::test_governed_start_vendor_onboarding_maps_custom_profile_fields`, `::test_governed_start_security_questionnaire_uses_source_answer_proposals`, `::test_governed_start_web_data_extract_runs_read_only_page_plan`, `::test_governed_start_job_summary_runs_read_only_summary_plan` | Generic graph is primary for demo preparation and audited read-only workflow-specific paths; old security questionnaire graph remains as fallback. |
+| Internal browser read/write Tool Runtime path | partial | `backend/tests/test_agent_runtime_tool_runtime.py`, `backend/tests/test_page_intake_service.py::test_analyze_page_intake_uses_tool_runtime_for_browser_reads`, `backend/tests/test_task_mapping_endpoint.py::test_analyze_persists_extract_form_runtime_call`, `::test_login_and_analyze_persists_extract_form_runtime_call`, `::test_extract_page_persists_runtime_call_without_raw_task_facade_output`, `::test_job_summary_page_extraction_persists_runtime_call`, `::test_rules_mapping_persists_map_fields_runtime_call`, `::test_llm_mapping_persists_map_fields_runtime_call`, `::test_capture_screenshot_persists_runtime_call`, `::test_fill_persists_runtime_tool_call_result`, `backend/tests/test_workflow_runtime_endpoint.py::test_governed_start_web_data_extract_runs_read_only_page_plan`, `::test_governed_start_job_summary_runs_read_only_summary_plan`, `backend/tests/test_job_worker.py::test_execute_job_rules_mapping_persists_runtime_call`, `::test_execute_job_llm_mapping_persists_runtime_call`, `::test_execute_fill_stage_persists_runtime_tool_call`, `backend/tests/test_confirm_submit.py::test_confirm_submit_records_submit_runtime_tool_call` | Legacy endpoints still exist; browser-write compatibility entrypoints remain, but audited read-only workflow-specific behavior now has a primary AgentRun plan/tool path. |
 | Browser write and submit governance | covered | `backend/tests/test_agent_runtime_tool_runtime.py::test_tool_runtime_pauses_review_required_tools_before_handler`, `::test_tool_runtime_pauses_submit_tools_before_handler`, `backend/tests/test_workflow_runtime_endpoint.py::test_governed_review_rejection_does_not_resume_paused_fill_form`, `backend/tests/test_task_mapping_endpoint.py::test_fill_returns_409_when_approved_proposal_value_is_stale`, `backend/tests/test_task_mapping_endpoint.py::test_fill_returns_409_when_approved_proposal_selector_is_stale`, `backend/tests/test_confirm_submit.py::test_confirm_submit_first_request_creates_approval_and_returns_409` | Browser click/navigation proposals are display-only until executable action parity is built. |
 | Verification trust layer | covered | `backend/tests/test_agent_runtime_tool_runtime.py::test_fill_form_wraps_browser_executor_after_approval`, `backend/tests/test_task_verification_endpoint.py::test_fill_creates_verified_results`, `backend/tests/test_task_verification_endpoint.py::test_fill_creates_failed_result_for_missing_selector`, `backend/tests/test_job_worker.py::test_execute_fill_stage_blocks_required_verification_failure`, `backend/tests/test_confirm_submit.py::test_confirm_submit_records_submit_runtime_tool_call`, `backend/tests/test_workflow_runtime_endpoint.py::test_save_governed_runtime_state_persists_verify_browser_state_result`, `backend/tests/test_governed_agent_graph.py::test_verify_browser_state_mismatch_fails_governed_run` | Old security questionnaire graph fallback has skeleton verification only and is not real browser verification evidence. |
 | Review Queue primary proposal entry | covered | `backend/tests/test_task_mapping_endpoint.py::test_review_items_restore_persisted_proposals_before_deriving_from_fields`, `frontend/src/reviewMappingPresentation.test.js` | Legacy `/tasks` review items and FormField sync remain compatibility fallbacks. |
@@ -279,8 +287,8 @@ Fixed in this slice:
 | `/workflows/templates` | workflow-template endpoint | Static workflow template metadata only; not a runtime execution boundary. |
 | `/workflows/{task_id}/start` | old security questionnaire graph fallback | Starts the old security-only graph and pauses at review; not the primary demo path. |
 | `/workflows/{task_id}/review` | old security questionnaire graph fallback | Resumes the old graph after review, but the fill/verify nodes are skeleton-only and non-mutating. |
-| `/tasks/{task_id}/extract-page` | workflow-specific compatibility runtime | Executes real read-only page extraction through Tool Runtime and keeps task facade output compact. |
-| `/tasks/{task_id}/job-summary` | workflow-specific compatibility runtime | Generates deterministic summary output; prerequisite page reads/screenshots route through Tool Runtime. |
+| `/tasks/{task_id}/extract-page` | read-only compatibility facade | Legacy facade retained; equivalent page extraction and screenshot reads are now expressible through governed AgentRun planned tool steps. |
+| `/tasks/{task_id}/job-summary` | read-only compatibility facade | Legacy facade retained; equivalent prerequisite reads and deterministic summary are now expressible through governed AgentRun planned tool steps. |
 | `/tasks/{task_id}/fill` | legacy browser-write compatibility runtime | Executes browser fill only after review/policy/stale gates and through Tool Runtime. |
 | `/tasks/{task_id}/confirm-submit` | legacy submit compatibility runtime | Executes submit only after explicit final-submit approval and Tool Runtime gates. |
 
@@ -549,6 +557,39 @@ Fixed in this slice:
 
 - None. The audit found classification/doc drift only.
 
+## Stage 7 Workflow-Specific Read Runtime Migration
+
+Status: completed for audited read-only product paths. This is not an overall
+runtime refactor completion claim.
+
+- Fixed: `/workflows/{task_id}/governed/start` now admits `web_data_extract`
+  and plans `extract_page` plus `capture_screenshot` as low-risk AgentRun tool
+  steps, so page extraction has a primary generic run path before the legacy
+  `/tasks/{task_id}/extract-page` facade is used.
+- Fixed: `/workflows/{task_id}/governed/start` now admits
+  `job_research_summary` and plans `extract_page`, `capture_screenshot`, and
+  deterministic `generate_job_summary` as low-risk AgentRun tool steps.
+- Fixed: `generate_job_summary` is registered as a read-only Tool Runtime
+  wrapper over the existing deterministic `generate_research_summary` service;
+  it consumes the prior `extract_page` tool output from generic runtime state.
+- Covered: page intake already runs `extract_form` and `extract_page` through
+  Tool Runtime; this slice keeps it as an intake classifier/checkpoint path
+  while read-only workflow execution moves to governed AgentRun plans.
+- Covered: Run Cockpit can show the resulting compact read-only AgentRun state
+  through existing plan/tool-call helpers without exposing `output_json`.
+- Kept: legacy `/tasks/{task_id}/extract-page` and
+  `/tasks/{task_id}/job-summary` remain compatibility facades and still write
+  legacy checkpoints/logs for the existing UI.
+- Kept out of scope: deleting endpoints, adding dashboards, changing no-key
+  deterministic behavior, and converting benchmark/test fixture helpers into
+  product runtime code.
+
+Evidence:
+
+- `backend/tests/test_workflow_runtime_endpoint.py::test_governed_start_web_data_extract_runs_read_only_page_plan`
+- `backend/tests/test_workflow_runtime_endpoint.py::test_governed_start_job_summary_runs_read_only_summary_plan`
+- `backend/tests/test_section_21_validation_audit.py::test_stage_7_read_runtime_migration_status_is_reflected`
+
 ## Compatibility Paths Kept
 
 - `/tasks` task detail and list facades.
@@ -556,9 +597,9 @@ Fixed in this slice:
 - legacy `/tasks/{task_id}/review-items` fallback when no persisted `AgentProposal` exists.
 - Explicit approval endpoints for final submit and policy gates.
 - Old security questionnaire graph fallback.
-- Workflow-specific read-only product paths for page extraction and job summary
-  remain compatibility runtime paths until they are replanned under generic
-  AgentRun tool steps.
+- Workflow-specific page extraction and job summary endpoints remain
+  compatibility facades now that their audited read-only behavior is
+  expressible as generic AgentRun planned tool steps.
 - Benchmark/test fixture helpers remain direct local evaluation helpers and are
   not product runtime boundaries.
 
@@ -566,14 +607,15 @@ Fixed in this slice:
 
 - The legacy `/tasks` facade remains the compatibility shell for task detail and list views.
 - workflow-specific endpoints remain, but they are now classified as static
-  template metadata, read-only compatibility runtime paths, legacy
-  browser-write compatibility runtime paths, or old security graph fallback.
+  template metadata, read-only compatibility facades, legacy browser-write
+  compatibility runtime paths, or old security graph fallback.
 - old security questionnaire graph fallback remains until generic runtime
   parity is complete; it is not trusted for real browser execution or
   verification evidence.
 - `/tasks/{task_id}/extract-page` and `/tasks/{task_id}/job-summary` still
-  carry real read-only product behavior and should not be deleted until generic
-  AgentRun read steps cover their user path.
+  preserve legacy checkpoints/logs as compatibility facades; the audited
+  read-only page extraction, screenshot, and deterministic summary behavior now
+  has generic AgentRun planned tool step coverage.
 - `/tasks/{task_id}/fill` and `/tasks/{task_id}/confirm-submit` still carry
   real browser-write product behavior as legacy compatibility entrypoints, but
   they are gated through Tool Runtime, review/approval, stale checks, policy,
@@ -593,6 +635,9 @@ Fixed in this slice:
   failure parity.
 - Stage 6 closed compatibility runtime boundary classification; no production
   runtime boundary gap was found.
+- Stage 7 closed the audited workflow-specific read runtime migration for page
+  extraction and job summary by adding generic AgentRun read plans and a
+  deterministic `generate_job_summary` Tool Runtime wrapper.
 - Review Mapping now reads AgentRun review items first when `agent_run_id` or `agent_runtime.run_id` is present, then falls back to legacy `/tasks/{task_id}/review-items`.
 - Review Mapping still keeps legacy `/tasks/{task_id}/review-items` fallback and FormField sync compatibility during migration.
 - Phase A closes only the frontend AgentRun boundary. Backend compatibility

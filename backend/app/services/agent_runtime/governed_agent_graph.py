@@ -242,6 +242,7 @@ async def _execute_tool_node(
         metadata={
             **metadata,
             "approved_tool_call_ids": state.get("approved_tool_call_ids", []),
+            "tool_results": state.get("tool_results", []),
         },
     )
 

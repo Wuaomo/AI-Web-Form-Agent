@@ -17,6 +17,7 @@ from app.services.field_mapper import map_fields_by_rules
 from app.services.field_mapper import map_fields_with_llm_result
 from app.services.form_extractor import extract_form_analysis
 from app.services.page_extractor import extract_page
+from app.services.research_summary import generate_research_summary
 from app.services.browser_executor import (
     fill_form_and_capture_screenshot,
     open_url_and_capture_screenshot,
@@ -165,6 +166,26 @@ SUBMIT_FORM_OUTPUT_SCHEMA: dict[str, Any] = {
     },
 }
 
+GENERATE_JOB_SUMMARY_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["task_id"],
+    "properties": {
+        "task_id": {"type": "integer"},
+        "goal": {"type": "string"},
+    },
+}
+
+GENERATE_JOB_SUMMARY_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["summary", "key_requirements", "action_checklist", "risks"],
+    "properties": {
+        "summary": {"type": "string"},
+        "key_requirements": {"type": "array"},
+        "action_checklist": {"type": "array"},
+        "risks": {"type": "array"},
+    },
+}
+
 
 def build_default_tool_runtime(
     *,
@@ -217,6 +238,21 @@ def build_default_tool_runtime(
         return {
             "screenshot_id": _int_id(screenshot),
             "stage": tool_input["stage"],
+        }
+
+    async def run_generate_job_summary(
+        context: ToolExecutionContext,
+        tool_input: dict[str, Any],
+    ) -> dict[str, Any]:
+        summary = generate_research_summary(
+            _latest_extract_page_output(context.metadata.get("tool_results") or []),
+            goal=str(tool_input.get("goal") or ""),
+        )
+        return {
+            "summary": summary.summary,
+            "key_requirements": summary.key_requirements,
+            "action_checklist": summary.action_checklist,
+            "risks": summary.risks,
         }
 
     async def run_map_fields(
@@ -372,6 +408,19 @@ def build_default_tool_runtime(
             mutates_external_system=False,
             trace_phase="browser",
             handler=run_capture_screenshot,
+        )
+    )
+    runtime.register(
+        AgentTool(
+            name="generate_job_summary",
+            description="Generate a deterministic job research summary from extracted page content.",
+            input_schema=GENERATE_JOB_SUMMARY_INPUT_SCHEMA,
+            output_schema=GENERATE_JOB_SUMMARY_OUTPUT_SCHEMA,
+            risk_level="low",
+            mutates_browser=False,
+            mutates_external_system=False,
+            trace_phase="extraction",
+            handler=run_generate_job_summary,
         )
     )
     for name in ("map_fields", "generate_field_mappings"):
@@ -601,6 +650,18 @@ def _task_from_context(context: ToolExecutionContext, task_id: int) -> Task | No
     return db.get(Task, task_id) if hasattr(db, "get") else None
 
 
+def _latest_extract_page_output(tool_results: list[Any]) -> dict[str, Any]:
+    for result in reversed(tool_results):
+        if not isinstance(result, dict):
+            continue
+        if not str(result.get("tool_call_id", "")).endswith(":extract_page"):
+            continue
+        output = result.get("output_json")
+        if isinstance(output, dict):
+            return output
+    return {}
+
+
 def _field_verification_candidate(
     item: object,
     *,
@@ -631,6 +692,8 @@ __all__ = [
     "EXTRACT_PAGE_OUTPUT_SCHEMA",
     "FILL_FORM_INPUT_SCHEMA",
     "FILL_FORM_OUTPUT_SCHEMA",
+    "GENERATE_JOB_SUMMARY_INPUT_SCHEMA",
+    "GENERATE_JOB_SUMMARY_OUTPUT_SCHEMA",
     "MAP_FIELDS_INPUT_SCHEMA",
     "MAP_FIELDS_OUTPUT_SCHEMA",
     "SUBMIT_FORM_INPUT_SCHEMA",
