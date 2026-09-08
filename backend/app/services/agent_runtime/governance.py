@@ -151,9 +151,29 @@ def _has_sensitive_browser_input(tool_input: dict[str, Any]) -> bool:
 
 def _flatten_values(value: Any) -> list[str]:
     if isinstance(value, dict):
-        return [part for nested in value.values() for part in _flatten_values(nested)]
+        return [
+            part
+            for nested in (*value.keys(), *value.values())
+            for part in _flatten_values(nested)
+        ]
     if isinstance(value, list | tuple | set):
         return [part for nested in value for part in _flatten_values(nested)]
+    attrs = [
+        getattr(value, name, None)
+        for name in (
+            "label",
+            "name",
+            "placeholder",
+            "selector",
+            "field_type",
+            "mapped_profile_key",
+            "mapped_value",
+            "value",
+        )
+        if hasattr(value, name)
+    ]
+    if attrs:
+        return [part for nested in attrs for part in _flatten_values(nested)]
     return [str(value)]
 
 

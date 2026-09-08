@@ -135,6 +135,29 @@ def test_governance_blocks_sensitive_browser_mutations(
     assert expected_fragment in (decision.blocked_reason or "")
 
 
+def test_governance_blocks_sensitive_browser_field_objects() -> None:
+    """Verify real fill_form field objects are inspected before execution."""
+
+    field = type(
+        "Field",
+        (),
+        {
+            "label": "Account password",
+            "field_type": "password",
+            "mapped_value": "secret",
+        },
+    )()
+
+    decision = GovernanceEngine().evaluate_tool_call(
+        make_tool("fill_form", risk_level="medium", mutates_browser=True),
+        {"task_id": 1, "fields": [field]},
+        tool_call_id="call-1",
+        context=ToolExecutionContext(metadata={"approved_tool_call_ids": ["call-1"]}),
+    )
+
+    assert decision.decision == "BLOCKED"
+
+
 def test_governance_blocks_sensitive_memory_writes() -> None:
     """Verify memory writes reuse the existing sensitive-data policy filter."""
 
