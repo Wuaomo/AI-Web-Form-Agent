@@ -140,7 +140,7 @@ def save_fill_form_runtime_state(
                 "goal": task.description or "Fill reviewed fields.",
                 "target_url": task.url,
                 "profile_id": task.profile_id,
-                "status": "WAITING_APPROVAL",
+                "status": task.status,
                 "mode": "deterministic",
             },
             "plan": {

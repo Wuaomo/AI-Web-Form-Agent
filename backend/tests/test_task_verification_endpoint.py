@@ -1,6 +1,7 @@
 """Tests for verification result persistence during form filling."""
 
 from collections.abc import Generator
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -248,7 +249,7 @@ def test_fill_creates_failed_result_for_missing_selector(
         "app.routers.tasks.fill_form_and_capture_screenshot",
         new_callable=AsyncMock,
     ) as mock_fill:
-        mock_fill.return_value = (AsyncMock(), mock_verification_data)
+        mock_fill.return_value = (SimpleNamespace(id=5), mock_verification_data)
         response = client.post(f"/tasks/{task.id}/fill")
 
     assert response.status_code == 500
@@ -267,6 +268,19 @@ def test_fill_creates_failed_result_for_missing_selector(
     assert verification_results[0].status == VERIFICATION_STATUS_FAILED
     assert verification_results[0].reason == VERIFICATION_REASON_SELECTOR_NOT_FOUND
     assert verification_results[1].status == "VERIFIED"
+
+    runtime_results = list(
+        session.scalars(
+            select(AgentVerificationResult)
+            .where(AgentVerificationResult.run_id == f"task-{task.id}")
+            .order_by(AgentVerificationResult.id)
+        )
+    )
+    assert len(runtime_results) == 2
+    assert runtime_results[0].tool_call_id == f"task-{task.id}:fill_form"
+    assert runtime_results[0].target_ref == str(fields[0].id)
+    assert runtime_results[0].status == VERIFICATION_STATUS_FAILED
+    assert runtime_results[0].reason == VERIFICATION_REASON_SELECTOR_NOT_FOUND
 
 
 def test_fill_skips_sensitive_password_field(

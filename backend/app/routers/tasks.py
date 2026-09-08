@@ -2332,6 +2332,12 @@ async def fill_task_form(
 
         if required_failures:
             apply_workflow_status(task, WORKFLOW_STATUS_FAILED, reason="fill_verification_failed")
+            save_fill_form_runtime_state(
+                db,
+                task=task,
+                tool_result=tool_result,
+                verification_data=verification_data,
+            )
             failure_details = ", ".join(f"field {v.field_id}" for v in required_failures)
             write_checkpoint(
                 task_id=task.id,
