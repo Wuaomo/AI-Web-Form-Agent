@@ -38,12 +38,19 @@ Stage 5 Verification Generalization Sweep completed; two product runtime
 verification evidence gaps were fixed and remaining compatibility gaps are
 documented. This closes Stage 5 for governed runtime verification trust paths,
 not the overall runtime refactor.
+Stage 6 Compatibility Runtime Boundary Retirement Sweep completed; no
+production code changes were needed. The sweep classified primary AgentRun
+runtime boundaries, legacy facades, compatibility fallbacks, workflow-template
+endpoints, old security questionnaire graph fallback, frontend read fallbacks,
+and benchmark/test fixture helpers. This closes Stage 6 boundary
+classification only, not the overall runtime refactor.
 
 ## Overall Runtime Refactor Stage Status
 
-Current stage: Stage 5 Verification Generalization Sweep is closed.
-Stage 4 governance is closed for true product runtime enforcement paths. The
-overall runtime refactor is not complete.
+Current stage: Stage 6 Compatibility Runtime Boundary Retirement Sweep is
+closed. Stage 5 verification is closed for governed runtime verification trust
+paths. Stage 4 governance is closed for true product runtime enforcement paths.
+The overall runtime refactor is not complete.
 
 Stage 2, Primary API Boundary Hardening, has focused test evidence for:
 
@@ -269,7 +276,13 @@ Fixed in this slice:
 | `/tasks` | legacy facade | Lists task shells with compact AgentRun facade state only. |
 | `/tasks/{task_id}` | legacy facade | Returns legacy task detail with compact `agent_runtime`, not raw tool results. |
 | `/tasks/{task_id}/review-items` | compatibility fallback | Prefers persisted AgentProposal rows, then derives legacy FormField/checkpoint items when needed. |
-| `/workflows/*` | workflow-specific compatibility | Workflow-template and old graph endpoints remain during migration. |
+| `/workflows/templates` | workflow-template endpoint | Static workflow template metadata only; not a runtime execution boundary. |
+| `/workflows/{task_id}/start` | old security questionnaire graph fallback | Starts the old security-only graph and pauses at review; not the primary demo path. |
+| `/workflows/{task_id}/review` | old security questionnaire graph fallback | Resumes the old graph after review, but the fill/verify nodes are skeleton-only and non-mutating. |
+| `/tasks/{task_id}/extract-page` | workflow-specific compatibility runtime | Executes real read-only page extraction through Tool Runtime and keeps task facade output compact. |
+| `/tasks/{task_id}/job-summary` | workflow-specific compatibility runtime | Generates deterministic summary output; prerequisite page reads/screenshots route through Tool Runtime. |
+| `/tasks/{task_id}/fill` | legacy browser-write compatibility runtime | Executes browser fill only after review/policy/stale gates and through Tool Runtime. |
+| `/tasks/{task_id}/confirm-submit` | legacy submit compatibility runtime | Executes submit only after explicit final-submit approval and Tool Runtime gates. |
 
 ## Task And Workflow Endpoint Evidence Matrix
 
@@ -280,7 +293,10 @@ Fixed in this slice:
 | `/tasks/{task_id}/extract-page` | records runtime output while keeping the task facade compact | `backend/tests/test_task_mapping_endpoint.py::test_extract_page_persists_runtime_call_without_raw_task_facade_output` |
 | `/tasks/{task_id}/job-summary` prerequisite extraction | records `extract_page` and `capture_screenshot` runtime governance when no extraction checkpoint exists | `backend/tests/test_task_mapping_endpoint.py::test_job_summary_page_extraction_persists_runtime_call` |
 | `/tasks/{task_id}/map-fields?provider=...` | LLM mapping executes through `map_fields` Tool Runtime and persists compact runtime evidence | `backend/tests/test_task_mapping_endpoint.py::test_llm_mapping_persists_map_fields_runtime_call` |
+| `/tasks/{task_id}/fill` | legacy browser-write compatibility path uses review/policy/stale gates before Tool Runtime fill | `backend/tests/test_task_mapping_endpoint.py::test_fill_persists_runtime_tool_call_result`, `::test_fill_returns_409_when_approved_proposal_value_is_stale`, `::test_fill_returns_409_when_approved_proposal_selector_is_stale` |
+| `/tasks/{task_id}/confirm-submit` | legacy submit compatibility path requires explicit approval before Tool Runtime submit | `backend/tests/test_confirm_submit.py::test_confirm_submit_first_request_creates_approval_and_returns_409`, `::test_confirm_submit_records_submit_runtime_tool_call` |
 | `/workflows/{task_id}/governed` | restores compact state from persisted AgentRun data | `backend/tests/test_workflow_runtime_endpoint.py::test_governed_get_restores_compact_state_from_db_when_memory_state_is_missing` |
+| `/workflows/{task_id}/start` | old security graph fallback pauses before skeleton fill | `backend/tests/test_security_questionnaire_graph.py::test_run_until_review_stops_before_fill` |
 
 ## Frontend Runtime Boundary Evidence Matrix
 
@@ -487,6 +503,52 @@ overall runtime refactor completion claim.
   the fallback's fill node is non-mutating, so it is not a dangerous execution
   success path.
 
+## Stage 6 Compatibility Runtime Boundary Retirement Sweep
+
+Status: completed for runtime boundary classification. No production runtime
+gap was found, so this slice changed documentation only and did not delete
+legacy endpoints.
+
+- Primary AgentRun runtime boundary: `/agent-runs/{run_id}`,
+  `/agent-runs/{run_id}/review-items`,
+  `/agent-runs/{run_id}/review-items/{item_id}/decision`,
+  `/workflows/{task_id}/governed/start`,
+  `/workflows/{task_id}/governed`, and
+  `/workflows/{task_id}/governed/review-items/{item_id}/decision`.
+- Legacy facade: `/tasks` and `/tasks/{task_id}` expose task shells plus
+  compact `agent_runtime` state only; they do not expose raw `tool_results`,
+  `output_json`, or `raw_output_json`.
+- Compatibility fallback: `/tasks/{task_id}/review-items` still backfills
+  FormField/checkpoint review rows only when persisted `AgentProposal` rows are
+  missing. It does not bypass the AgentRun review boundary when a run id is
+  available.
+- Workflow-template endpoint: `/workflows/templates` is static template
+  metadata, not runtime execution.
+- Workflow-specific compatibility paths with real read-only product behavior:
+  `/tasks/{task_id}/extract-page` and the prerequisite extraction inside
+  `/tasks/{task_id}/job-summary` still execute page reads and screenshots, but
+  those reads route through `extract_page` and `capture_screenshot` Tool
+  Runtime wrappers and keep facade output compact.
+- Workflow-specific compatibility paths with real browser write behavior:
+  `/tasks/{task_id}/fill`, async fill jobs, and
+  `/tasks/{task_id}/confirm-submit` remain legacy entrypoints, but audited
+  browser writes route through Tool Runtime plus review, approval, stale-value,
+  stale-selector, policy, and verification gates.
+- Old security questionnaire graph fallback: `/workflows/{task_id}/start`,
+  `/workflows/{task_id}`, and `/workflows/{task_id}/review` remain
+  compatibility endpoints for the old in-memory graph. Its `fill_browser` and
+  `verify_result` nodes are skeleton-only and do not perform real Playwright or
+  `BrowserExecutor` browser execution/verification.
+- Frontend fallback/read helpers: Task Detail, Run Cockpit, and Review Mapping
+  are AgentRun-first. Governed workflow, task facade, old workflow state, and
+  legacy review item reads remain compatibility fallbacks.
+- Benchmark/test fixture helpers: runtime benchmark fixture tools and direct
+  local fixture replay are evaluation harness code, not product runtime gaps.
+
+Fixed in this slice:
+
+- None. The audit found classification/doc drift only.
+
 ## Compatibility Paths Kept
 
 - `/tasks` task detail and list facades.
@@ -494,12 +556,28 @@ overall runtime refactor completion claim.
 - legacy `/tasks/{task_id}/review-items` fallback when no persisted `AgentProposal` exists.
 - Explicit approval endpoints for final submit and policy gates.
 - Old security questionnaire graph fallback.
+- Workflow-specific read-only product paths for page extraction and job summary
+  remain compatibility runtime paths until they are replanned under generic
+  AgentRun tool steps.
+- Benchmark/test fixture helpers remain direct local evaluation helpers and are
+  not product runtime boundaries.
 
 ## Remaining Migration Gaps
 
 - The legacy `/tasks` facade remains the compatibility shell for task detail and list views.
-- workflow-specific endpoints remain for template, compatibility, and older workflow paths.
-- old security questionnaire graph fallback remains until generic runtime parity is complete.
+- workflow-specific endpoints remain, but they are now classified as static
+  template metadata, read-only compatibility runtime paths, legacy
+  browser-write compatibility runtime paths, or old security graph fallback.
+- old security questionnaire graph fallback remains until generic runtime
+  parity is complete; it is not trusted for real browser execution or
+  verification evidence.
+- `/tasks/{task_id}/extract-page` and `/tasks/{task_id}/job-summary` still
+  carry real read-only product behavior and should not be deleted until generic
+  AgentRun read steps cover their user path.
+- `/tasks/{task_id}/fill` and `/tasks/{task_id}/confirm-submit` still carry
+  real browser-write product behavior as legacy compatibility entrypoints, but
+  they are gated through Tool Runtime, review/approval, stale checks, policy,
+  and verification.
 - Async and synchronous legacy LLM mapping are now covered by Tool Runtime.
 - Legacy screenshot capture is now covered by Tool Runtime.
 - Page extraction and job-summary prerequisite screenshots are now covered by
@@ -513,6 +591,8 @@ overall runtime refactor completion claim.
 - Stage 5 closed verification generalization for governed runtime trust paths
   after fixing sync failed-fill generic evidence and async required mismatch
   failure parity.
+- Stage 6 closed compatibility runtime boundary classification; no production
+  runtime boundary gap was found.
 - Review Mapping now reads AgentRun review items first when `agent_run_id` or `agent_runtime.run_id` is present, then falls back to legacy `/tasks/{task_id}/review-items`.
 - Review Mapping still keeps legacy `/tasks/{task_id}/review-items` fallback and FormField sync compatibility during migration.
 - Phase A closes only the frontend AgentRun boundary. Backend compatibility

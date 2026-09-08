@@ -1155,6 +1155,21 @@ security questionnaire graph fallback 的 verification node 仍是 skeleton-only
 这关闭 Stage 5 for governed runtime verification trust paths，不是整体 runtime
 refactor 完成声明。
 
+当前补充状态（2026-09-08）：Stage 6 Compatibility Runtime Boundary
+Retirement Sweep completed for runtime boundary classification. 本次审计没有发现
+需要修改 production code 的真实 runtime boundary gap：`/agent-runs/*` 和
+`/workflows/{task_id}/governed*` 仍是 primary AgentRun / governed runtime
+边界；`/tasks` 仍是 compact legacy facade；`/tasks/{task_id}/review-items`
+仍是 compatibility fallback；workflow-specific page extraction / job summary
+endpoint 仍承载真实 read-only product behavior，但已经通过 Tool Runtime 记录
+compact evidence；`/tasks/{task_id}/fill` 和
+`/tasks/{task_id}/confirm-submit` 仍是 legacy browser-write compatibility
+entrypoint，但经过 shared Tool Runtime、review/approval、stale、policy 和
+verification gates；old security questionnaire graph 仍只是 skeleton fallback，
+不作为真实 browser execution / verification trust path；benchmark/test
+fixture helpers 不算 product runtime gap。这关闭 Stage 6 boundary
+classification，不是整体 runtime refactor 完成声明。
+
 ## 22. 不算完成的状态
 
 以下状态不能称为“整体重构完成”：

@@ -255,6 +255,19 @@ Still missing from the runtime refactor direction:
   verification node is skeleton-only, but it does not execute dangerous browser
   actions. This closes Stage 5 for governed runtime verification trust paths,
   not the overall runtime refactor.
+- Stage 6, Compatibility Runtime Boundary Retirement Sweep, is closed for
+  runtime boundary classification. The audit found no production code gap:
+  `/agent-runs/*` and `/workflows/{task_id}/governed*` remain primary
+  AgentRun/governed boundaries; `/tasks` stays a compact legacy facade;
+  `/tasks/{task_id}/review-items` stays a compatibility fallback;
+  workflow-specific page extraction and job summary endpoints still carry
+  real read-only product behavior through Tool Runtime; `/tasks/{task_id}/fill`
+  and `/tasks/{task_id}/confirm-submit` still carry legacy browser-write
+  behavior through the shared Tool Runtime, review/approval, stale, policy, and
+  verification gates; the old security questionnaire graph remains skeleton
+  fallback only; benchmark/test fixture helpers are not product runtime gaps.
+  This closes Stage 6 boundary classification only, not the overall runtime
+  refactor.
 
 ## Post-Portfolio Extensions
 
