@@ -34,10 +34,14 @@ Stage 4D Governance Closure Audit completed; one product runtime enforcement
 gap was fixed and remaining compatibility gaps are documented. This closes the
 Stage 4 governance refactor for true product runtime enforcement paths, not the
 overall runtime refactor.
+Stage 5 Verification Generalization Sweep completed; two product runtime
+verification evidence gaps were fixed and remaining compatibility gaps are
+documented. This closes Stage 5 for governed runtime verification trust paths,
+not the overall runtime refactor.
 
 ## Overall Runtime Refactor Stage Status
 
-Current stage: Stage 4D Governance Closure Audit is closed.
+Current stage: Stage 5 Verification Generalization Sweep is closed.
 Stage 4 governance is closed for true product runtime enforcement paths. The
 overall runtime refactor is not complete.
 
@@ -173,6 +177,45 @@ Fixed in this slice:
 - Made the field proposal browser-write gate compare the current selector
   against the latest persisted runtime mapping snapshot when one exists.
 
+Stage 5 verification generalization sweep is now closed for governed runtime
+verification trust paths:
+
+- Fixed: sync `/tasks/{task_id}/fill` now persists failed required field
+  readback evidence to generic `AgentVerificationResult` before returning
+  failure, instead of leaving the generic runtime trust layer empty on
+  verification-blocked fills.
+- Fixed: async fill jobs now use the same required field verification failure
+  gate as sync fill; required readback mismatches persist generic verification
+  evidence and fail the job instead of reporting a successful wait-for-approval
+  state.
+- Covered: `fill_form` produces field-level verification candidates from DOM
+  readback evidence and successful fills persist generic
+  `AgentVerificationResult` rows.
+- Covered: `submit_form` persists submit/page_state verification evidence only
+  after explicit final-submit approval.
+- Covered: `verify_browser_state` tool output persists generic
+  `AgentVerificationResult` rows, including failed mismatch status and JSON
+  expected/actual values.
+- Covered: Run Cockpit consumes compact verification summaries and evidence
+  snippets, limits mismatch/evidence display, and does not expose raw
+  `output_json`.
+- Covered: runtime and full-workflow benchmark modes continue to report
+  `verification_pass_rate` in no-key deterministic paths.
+- Compatibility gap only: the old security questionnaire graph fallback still
+  has a skeleton `verify_result` that returns `verified: true`, but its
+  `fill_browser` node is non-mutating and does not execute Playwright or
+  `BrowserExecutor`; it is not valid real browser verification evidence.
+- Kept out of scope: new dashboards, new dependencies, legacy endpoint
+  deletion, and old security questionnaire graph migration beyond documenting
+  the compatibility gap.
+
+Fixed in this slice:
+
+- Persisted generic failed fill verification evidence for sync required
+  readback failures.
+- Failed async fill jobs on required readback mismatch while preserving generic
+  verification evidence.
+
 ## Runtime Object Persistence Matrix
 
 | Runtime object | Validation | Evidence |
@@ -195,6 +238,7 @@ Fixed in this slice:
 | Generic governed graph demo path | partial | `backend/tests/test_workflow_runtime_endpoint.py::test_governed_start_form_fill_pauses_with_review_proposals`, `::test_governed_start_vendor_onboarding_maps_custom_profile_fields`, `::test_governed_start_security_questionnaire_uses_source_answer_proposals` | Generic graph is primary for demo preparation; old security questionnaire graph remains as fallback. |
 | Internal browser read/write Tool Runtime path | partial | `backend/tests/test_agent_runtime_tool_runtime.py`, `backend/tests/test_page_intake_service.py::test_analyze_page_intake_uses_tool_runtime_for_browser_reads`, `backend/tests/test_task_mapping_endpoint.py::test_analyze_persists_extract_form_runtime_call`, `::test_login_and_analyze_persists_extract_form_runtime_call`, `::test_extract_page_persists_runtime_call_without_raw_task_facade_output`, `::test_job_summary_page_extraction_persists_runtime_call`, `::test_rules_mapping_persists_map_fields_runtime_call`, `::test_llm_mapping_persists_map_fields_runtime_call`, `::test_capture_screenshot_persists_runtime_call`, `::test_fill_persists_runtime_tool_call_result`, `backend/tests/test_job_worker.py::test_execute_job_rules_mapping_persists_runtime_call`, `::test_execute_job_llm_mapping_persists_runtime_call`, `::test_execute_fill_stage_persists_runtime_tool_call`, `backend/tests/test_confirm_submit.py::test_confirm_submit_records_submit_runtime_tool_call` | Legacy endpoints still exist; some paths record compact convergence state rather than being pure Agent Runtime API calls. |
 | Browser write and submit governance | covered | `backend/tests/test_agent_runtime_tool_runtime.py::test_tool_runtime_pauses_review_required_tools_before_handler`, `::test_tool_runtime_pauses_submit_tools_before_handler`, `backend/tests/test_workflow_runtime_endpoint.py::test_governed_review_rejection_does_not_resume_paused_fill_form`, `backend/tests/test_task_mapping_endpoint.py::test_fill_returns_409_when_approved_proposal_value_is_stale`, `backend/tests/test_task_mapping_endpoint.py::test_fill_returns_409_when_approved_proposal_selector_is_stale`, `backend/tests/test_confirm_submit.py::test_confirm_submit_first_request_creates_approval_and_returns_409` | Browser click/navigation proposals are display-only until executable action parity is built. |
+| Verification trust layer | covered | `backend/tests/test_agent_runtime_tool_runtime.py::test_fill_form_wraps_browser_executor_after_approval`, `backend/tests/test_task_verification_endpoint.py::test_fill_creates_verified_results`, `backend/tests/test_task_verification_endpoint.py::test_fill_creates_failed_result_for_missing_selector`, `backend/tests/test_job_worker.py::test_execute_fill_stage_blocks_required_verification_failure`, `backend/tests/test_confirm_submit.py::test_confirm_submit_records_submit_runtime_tool_call`, `backend/tests/test_workflow_runtime_endpoint.py::test_save_governed_runtime_state_persists_verify_browser_state_result`, `backend/tests/test_governed_agent_graph.py::test_verify_browser_state_mismatch_fails_governed_run` | Old security questionnaire graph fallback has skeleton verification only and is not real browser verification evidence. |
 | Review Queue primary proposal entry | covered | `backend/tests/test_task_mapping_endpoint.py::test_review_items_restore_persisted_proposals_before_deriving_from_fields`, `frontend/src/reviewMappingPresentation.test.js` | Legacy `/tasks` review items and FormField sync remain compatibility fallbacks. |
 | Run Cockpit compact state | covered | `backend/tests/test_workflow_runtime_endpoint.py::test_governed_get_restores_compact_state_from_db_when_memory_state_is_missing`, `frontend/src/runCockpitPresentation.test.js`, `frontend/src/runCockpitActions.test.js` | Advanced/debug raw state remains backend-only. |
 | No-key deterministic demos and benchmark replay | covered | `backend/tests/test_workflow_runtime_endpoint.py::test_governed_start_keeps_demo_paths_no_key_deterministic`, `backend/tests/test_benchmark_endpoint.py::test_run_benchmark_full_workflow_runs_without_provider`, `::test_run_benchmark_runtime_runs_without_provider` | Generic demo preparation and benchmark replay are covered; legacy fallback remains documented separately. |
@@ -419,6 +463,30 @@ enforcement paths; this is not an overall runtime refactor completion claim.
 - Compatibility gap only: the old security questionnaire graph fallback remains
   but its fill node is non-mutating and does not execute dangerous actions.
 
+## Stage 5 Verification Generalization Sweep
+
+Status: completed for governed runtime verification trust paths. This is not an
+overall runtime refactor completion claim.
+
+- Fixed: sync fill failures caused by required field readback mismatch now
+  persist generic `AgentVerificationResult` evidence before the API fails.
+- Fixed: async fill jobs now fail on required field readback mismatch and keep
+  generic verification evidence, matching the sync fill path.
+- Covered: fill produces field-level verification candidates and persists
+  generic verification rows from DOM readback.
+- Covered: submit persists page_state verification evidence only after explicit
+  final-submit approval.
+- Covered: generic `verify_browser_state` results persist as
+  `AgentVerificationResult` and mismatch output fails governed runs.
+- Covered: Run Cockpit presents only compact verification status, mismatch
+  count, up to three mismatches, and up to three compact evidence lines.
+- Covered: benchmark/runtime mode still includes `verification_pass_rate` in
+  no-key deterministic coverage.
+- Compatibility gap only: old security questionnaire graph fallback skeleton
+  verification can say `verified: true` without real browser verification, but
+  the fallback's fill node is non-mutating, so it is not a dangerous execution
+  success path.
+
 ## Compatibility Paths Kept
 
 - `/tasks` task detail and list facades.
@@ -442,6 +510,9 @@ enforcement paths; this is not an overall runtime refactor completion claim.
   governed review resume and stale field proposal fill approvals.
 - Stage 4D closed Stage 4 governance for true product runtime enforcement paths
   after fixing stale selector reuse for runtime-backed fill proposals.
+- Stage 5 closed verification generalization for governed runtime trust paths
+  after fixing sync failed-fill generic evidence and async required mismatch
+  failure parity.
 - Review Mapping now reads AgentRun review items first when `agent_run_id` or `agent_runtime.run_id` is present, then falls back to legacy `/tasks/{task_id}/review-items`.
 - Review Mapping still keeps legacy `/tasks/{task_id}/review-items` fallback and FormField sync compatibility during migration.
 - Phase A closes only the frontend AgentRun boundary. Backend compatibility

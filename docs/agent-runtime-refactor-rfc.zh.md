@@ -1141,6 +1141,20 @@ display-only proposals；old security questionnaire graph fallback 的
 这关闭 Stage 4 governance for true product runtime enforcement paths，不是
 整体 runtime refactor 完成声明。
 
+当前补充状态（2026-09-08）：Stage 5 Verification Generalization Sweep
+completed for governed runtime verification trust paths. Sync fill required
+readback mismatch 现在会在失败前持久化 generic `AgentVerificationResult`
+evidence；async fill jobs 现在也会在 required readback mismatch 时失败并保留
+同样 generic verification evidence，不再误报 wait-for-approval 成功。已有
+focused coverage 继续证明 `fill_form` verification candidates、submit/page_state
+verification evidence、`verify_browser_state` generic persistence、Run Cockpit
+compact verification summary，以及 benchmark `verification_pass_rate`。Old
+security questionnaire graph fallback 的 verification node 仍是 skeleton-only，
+不能作为真实 browser verification evidence；但其 `fill_browser` node 不执行
+危险 browser action，所以这是 compatibility gap，不是危险执行成功路径。
+这关闭 Stage 5 for governed runtime verification trust paths，不是整体 runtime
+refactor 完成声明。
+
 ## 22. 不算完成的状态
 
 以下状态不能称为“整体重构完成”：

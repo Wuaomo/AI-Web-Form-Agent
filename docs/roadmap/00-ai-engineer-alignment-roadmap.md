@@ -243,6 +243,18 @@ Still missing from the runtime refactor direction:
   questionnaire graph fallback does not execute dangerous browser actions. This
   closes Stage 4 governance for true product runtime enforcement paths, not the
   overall runtime refactor.
+- Stage 5, Verification Generalization Sweep, is closed for governed runtime
+  verification trust paths. Sync fill failures caused by required readback
+  mismatch now persist generic `AgentVerificationResult` evidence before
+  failing, and async fill jobs now fail on required readback mismatch with the
+  same generic evidence persistence. Existing focused coverage confirms
+  `fill_form` verification candidates, submit/page_state evidence,
+  `verify_browser_state` generic persistence, compact Run Cockpit verification
+  presentation, and benchmark `verification_pass_rate`. The old security
+  questionnaire graph fallback remains a compatibility gap because its
+  verification node is skeleton-only, but it does not execute dangerous browser
+  actions. This closes Stage 5 for governed runtime verification trust paths,
+  not the overall runtime refactor.
 
 ## Post-Portfolio Extensions
 
