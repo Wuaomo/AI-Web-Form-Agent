@@ -1191,6 +1191,18 @@ gates。但 browser-write migration 本身不能关闭，因为
 `/agent-runs/{run_id}/continue` 类 AgentRun browser-write boundary。这不是整体
 runtime refactor 完成声明。
 
+当前补充状态（2026-09-09）：Stage 9 Primary AgentRun Browser-Write Continue Boundary Thin Slice
+completed for reviewed fill execution only。
+`/agent-runs/{run_id}/continue` 现在作为 AgentRun-backed reviewed fill 的
+primary browser-write boundary，并复用现有 `/tasks/{task_id}/fill` shared
+review/policy/stale/verification path；Task Detail 在有 AgentRun id 时优先调用
+这个边界，没有 run id 时继续回退 legacy fill。证据：
+`test_continue_agent_run_delegates_reviewed_fill_to_shared_task_path`、
+`agent run API client uses primary continue boundary`、`continue run cockpit uses
+AgentRun boundary when run id exists`。Async fill jobs 和
+`/tasks/{task_id}/confirm-submit` 仍是 browser-write migration gaps。这不是整体
+runtime refactor 完成声明。
+
 ## 22. 不算完成的状态
 
 以下状态不能称为“整体重构完成”：

@@ -297,6 +297,8 @@ Stage 7 Workflow-Specific Read Runtime Migration is closed for the audited read-
 
 Stage 8 Browser-Write Compatibility Runtime Migration Audit is closed as an audit only. No unsafe product runtime bypass was found for sync fill, async fill, or final submit: they still pass through Tool Runtime plus review/approval, stale, policy, and verification gates. Browser-write migration is not closed because `/tasks/{task_id}/fill`, async fill jobs, and `/tasks/{task_id}/confirm-submit` remain compatibility runtime centers until a primary AgentRun continue boundary owns that execution.
 
+Stage 9 Primary AgentRun Browser-Write Continue Boundary Thin Slice is closed for reviewed fill execution only. Task Detail now uses `/agent-runs/{run_id}/continue` when an AgentRun id exists, and that endpoint delegates to the same reviewed fill path covered by `test_continue_agent_run_delegates_reviewed_fill_to_shared_task_path`; tasks without a run id still fall back to `/tasks/{task_id}/fill`. Async fill jobs and `/tasks/{task_id}/confirm-submit` remain browser-write migration gaps.
+
 ## Resume Bullets
 
 - Built a **review-first AI Browser Workflow Assistant** with FastAPI, React, Playwright, SQLite, optional LLM providers, reviewed memory, policy gates, trace observability, and benchmark evaluation.

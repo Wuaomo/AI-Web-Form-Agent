@@ -59,15 +59,22 @@ boundary: `/tasks/{task_id}/fill`, async fill jobs, and
 `/tasks/{task_id}/confirm-submit` remain compatibility runtime centers. This
 closes the Stage 8 audit only; it does not close browser-write runtime
 migration or the overall runtime refactor.
+Stage 9 Primary AgentRun Browser-Write Continue Boundary Thin Slice completed
+for reviewed fill execution only. `/agent-runs/{run_id}/continue` now provides
+the primary AgentRun browser-write boundary for reviewed fill and Task Detail
+uses it when a run id exists, while no-run-id tasks still fall back to
+`/tasks/{task_id}/fill`. Async fill jobs and
+`/tasks/{task_id}/confirm-submit` remain browser-write migration gaps.
 
 ## Overall Runtime Refactor Stage Status
 
-Current stage: Stage 8 Browser-Write Compatibility Runtime Migration Audit is
-closed as an audit only. Browser-write migration is not closed because
-execution still enters through legacy compatibility runtime centers. Stage 7
-read-only migration, Stage 6 boundary classification, Stage 5 verification, and
-Stage 4 governance remain closed in their scoped senses. The overall runtime
-refactor is not complete.
+Current stage: Stage 9 Primary AgentRun Browser-Write Continue Boundary Thin
+Slice is closed for reviewed fill execution only. Browser-write migration is
+not fully closed because async fill jobs and final submit execution still enter
+through legacy compatibility runtime centers. Stage 8 audit, Stage 7 read-only
+migration, Stage 6 boundary classification, Stage 5 verification, and Stage 4
+governance remain closed in their scoped senses. The overall runtime refactor
+is not complete.
 
 Stage 2, Primary API Boundary Hardening, has focused test evidence for:
 
@@ -285,6 +292,7 @@ Fixed in this slice:
 | Boundary | Classification | Audit result |
 | --- | --- | --- |
 | `/agent-runs/{run_id}` | primary read boundary | Returns compact AgentRun state from persisted runtime rows without raw `tool_results` / `output_json`. |
+| `/agent-runs/{run_id}/continue` | primary browser-write boundary | Continues AgentRun-backed reviewed fill through the shared fill path while preserving review, policy, stale, and verification gates. |
 | `/agent-runs/{run_id}/review-items` | primary review boundary | Returns proposal-backed Review Queue items through AgentRun while preserving legacy FormField/checkpoint backfill and stripping nested raw tool payloads from proposal values. |
 | `/agent-runs/{run_id}/review-items/{item_id}/decision` | primary review boundary | Writes `AgentReviewDecision` through AgentRun and keeps FormField sync only for field proposals. |
 | `/workflows/{task_id}/governed/start` | primary | Generic governed AgentRun preparation boundary for no-key demo paths. |
@@ -311,6 +319,7 @@ Fixed in this slice:
 | `/tasks/{task_id}/job-summary` prerequisite extraction | records `extract_page` and `capture_screenshot` runtime governance when no extraction checkpoint exists | `backend/tests/test_task_mapping_endpoint.py::test_job_summary_page_extraction_persists_runtime_call` |
 | `/tasks/{task_id}/map-fields?provider=...` | LLM mapping executes through `map_fields` Tool Runtime and persists compact runtime evidence | `backend/tests/test_task_mapping_endpoint.py::test_llm_mapping_persists_map_fields_runtime_call` |
 | `/tasks/{task_id}/fill` | legacy browser-write compatibility path uses review/policy/stale gates before Tool Runtime fill | `backend/tests/test_task_mapping_endpoint.py::test_fill_persists_runtime_tool_call_result`, `::test_fill_returns_409_when_approved_proposal_value_is_stale`, `::test_fill_returns_409_when_approved_proposal_selector_is_stale` |
+| `/agent-runs/{run_id}/continue` | primary AgentRun reviewed-fill boundary delegates to the shared fill path | `backend/tests/test_agent_run_read_endpoint.py::test_continue_agent_run_delegates_reviewed_fill_to_shared_task_path` |
 | `/tasks/{task_id}/confirm-submit` | legacy submit compatibility path requires explicit approval before Tool Runtime submit | `backend/tests/test_confirm_submit.py::test_confirm_submit_first_request_creates_approval_and_returns_409`, `::test_confirm_submit_records_submit_runtime_tool_call` |
 | `/workflows/{task_id}/governed` | restores compact state from persisted AgentRun data | `backend/tests/test_workflow_runtime_endpoint.py::test_governed_get_restores_compact_state_from_db_when_memory_state_is_missing` |
 | `/workflows/{task_id}/start` | old security graph fallback pauses before skeleton fill | `backend/tests/test_security_questionnaire_graph.py::test_run_until_review_stops_before_fill` |
@@ -319,7 +328,7 @@ Fixed in this slice:
 
 | Surface | Priority | Coverage |
 | --- | --- | --- |
-| Task Detail | Run Cockpit AgentRun state first | `frontend/src/pages/TaskDetail.jsx`, `frontend/src/runCockpitActions.test.js::run cockpit reads AgentRun compact state before governed workflow fallback`, `frontend/src/taskRunState.test.js::getTaskRunState uses Run Cockpit review state before stale task status`, `frontend/src/taskRunState.test.js::getTaskRunState uses pending Run Cockpit review count before stale task status` |
+| Task Detail | Run Cockpit AgentRun state first and AgentRun continue for reviewed fill when a run id exists | `frontend/src/pages/TaskDetail.jsx`, `frontend/src/runCockpitActions.test.js::run cockpit reads AgentRun compact state before governed workflow fallback`, `frontend/src/runCockpitActions.test.js::continue run cockpit uses AgentRun boundary when run id exists`, `frontend/src/taskRunState.test.js::getTaskRunState uses Run Cockpit review state before stale task status`, `frontend/src/taskRunState.test.js::getTaskRunState uses pending Run Cockpit review count before stale task status` |
 | Run Cockpit | AgentRun compact state before governed workflow and task facade fallback | `frontend/src/runCockpitActions.test.js::run cockpit reads AgentRun compact state before governed workflow fallback`, `::run cockpit falls back to governed workflow when AgentRun read fails`, `::run cockpit reads governed workflow when no AgentRun id exists`, `::run cockpit falls back to task facade when primary reads fail` |
 | Review Mapping | AgentRun review items before legacy task fallback | `frontend/src/reviewMappingActions.test.js::review mapping resolves AgentRun review items before task fallback`, `frontend/src/reviewMappingActions.test.js::review item decisions prefer AgentRun review boundary with task fallback`, `frontend/src/reviewMappingActions.test.js::field edits prefer AgentRun review boundary when a run id exists`, `frontend/src/reviewMappingActions.test.js::review item decisions fall back to task review when AgentRun review fails` |
 
@@ -649,6 +658,40 @@ Migration conclusion:
   reuses the existing shared gates and Tool Runtime wrappers, then make legacy
   `/tasks` write endpoints delegate to it.
 
+## Stage 9 Primary AgentRun Browser-Write Continue Boundary Thin Slice
+
+Status: completed for reviewed fill execution only. This is not an overall
+browser-write migration completion claim and not an overall runtime refactor
+completion claim.
+
+- Fixed: `/agent-runs/{run_id}/continue` now resolves the persisted AgentRun
+  and continues reviewed fill through the same shared fill path used by
+  `/tasks/{task_id}/fill`, preserving `READY_TO_FILL`, proposal review,
+  stale-value, stale-selector, policy approval, Tool Runtime, and verification
+  gates.
+- Fixed: Task Detail now calls `/agent-runs/{run_id}/continue` for the fill
+  action when `agent_run_id` or `agent_runtime.run_id` exists; no-run-id tasks
+  still call legacy `/tasks/{task_id}/fill`.
+- Covered: Run Cockpit can display the resulting `fill_form` AgentRun state
+  through the existing compact AgentRun read helper without exposing
+  `tool_results`, `output_json`, or `raw_output_json`.
+- Kept: legacy `/tasks/{task_id}/fill` remains as a compatibility endpoint and
+  no-run-id frontend fallback.
+- Remaining: async fill jobs still execute through the legacy job worker, even
+  though they reuse the same shared fill gates and Tool Runtime helper.
+- Remaining: `/tasks/{task_id}/confirm-submit` remains the legacy final-submit
+  compatibility runtime center.
+- Kept out of scope: new dashboards, new dependencies, endpoint deletion,
+  final-submit migration, and the old security questionnaire graph fallback.
+
+Evidence:
+
+- `backend/tests/test_agent_run_read_endpoint.py::test_continue_agent_run_delegates_reviewed_fill_to_shared_task_path`
+- `backend/tests/test_agent_run_read_endpoint.py::test_continue_agent_run_returns_404_for_missing_run`
+- `frontend/src/api.test.js::agent run API client uses primary continue boundary`
+- `frontend/src/runCockpitActions.test.js::continue run cockpit uses AgentRun boundary when run id exists`
+- `frontend/src/runCockpitActions.test.js::continue run cockpit falls back to legacy fill without run id`
+
 ## Compatibility Paths Kept
 
 - `/tasks` task detail and list facades.
@@ -659,9 +702,10 @@ Migration conclusion:
 - Workflow-specific page extraction and job summary endpoints remain
   compatibility facades now that their audited read-only behavior is
   expressible as generic AgentRun planned tool steps.
-- `/tasks/{task_id}/fill`, async fill jobs, and
+- `/tasks/{task_id}/fill` remains a browser-write compatibility endpoint and
+  no-run-id fallback after Stage 9; async fill jobs and
   `/tasks/{task_id}/confirm-submit` remain browser-write compatibility runtime
-  centers until a primary AgentRun continue boundary owns the same execution.
+  centers.
 - Benchmark/test fixture helpers remain direct local evaluation helpers and are
   not product runtime boundaries.
 
@@ -701,10 +745,12 @@ Migration conclusion:
   extraction and job summary by adding generic AgentRun read plans and a
   deterministic `generate_job_summary` Tool Runtime wrapper.
 - Stage 8 closed the browser-write compatibility runtime migration audit only.
-  No unsafe product runtime bypass was found, but browser-write migration is not
-  closed because `/tasks/{task_id}/fill`, async fill jobs, and
-  `/tasks/{task_id}/confirm-submit` still own execution instead of a primary
-  AgentRun continue boundary.
+  No unsafe product runtime bypass was found.
+- Stage 9 closed the reviewed-fill AgentRun continue boundary thin slice:
+  `/agent-runs/{run_id}/continue` now owns AgentRun-backed reviewed fill from
+  the primary UI/API path. Browser-write migration is still not fully closed
+  because async fill jobs and `/tasks/{task_id}/confirm-submit` remain legacy
+  compatibility runtime centers.
 - Review Mapping now reads AgentRun review items first when `agent_run_id` or `agent_runtime.run_id` is present, then falls back to legacy `/tasks/{task_id}/review-items`.
 - Review Mapping still keeps legacy `/tasks/{task_id}/review-items` fallback and FormField sync compatibility during migration.
 - Phase A closes only the frontend AgentRun boundary. Backend compatibility

@@ -286,6 +286,16 @@ Still missing from the runtime refactor direction:
   jobs, and `/tasks/{task_id}/confirm-submit` remain compatibility runtime
   centers instead of a primary AgentRun continue boundary. This is not an
   overall runtime refactor completion claim.
+- Stage 9 Primary AgentRun Browser-Write Continue Boundary Thin Slice is
+  closed for reviewed fill execution only. `/agent-runs/{run_id}/continue`
+  now gives AgentRun-backed reviewed fill a primary browser-write boundary, and
+  Task Detail uses it when an AgentRun id exists while preserving
+  `/tasks/{task_id}/fill` as the no-run-id fallback. Evidence:
+  `test_continue_agent_run_delegates_reviewed_fill_to_shared_task_path`,
+  `agent run API client uses primary continue boundary`, and
+  `continue run cockpit uses AgentRun boundary when run id exists`. Async fill
+  jobs and `/tasks/{task_id}/confirm-submit` remain browser-write migration
+  gaps. This is not an overall runtime refactor completion claim.
 
 ## Post-Portfolio Extensions
 
