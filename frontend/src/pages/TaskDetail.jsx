@@ -72,6 +72,7 @@ import {
   continueRunCockpitRuntime,
   loadRunCockpitRuntime,
   startRunCockpitRuntime,
+  submitRunCockpitRuntime,
 } from "../runCockpitActions";
 import { getExtractionData, getSummaryData } from "../webExtractionPresentation";
 import {
@@ -595,7 +596,7 @@ function TaskDetail() {
     if (runState.primaryAction === "approve") {
       runAction(
         "confirm",
-        () => api.confirmSubmit(taskId),
+        () => submitRunCockpitRuntime({ apiClient: api, taskId, task }),
         "Submitted after your approval.",
       );
     }

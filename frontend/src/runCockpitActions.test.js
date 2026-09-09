@@ -5,6 +5,7 @@ import {
   continueRunCockpitRuntime,
   loadRunCockpitRuntime,
   startRunCockpitRuntime,
+  submitRunCockpitRuntime,
 } from "./runCockpitActions.js";
 
 function fakeApi(overrides = {}) {
@@ -23,13 +24,17 @@ function fakeApi(overrides = {}) {
       calls.push({ name: "startGovernedWorkflow", taskId, options });
       return { status: "STARTED", planner_mode: "deterministic" };
     },
-    continueAgentRun: async (runId) => {
-      calls.push({ name: "continueAgentRun", runId });
+    continueAgentRun: async (runId, options) => {
+      calls.push({ name: "continueAgentRun", runId, options });
       return { status: "WAITING_APPROVAL" };
     },
     fillTask: async (taskId) => {
       calls.push({ name: "fillTask", taskId });
       return { status: "WAITING_APPROVAL" };
+    },
+    confirmSubmit: async (taskId) => {
+      calls.push({ name: "confirmSubmit", taskId });
+      return { status: "COMPLETED" };
     },
     ...overrides,
   };
@@ -155,7 +160,9 @@ test("continue run cockpit uses AgentRun boundary when run id exists", async () 
   });
 
   assert.deepEqual(result, { status: "WAITING_APPROVAL" });
-  assert.deepEqual(apiClient.calls, [{ name: "continueAgentRun", runId: "run-7" }]);
+  assert.deepEqual(apiClient.calls, [
+    { name: "continueAgentRun", runId: "run-7", options: undefined },
+  ]);
 });
 
 test("continue run cockpit falls back to legacy fill without run id", async () => {
@@ -169,4 +176,32 @@ test("continue run cockpit falls back to legacy fill without run id", async () =
 
   assert.deepEqual(result, { status: "WAITING_APPROVAL" });
   assert.deepEqual(apiClient.calls, [{ name: "fillTask", taskId: 7 }]);
+});
+
+test("submit run cockpit uses AgentRun continue boundary when run id exists", async () => {
+  const apiClient = fakeApi();
+
+  const result = await submitRunCockpitRuntime({
+    apiClient,
+    taskId: 7,
+    task: { agent_runtime: { run_id: "run-7" } },
+  });
+
+  assert.deepEqual(result, { status: "WAITING_APPROVAL" });
+  assert.deepEqual(apiClient.calls, [
+    { name: "continueAgentRun", runId: "run-7", options: { action: "submit_form" } },
+  ]);
+});
+
+test("submit run cockpit falls back to legacy confirm submit without run id", async () => {
+  const apiClient = fakeApi();
+
+  const result = await submitRunCockpitRuntime({
+    apiClient,
+    taskId: 7,
+    task: { status: "WAITING_APPROVAL" },
+  });
+
+  assert.deepEqual(result, { status: "COMPLETED" });
+  assert.deepEqual(apiClient.calls, [{ name: "confirmSubmit", taskId: 7 }]);
 });

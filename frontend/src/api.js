@@ -85,8 +85,11 @@ export const api = {
   },
   getGovernedWorkflowState: (taskId) => request(`/workflows/${taskId}/governed`),
   getAgentRun: (runId) => request(`/agent-runs/${runId}`),
-  continueAgentRun: (runId) =>
-    request(`/agent-runs/${runId}/continue`, { method: "POST" }),
+  continueAgentRun: (runId, options = {}) =>
+    request(`/agent-runs/${runId}/continue`, {
+      method: "POST",
+      ...(options.action ? { body: JSON.stringify({ action: options.action }) } : {}),
+    }),
   listAgentRunReviewItems: (runId) =>
     request(`/agent-runs/${runId}/review-items`),
   reviewAgentRunItem: (runId, itemId, decision) =>

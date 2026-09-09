@@ -2662,13 +2662,9 @@ def _current_submit_tool_field_snapshot(
     ]
 
 
-@router.post(
-    "/{task_id}/confirm-submit",
-    response_model=SubmissionConfirmationResponse,
-)
-async def confirm_task_submission(
+async def submit_reviewed_task_form(
     task_id: int,
-    db: Session = Depends(get_db),
+    db: Session,
 ) -> SubmissionConfirmationResponse:
     """Submit the reviewed browser form after explicit user approval."""
 
@@ -2853,6 +2849,19 @@ async def confirm_task_submission(
         status=task.status,
         approval_id=approved_submit_request.id,
     )
+
+
+@router.post(
+    "/{task_id}/confirm-submit",
+    response_model=SubmissionConfirmationResponse,
+)
+async def confirm_task_submission(
+    task_id: int,
+    db: Session = Depends(get_db),
+) -> SubmissionConfirmationResponse:
+    """Legacy submit compatibility endpoint."""
+
+    return await submit_reviewed_task_form(task_id, db)
 
 
 @router.get("/{task_id}/agent-steps", response_model=list[AgentStepResponse])

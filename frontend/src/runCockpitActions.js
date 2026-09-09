@@ -40,3 +40,10 @@ export async function continueRunCockpitRuntime({ apiClient, taskId, task }) {
   const runId = getRunCockpitRunId(task);
   return runId ? apiClient.continueAgentRun(runId) : apiClient.fillTask(taskId);
 }
+
+export async function submitRunCockpitRuntime({ apiClient, taskId, task }) {
+  const runId = getRunCockpitRunId(task);
+  return runId
+    ? apiClient.continueAgentRun(runId, { action: "submit_form" })
+    : apiClient.confirmSubmit(taskId);
+}

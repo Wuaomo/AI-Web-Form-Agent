@@ -1,6 +1,6 @@
 """Agent runtime API endpoints."""
 
-from typing import Any, Union
+from typing import Any, Literal, Union
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -9,9 +9,9 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import AgentRun, FormField, TaskCheckpoint
-from app.routers.tasks import fill_task_form
+from app.routers.tasks import fill_task_form, submit_reviewed_task_form
 from app.routers.workflows import _to_governed_compact_state
-from app.schemas import JobResponse, TaskResponse
+from app.schemas import JobResponse, SubmissionConfirmationResponse, TaskResponse
 from app.services.agent_runtime.review_queue import (
     apply_review_decision_to_field_target,
     load_or_create_task_review_proposals,
@@ -34,6 +34,10 @@ class AgentRunReviewDecisionRequest(BaseModel):
     reviewer_note: str | None = None
 
 
+class AgentRunContinueRequest(BaseModel):
+    action: Literal["fill_form", "submit_form"] = "fill_form"
+
+
 @router.get("/{run_id}", status_code=status.HTTP_200_OK)
 def get_agent_run(run_id: str, db: Session = Depends(get_db)) -> dict[str, object]:
     """Return compact persisted AgentRun state."""
@@ -54,9 +58,13 @@ def get_agent_run(run_id: str, db: Session = Depends(get_db)) -> dict[str, objec
     return {"run_id": run_id, **_to_governed_compact_state(raw_state)}
 
 
-@router.post("/{run_id}/continue", response_model=Union[TaskResponse, JobResponse])
+@router.post(
+    "/{run_id}/continue",
+    response_model=Union[TaskResponse, JobResponse, SubmissionConfirmationResponse],
+)
 async def continue_agent_run(
     run_id: str,
+    request: AgentRunContinueRequest | None = None,
     db: Session = Depends(get_db),
 ) -> object:
     """Continue an AgentRun through the shared reviewed browser-write path."""
@@ -67,6 +75,8 @@ async def continue_agent_run(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No agent run state found for {run_id}.",
         )
+    if (request or AgentRunContinueRequest()).action == "submit_form":
+        return await submit_reviewed_task_form(run.legacy_task_id, db)
     return await fill_task_form(run.legacy_task_id, db=db)
 
 

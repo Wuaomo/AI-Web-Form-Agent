@@ -180,6 +180,29 @@ test("agent run API client uses primary continue boundary", async () => {
   }
 });
 
+test("agent run API client sends submit continue action payload", async () => {
+  clearApiCache();
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, method: options.method || "GET", body: options.body });
+    return jsonResponse({ status: "COMPLETED" });
+  };
+
+  try {
+    const result = await api.continueAgentRun("task-7", { action: "submit_form" });
+
+    assert.deepEqual(result, { status: "COMPLETED" });
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0].url.endsWith("/agent-runs/task-7/continue"));
+    assert.equal(calls[0].method, "POST");
+    assert.equal(calls[0].body, JSON.stringify({ action: "submit_form" }));
+  } finally {
+    clearApiCache();
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("proposal review API client uses task review item path", async () => {
   clearApiCache();
   const originalFetch = globalThis.fetch;

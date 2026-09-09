@@ -191,6 +191,85 @@ def test_continue_agent_run_delegates_reviewed_fill_to_shared_task_path() -> Non
         session.close()
 
 
+def test_continue_agent_run_delegates_submit_to_shared_task_path() -> None:
+    client, session = build_environment()
+    task = create_task(session)
+    task.status = "WAITING_APPROVAL"
+    task.workflow_status = "WAITING_APPROVAL"
+    field = FormField(
+        task_id=task.id,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        mapped_profile_key="email",
+        mapped_value="ada@example.com",
+        confidence=0.99,
+        required=True,
+    )
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Submit reviewed form.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_APPROVAL",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    session.add_all([field, run])
+    session.commit()
+
+    try:
+        with patch(
+            "app.routers.tasks.submit_form_and_capture_screenshot",
+            new_callable=AsyncMock,
+        ) as submit_form:
+            first_response = client.post(
+                f"/agent-runs/task-{task.id}/continue",
+                json={"action": "submit_form"},
+            )
+
+        assert first_response.status_code == 409
+        assert first_response.json()["detail"]["message"] == "Final submission requires approval"
+        submit_form.assert_not_awaited()
+
+        approval_id = first_response.json()["detail"]["approval_id"]
+        approve_response = client.post(f"/approvals/{approval_id}/approve")
+        assert approve_response.status_code == 200
+
+        with patch(
+            "app.routers.tasks.submit_form_and_capture_screenshot",
+            new_callable=AsyncMock,
+        ) as submit_form:
+            submit_form.return_value = SimpleNamespace(id=8)
+            response = client.post(
+                f"/agent-runs/task-{task.id}/continue",
+                json={"action": "submit_form"},
+            )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "task_id": task.id,
+            "status": "COMPLETED",
+            "approval_id": approval_id,
+        }
+        submit_form.assert_awaited_once()
+        call = session.get(AgentToolCall, f"task-{task.id}:submit_form")
+        assert call is not None
+        assert call.governance_decision["decision"] == "VERIFY_REQUIRED"
+        result = session.get(AgentToolResult, f"task-{task.id}:submit_form")
+        assert result is not None
+        assert result.output_json == {
+            "submitted": True,
+            "field_count": 1,
+            "screenshot_id": 8,
+        }
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
 def test_continue_agent_run_returns_404_for_missing_run() -> None:
     client, session = build_environment()
 
