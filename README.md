@@ -259,8 +259,8 @@ Use [docs/demo-script.md](docs/demo-script.md) for a 3 to 5 minute reviewer demo
 Last checked on this branch:
 
 ```text
-backend:  python -m pytest       -> 768 passed, 1 warning
-frontend: npm test               -> 259 passed
+backend:  python -m pytest       -> 808 passed, 2 warnings
+frontend: npm test               -> 278 passed
 frontend: npm run build          -> passed
 ```
 
