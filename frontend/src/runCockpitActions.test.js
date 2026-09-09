@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  continueRunCockpitRuntime,
   loadRunCockpitRuntime,
   startRunCockpitRuntime,
 } from "./runCockpitActions.js";
@@ -21,6 +22,14 @@ function fakeApi(overrides = {}) {
     startGovernedWorkflow: async (taskId, options) => {
       calls.push({ name: "startGovernedWorkflow", taskId, options });
       return { status: "STARTED", planner_mode: "deterministic" };
+    },
+    continueAgentRun: async (runId) => {
+      calls.push({ name: "continueAgentRun", runId });
+      return { status: "WAITING_APPROVAL" };
+    },
+    fillTask: async (taskId) => {
+      calls.push({ name: "fillTask", taskId });
+      return { status: "WAITING_APPROVAL" };
     },
     ...overrides,
   };
@@ -134,4 +143,30 @@ test("started run cockpit state uses refreshed AgentRun runtime for follow-up na
       options: { plannerMode: "deterministic" },
     },
   ]);
+});
+
+test("continue run cockpit uses AgentRun boundary when run id exists", async () => {
+  const apiClient = fakeApi();
+
+  const result = await continueRunCockpitRuntime({
+    apiClient,
+    taskId: 7,
+    task: { agent_runtime: { run_id: "run-7" } },
+  });
+
+  assert.deepEqual(result, { status: "WAITING_APPROVAL" });
+  assert.deepEqual(apiClient.calls, [{ name: "continueAgentRun", runId: "run-7" }]);
+});
+
+test("continue run cockpit falls back to legacy fill without run id", async () => {
+  const apiClient = fakeApi();
+
+  const result = await continueRunCockpitRuntime({
+    apiClient,
+    taskId: 7,
+    task: { status: "READY_TO_FILL" },
+  });
+
+  assert.deepEqual(result, { status: "WAITING_APPROVAL" });
+  assert.deepEqual(apiClient.calls, [{ name: "fillTask", taskId: 7 }]);
 });

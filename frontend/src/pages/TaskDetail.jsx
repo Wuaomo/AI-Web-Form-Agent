@@ -69,6 +69,7 @@ import {
   shouldShowRunCockpit,
 } from "../runCockpitPresentation";
 import {
+  continueRunCockpitRuntime,
   loadRunCockpitRuntime,
   startRunCockpitRuntime,
 } from "../runCockpitActions";
@@ -586,7 +587,7 @@ function TaskDetail() {
     if (runState.primaryAction === "fill") {
       runAction(
         "fill",
-        () => api.fillTask(taskId),
+        () => continueRunCockpitRuntime({ apiClient: api, taskId, task }),
         "Values applied. Review the screenshot before final submission.",
       );
       return;

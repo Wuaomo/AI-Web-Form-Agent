@@ -2,6 +2,8 @@
 
 import json
 from collections.abc import Generator
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -14,6 +16,8 @@ from app.models import (
     AgentProposal,
     AgentReviewDecision,
     AgentRun,
+    AgentToolCall,
+    AgentToolResult,
     FormField,
     Profile,
     Task,
@@ -93,8 +97,6 @@ def test_get_agent_run_returns_compact_persisted_state() -> None:
         ]
     )
 
-    from unittest.mock import patch
-
     try:
         with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
             start_response = client.post(
@@ -124,6 +126,76 @@ def test_get_agent_run_returns_404_for_missing_run() -> None:
 
     try:
         response = client.get("/agent-runs/missing-run")
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "No agent run state found for missing-run."
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_continue_agent_run_delegates_reviewed_fill_to_shared_task_path() -> None:
+    client, session = build_environment()
+    task = create_task(session)
+    task.status = "READY_TO_FILL"
+    task.workflow_status = "READY_TO_FILL"
+    field = FormField(
+        task_id=task.id,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        mapped_profile_key="email",
+        mapped_value="ada@example.com",
+        confidence=0.99,
+        required=True,
+    )
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Fill reviewed fields.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="READY_TO_FILL",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    session.add_all([field, run])
+    session.commit()
+
+    try:
+        with patch(
+            "app.routers.tasks.fill_form_and_capture_screenshot",
+            new_callable=AsyncMock,
+        ) as browser_fill:
+            browser_fill.return_value = (SimpleNamespace(id=7), [])
+            response = client.post(f"/agent-runs/task-{task.id}/continue")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["id"] == task.id
+        assert payload["status"] == "WAITING_APPROVAL"
+        browser_fill.assert_awaited_once()
+        call = session.get(AgentToolCall, f"task-{task.id}:fill_form")
+        assert call is not None
+        assert call.governance_decision["decision"] == "VERIFY_REQUIRED"
+        result = session.get(AgentToolResult, f"task-{task.id}:fill_form")
+        assert result is not None
+        assert result.output_json == {
+            "filled_count": 1,
+            "screenshot_id": 7,
+            "verification_count": 0,
+        }
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_continue_agent_run_returns_404_for_missing_run() -> None:
+    client, session = build_environment()
+
+    try:
+        response = client.post("/agent-runs/missing-run/continue")
 
         assert response.status_code == 404
         assert response.json()["detail"] == "No agent run state found for missing-run."

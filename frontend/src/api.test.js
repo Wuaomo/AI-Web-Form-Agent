@@ -158,6 +158,28 @@ test("agent run API client uses primary read boundary", async () => {
   }
 });
 
+test("agent run API client uses primary continue boundary", async () => {
+  clearApiCache();
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, method: options.method || "GET" });
+    return jsonResponse({ status: "WAITING_APPROVAL" });
+  };
+
+  try {
+    const result = await api.continueAgentRun("task-7");
+
+    assert.deepEqual(result, { status: "WAITING_APPROVAL" });
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0].url.endsWith("/agent-runs/task-7/continue"));
+    assert.equal(calls[0].method, "POST");
+  } finally {
+    clearApiCache();
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("proposal review API client uses task review item path", async () => {
   clearApiCache();
   const originalFetch = globalThis.fetch;

@@ -35,3 +35,8 @@ export async function startRunCockpitRuntime({
   if (refreshed?.governedRuntime) return refreshed.governedRuntime;
   return resolveRunCockpitRuntime(refreshed?.task || task, startRuntime);
 }
+
+export async function continueRunCockpitRuntime({ apiClient, taskId, task }) {
+  const runId = getRunCockpitRunId(task);
+  return runId ? apiClient.continueAgentRun(runId) : apiClient.fillTask(taskId);
+}
