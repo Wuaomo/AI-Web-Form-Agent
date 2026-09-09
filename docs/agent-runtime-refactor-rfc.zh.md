@@ -1203,6 +1203,18 @@ AgentRun boundary when run id exists`。Async fill jobs 和
 `/tasks/{task_id}/confirm-submit` 仍是 browser-write migration gaps。这不是整体
 runtime refactor 完成声明。
 
+当前补充状态（2026-09-09）：Stage 10 Primary AgentRun Submit Continue Boundary Thin Slice
+completed for explicit final submit execution。
+`/agent-runs/{run_id}/continue` 现在接受 `{"action":"submit_form"}`，作为
+AgentRun-backed final submit 的 primary browser-write boundary，并 delegate 到
+shared submit helper；legacy `/tasks/{task_id}/confirm-submit` 保留为
+compatibility wrapper/no-run-id fallback。explicit final submit approval、
+stale field value / stale selector snapshot、`submit_form` Tool Runtime、
+verification persistence、compact task facade 都沿用同一条 submit path。证据：
+`test_continue_agent_run_delegates_submit_to_shared_task_path`、
+`agent run API client sends submit continue action payload`、`submit run cockpit uses AgentRun continue boundary when run id exists`。Async fill jobs 仍是
+browser-write migration gap。这不是整体 runtime refactor 完成声明。
+
 ## 22. 不算完成的状态
 
 以下状态不能称为“整体重构完成”：

@@ -299,6 +299,8 @@ Stage 8 Browser-Write Compatibility Runtime Migration Audit is closed as an audi
 
 Stage 9 Primary AgentRun Browser-Write Continue Boundary Thin Slice is closed for reviewed fill execution only. Task Detail now uses `/agent-runs/{run_id}/continue` when an AgentRun id exists, and that endpoint delegates to the same reviewed fill path covered by `test_continue_agent_run_delegates_reviewed_fill_to_shared_task_path`; tasks without a run id still fall back to `/tasks/{task_id}/fill`. Async fill jobs and `/tasks/{task_id}/confirm-submit` remain browser-write migration gaps.
 
+Stage 10 Primary AgentRun Submit Continue Boundary Thin Slice is closed for explicit final submit execution. Task Detail now sends `{"action":"submit_form"}` to `/agent-runs/{run_id}/continue` when an AgentRun id exists, and that boundary delegates to the shared submit helper covered by `test_continue_agent_run_delegates_submit_to_shared_task_path`; frontend evidence includes `submit run cockpit uses AgentRun continue boundary when run id exists`. Tasks without a run id still fall back to `/tasks/{task_id}/confirm-submit`. Legacy confirm-submit remains a compatibility wrapper, explicit approval is still required, and async fill jobs remain a browser-write migration gap.
+
 ## Resume Bullets
 
 - Built a **review-first AI Browser Workflow Assistant** with FastAPI, React, Playwright, SQLite, optional LLM providers, reviewed memory, policy gates, trace observability, and benchmark evaluation.

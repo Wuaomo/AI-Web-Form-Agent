@@ -296,6 +296,18 @@ Still missing from the runtime refactor direction:
   `continue run cockpit uses AgentRun boundary when run id exists`. Async fill
   jobs and `/tasks/{task_id}/confirm-submit` remain browser-write migration
   gaps. This is not an overall runtime refactor completion claim.
+- Stage 10 Primary AgentRun Submit Continue Boundary Thin Slice is closed for
+  explicit final submit execution. `/agent-runs/{run_id}/continue` now accepts
+  `{"action":"submit_form"}` for AgentRun-backed final submit, delegates to the
+  shared submit helper, and preserves explicit approval, stale value/selector,
+  Tool Runtime, verification, and compact facade gates. Task Detail uses this
+  boundary when a run id exists while preserving `/tasks/{task_id}/confirm-submit`
+  as the no-run-id compatibility fallback. Evidence:
+  `test_continue_agent_run_delegates_submit_to_shared_task_path`,
+  `agent run API client sends submit continue action payload`, and
+  `submit run cockpit uses AgentRun continue boundary when run id exists`. Async
+  fill jobs remain a browser-write migration gap. This is not an overall
+  runtime refactor completion claim.
 
 ## Post-Portfolio Extensions
 

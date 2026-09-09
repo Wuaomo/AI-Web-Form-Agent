@@ -32,6 +32,7 @@ PHASE_B_BACKEND_STATUS = (
 STAGE_6_STATUS = "Stage 6 Compatibility Runtime Boundary Retirement Sweep"
 STAGE_7_STATUS = "Stage 7 Workflow-Specific Read Runtime Migration"
 STAGE_9_STATUS = "Stage 9 Primary AgentRun Browser-Write Continue Boundary Thin Slice"
+STAGE_10_STATUS = "Stage 10 Primary AgentRun Submit Continue Boundary Thin Slice"
 
 
 def test_section_21_validation_audit_indexes_runtime_object_evidence() -> None:
@@ -180,6 +181,24 @@ def test_stage_9_browser_write_continue_status_is_reflected() -> None:
         assert "runtime refactor complete" not in text.lower()
 
 
+def test_stage_10_submit_continue_status_is_reflected() -> None:
+    """Verify Stage 10 documents the explicit final-submit continue boundary."""
+
+    for path in [
+        REPO_ROOT / "README.md",
+        REPO_ROOT / "docs" / "roadmap" / "00-ai-engineer-alignment-roadmap.md",
+        REPO_ROOT / "docs" / "agent-runtime-refactor-rfc.zh.md",
+        AUDIT_DOC,
+    ]:
+        text = path.read_text(encoding="utf-8")
+        assert STAGE_10_STATUS in text
+        assert '{"action":"submit_form"}' in text
+        assert "test_continue_agent_run_delegates_submit_to_shared_task_path" in text
+        assert "submit run cockpit uses AgentRun continue boundary when run id exists" in text
+        assert "async fill jobs" in text
+        assert "runtime refactor complete" not in text.lower()
+
+
 def test_section_21_validation_audit_indexes_task_workflow_facade_evidence() -> None:
     """Verify task and workflow facade evidence is pinned to endpoint coverage."""
 
@@ -213,7 +232,7 @@ def test_section_21_validation_audit_indexes_frontend_runtime_boundaries() -> No
     for surface, priority in [
         (
             "Task Detail",
-            "Run Cockpit AgentRun state first and AgentRun continue for reviewed fill when a run id exists",
+            "Run Cockpit AgentRun state first and AgentRun continue for reviewed fill/final submit when a run id exists",
         ),
         ("Run Cockpit", "AgentRun compact state before governed workflow and task facade fallback"),
         ("Review Mapping", "AgentRun review items before legacy task fallback"),
