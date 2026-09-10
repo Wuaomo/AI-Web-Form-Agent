@@ -2833,6 +2833,60 @@ def test_governed_review_decision_persists_agent_decision_and_status() -> None:
     session.close()
 
 
+def test_governed_review_decision_stays_scoped_to_governed_run() -> None:
+    """POST /governed decision must not write another run's proposal."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    governed_run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review current governed run.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    governed_run.final_result = {}
+    stale_run = AgentRun(
+        id=f"stale-run-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review stale governed run.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    stale_run.final_result = {}
+    stale_proposal = AgentProposal(
+        id=f"stale-proposal-{task.id}",
+        run=stale_run,
+        proposal_type="browser_click",
+        target_type="browser_action",
+        target_ref="#old",
+        proposed_value={"selector": "#old"},
+        rationale="Belongs to a different AgentRun.",
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([governed_run, stale_run, stale_proposal])
+    session.commit()
+
+    response = client.post(
+        f"/workflows/{task.id}/governed/review-items/{stale_proposal.id}/decision",
+        json={"decision": "approved"},
+    )
+
+    assert response.status_code == 404
+    assert session.get(AgentReviewDecision, f"decision-{stale_proposal.id}") is None
+    session.refresh(stale_proposal)
+    assert stale_proposal.status == "PENDING"
+    session.close()
+
+
 def test_governed_review_decision_edit_updates_proposed_value() -> None:
     """Verify edited governed decisions update the persisted proposal value."""
 

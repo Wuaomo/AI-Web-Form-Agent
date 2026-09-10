@@ -29,9 +29,7 @@ from app.services.agent_runtime import (
     start_runtime,
 )
 from app.services.agent_runtime.review_queue import (
-    apply_review_decision_to_field_target,
-    persist_review_decision,
-    resolve_task_review_item_target,
+    apply_review_queue_decision,
 )
 from app.services.agent_runtime.schemas import ReviewDecision, RunMode
 from app.services.agent_runtime.state_store import (
@@ -436,32 +434,29 @@ async def apply_governed_review_item_decision(
 
     task = _get_task_or_404(db, task_id)
     _ensure_governed_workflow(task)
-    target = resolve_task_review_item_target(db, task=task, proposal_id=proposal_id)
-    if target is None or target.proposal is None:
+    try:
+        result = apply_review_queue_decision(
+            db,
+            task=task,
+            proposal_id=proposal_id,
+            decision=request.decision,
+            edited_value=request.edited_value,
+            reviewer_note=request.reviewer_note,
+            run_id=f"task-{task.id}",
+            require_proposal=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Review item not found",
         )
-    if request.decision == "edited" and request.edited_value is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="edited_value is required for edited decisions",
-        )
-
-    decision = ReviewDecision(
-        id=f"decision-{proposal_id}",
-        proposal_id=proposal_id,
-        decision=request.decision,
-        edited_value=request.edited_value,
-        reviewer_note=request.reviewer_note,
-    )
-    apply_review_decision_to_field_target(
-        target,
-        decision=request.decision,
-        edited_value=request.edited_value,
-    )
-    persist_review_decision(db, decision=decision)
-    db.flush()
+    decision = result.decision
+    target = result.target
     raw_state = get_governed_runtime_state(
         f"task-{task.id}"
     ) or restore_governed_runtime_state(db, task=task)

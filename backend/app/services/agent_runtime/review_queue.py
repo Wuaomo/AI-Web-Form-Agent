@@ -44,6 +44,14 @@ class ReviewItemTarget:
     requires_form_field_sync: bool
 
 
+@dataclass(frozen=True)
+class ReviewDecisionApplication:
+    """Applied review decision plus its resolved compatibility target."""
+
+    decision: ReviewDecision
+    target: ReviewItemTarget
+
+
 def build_task_review_proposals(
     *,
     task: Task,
@@ -173,16 +181,20 @@ def resolve_task_review_item_target(
     *,
     task: Task,
     proposal_id: str,
+    run_id: str | None = None,
 ) -> ReviewItemTarget | None:
     """Resolve persisted and legacy task review item ids to their sync target."""
 
+    conditions = [
+        AgentProposal.id == proposal_id,
+        AgentRun.legacy_task_id == task.id,
+    ]
+    if run_id is not None:
+        conditions.append(AgentProposal.run_id == run_id)
     proposal = db.scalar(
         select(AgentProposal)
         .join(AgentRun)
-        .where(
-            AgentProposal.id == proposal_id,
-            AgentRun.legacy_task_id == task.id,
-        )
+        .where(*conditions)
     )
     if proposal is not None:
         if (
@@ -200,6 +212,73 @@ def resolve_task_review_item_target(
         return None
     field = _task_field(db, task.id, field_id)
     return ReviewItemTarget(None, field, True) if field else None
+
+
+def apply_review_queue_decision(
+    db: Session,
+    *,
+    task: Task,
+    proposal_id: str,
+    decision: str,
+    edited_value: Any = None,
+    reviewer_note: str | None = None,
+    run_id: str | None = None,
+    require_proposal: bool = False,
+    backfill_legacy_field: bool = False,
+) -> ReviewDecisionApplication | None:
+    """Apply a Review Queue decision through the shared persistence path."""
+
+    target = resolve_task_review_item_target(
+        db,
+        task=task,
+        proposal_id=proposal_id,
+        run_id=run_id,
+    )
+    if target is None or (require_proposal and target.proposal is None):
+        return None
+    if decision == "edited" and edited_value is None:
+        raise ValueError("edited_value is required for edited decisions")
+
+    apply_review_decision_to_field_target(
+        target,
+        decision=decision,
+        edited_value=edited_value,
+    )
+    if target.field is not None and target.proposal is None and backfill_legacy_field:
+        checkpoints = list(
+            db.scalars(
+                select(TaskCheckpoint)
+                .where(TaskCheckpoint.task_id == task.id)
+                .order_by(TaskCheckpoint.created_at)
+            )
+        )
+        fields = list(
+            db.scalars(
+                select(FormField)
+                .where(FormField.task_id == task.id)
+                .order_by(FormField.id)
+            )
+        )
+        persist_task_review_proposals(
+            db,
+            task=task,
+            proposals=build_task_review_proposals(
+                task=task,
+                fields=fields,
+                checkpoints=checkpoints,
+            ),
+        )
+
+    review_decision = ReviewDecision(
+        id=f"decision-{proposal_id}",
+        proposal_id=proposal_id,
+        decision=decision,
+        edited_value=edited_value,
+        reviewer_note=reviewer_note,
+    )
+    persist_review_decision(db, decision=review_decision)
+    db.flush()
+    return ReviewDecisionApplication(review_decision, target)
 
 
 def apply_review_decision_to_field_target(
@@ -835,6 +914,7 @@ def _evidence_id(task_id: int, field_id: int, kind: str, index: int) -> str:
 
 
 __all__ = [
+    "apply_review_queue_decision",
     "apply_review_decision_to_field_target",
     "build_task_review_proposals",
     "load_or_create_task_review_proposals",

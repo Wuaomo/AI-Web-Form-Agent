@@ -129,13 +129,9 @@ from app.services.agent_runtime.governed_agent_graph import (
     resume_governed_runtime_from_approval,
 )
 from app.services.agent_runtime.review_queue import (
-    apply_review_decision_to_field_target,
-    build_task_review_proposals,
+    apply_review_queue_decision,
     load_or_create_task_review_proposals,
-    persist_review_decision,
     persist_submit_review_proposal,
-    persist_task_review_proposals,
-    resolve_task_review_item_target,
     split_fields_by_browser_write_review,
 )
 from app.services.agent_runtime.schemas import Proposal, ReviewDecision
@@ -1812,54 +1808,28 @@ def apply_task_review_item_decision(
     """Apply a generic proposal decision to the compatible mapping review state."""
 
     task = get_task_or_404(task_id, db)
-    target = resolve_task_review_item_target(db, task=task, proposal_id=proposal_id)
-    if target is None:
+    try:
+        result = apply_review_queue_decision(
+            db,
+            task=task,
+            proposal_id=proposal_id,
+            decision=request.decision,
+            edited_value=request.edited_value,
+            reviewer_note=request.reviewer_note,
+            backfill_legacy_field=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Review item not found",
         )
-    field = target.field
-
-    if request.decision == "edited":
-        if request.edited_value is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-            detail="edited_value is required for edited decisions",
-        )
-    apply_review_decision_to_field_target(
-        target,
-        decision=request.decision,
-        edited_value=request.edited_value,
-    )
-
-    if field is not None and target.proposal is None:
-        checkpoints = list_checkpoints(task_id=task_id, db=db)
-        fields = list(
-            db.scalars(
-                select(FormField)
-                .where(FormField.task_id == task_id)
-                .order_by(FormField.id)
-            )
-        )
-        persist_task_review_proposals(
-            db,
-            task=task,
-            proposals=build_task_review_proposals(
-                task=task,
-                fields=fields,
-                checkpoints=checkpoints,
-            ),
-        )
-    decision = ReviewDecision(
-        id=f"decision-{proposal_id}",
-        proposal_id=proposal_id,
-        decision=request.decision,
-        edited_value=request.edited_value,
-        reviewer_note=request.reviewer_note,
-    )
-    persist_review_decision(db, decision=decision)
     db.commit()
-    return decision
+    return result.decision
 
 
 @router.put(

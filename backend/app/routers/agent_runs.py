@@ -14,10 +14,8 @@ from app.routers.tasks import fill_agent_run_task_form, submit_reviewed_task_for
 from app.routers.workflows import _to_governed_compact_state
 from app.schemas import JobResponse, SubmissionConfirmationResponse, TaskResponse
 from app.services.agent_runtime.review_queue import (
-    apply_review_decision_to_field_target,
+    apply_review_queue_decision,
     load_or_create_task_review_proposals,
-    persist_review_decision,
-    resolve_task_review_item_target,
 )
 from app.services.agent_runtime.schemas import (
     Proposal,
@@ -163,30 +161,26 @@ def apply_agent_run_review_item_decision(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No agent run state found for {run_id}.",
         )
-    target = resolve_task_review_item_target(db, task=run.task, proposal_id=proposal_id)
-    if target is None or target.proposal is None or target.proposal.run_id != run_id:
+    try:
+        result = apply_review_queue_decision(
+            db,
+            task=run.task,
+            proposal_id=proposal_id,
+            decision=request.decision,
+            edited_value=request.edited_value,
+            reviewer_note=request.reviewer_note,
+            run_id=run_id,
+            require_proposal=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Review item not found",
         )
-    if request.decision == "edited" and request.edited_value is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="edited_value is required for edited decisions",
-        )
-
-    apply_review_decision_to_field_target(
-        target,
-        decision=request.decision,
-        edited_value=request.edited_value,
-    )
-    decision = ReviewDecision(
-        id=f"decision-{proposal_id}",
-        proposal_id=proposal_id,
-        decision=request.decision,
-        edited_value=request.edited_value,
-        reviewer_note=request.reviewer_note,
-    )
-    persist_review_decision(db, decision=decision)
     db.commit()
-    return decision
+    return result.decision
