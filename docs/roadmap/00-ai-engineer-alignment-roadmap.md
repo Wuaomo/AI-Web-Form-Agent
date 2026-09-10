@@ -318,6 +318,17 @@ Still missing from the runtime refactor direction:
   `test_execute_fill_stage_delegates_agent_run_backed_job`, and
   `test_fill_endpoint_creates_job_when_ready`. This closes Stage 11, not the
   overall runtime refactor.
+- Stage 12 Review Compatibility Retirement Slice is closed for narrowing
+  Review Queue compatibility. Field synchronization now requires a field
+  proposal type (`field_value`, `answer`, or `open_ended_answer`), so non-field
+  proposals do not write `FormField` even when their target shape references a
+  form field. Review Mapping uses the same distinction: field proposals stay in
+  proposal-backed rows, and non-field proposals stay in the compact Review
+  Queue. Evidence:
+  `test_review_queue_does_not_sync_non_field_proposal_with_form_field_target`
+  and `proposal review helpers do not treat non-field proposals as field rows`.
+  Legacy `/tasks/{task_id}/review-items` remains a compatibility fallback. This
+  closes Stage 12, not the overall runtime refactor.
 
 ## Post-Portfolio Extensions
 

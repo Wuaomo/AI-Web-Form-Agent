@@ -1228,6 +1228,18 @@ approval compatibility wrapper；task facade 继续 compact，不暴露 raw
 `test_fill_endpoint_creates_job_when_ready`。这关闭 Stage 11，不是整体 runtime
 refactor 完成声明。
 
+当前补充状态（2026-09-10）：Stage 12 Review Compatibility Retirement Slice
+completed for narrowed Review Queue compatibility。
+FormField sync 现在要求 field proposal type（`field_value`、`answer` 或
+`open_ended_answer`），所以 non-field proposals 即使 target shape 引用了
+form field，也不会写 `FormField`。Review Mapping 使用同一个区分：field
+proposals 继续进入 proposal-backed rows，non-field proposals 留在 compact
+Review Queue。证据：
+`test_review_queue_does_not_sync_non_field_proposal_with_form_field_target` 和
+`proposal review helpers do not treat non-field proposals as field rows`。
+legacy `/tasks/{task_id}/review-items` 仍是 compatibility fallback。这关闭
+Stage 12，不是整体 runtime refactor 完成声明。
+
 ## 22. 不算完成的状态
 
 以下状态不能称为“整体重构完成”：

@@ -770,10 +770,39 @@ Evidence:
 - `backend/tests/test_job_worker.py::test_execute_fill_stage_delegates_agent_run_backed_job`
 - `backend/tests/test_task_job_enqueue.py::test_fill_endpoint_creates_job_when_ready`
 
+## Stage 12 Review Compatibility Retirement Slice
+
+Status: completed for narrowing Review Queue compatibility. This is not an
+overall runtime refactor completion claim.
+
+- Fixed: FormField sync now requires a field proposal type (`field_value`,
+  `answer`, or `open_ended_answer`), so non-field proposals do not update
+  legacy field mappings even if their target shape references a form field.
+- Fixed: Review Mapping uses the same field proposal distinction; field
+  proposals drive proposal-backed rows, while non-field proposals stay in the
+  compact Review Queue.
+- Kept: `/agent-runs/{run_id}/review-items` and
+  `/agent-runs/{run_id}/review-items/{item_id}/decision` remain the primary
+  Review Queue read/write boundary for AgentRun-backed runs.
+- Kept: legacy `/tasks/{task_id}/review-items` and
+  `/tasks/{task_id}/review-items/{item_id}/decision` remain compatibility
+  fallback/delegate paths.
+- Kept: review-first browser write gates, explicit final-submit approval,
+  rejected/needs-more-evidence non-resume behavior, stale value checks, stale
+  selector checks, and compact task facade behavior.
+- Kept out of scope: endpoint deletion, new dashboards, new dependencies, old
+  security questionnaire graph fallback retirement, and claiming the overall
+  runtime refactor is complete.
+
+Evidence:
+
+- `backend/tests/test_task_mapping_endpoint.py::test_review_queue_does_not_sync_non_field_proposal_with_form_field_target`
+- `frontend/src/reviewMappingPresentation.test.js::proposal review helpers do not treat non-field proposals as field rows`
+
 ## Compatibility Paths Kept
 
 - `/tasks` task detail and list facades.
-- `FormField` fallback and synchronization for field proposals.
+- `FormField` fallback and synchronization for field proposals only.
 - legacy `/tasks/{task_id}/review-items` fallback when no persisted `AgentProposal` exists.
 - Explicit approval endpoints for final submit and policy gates.
 - Old security questionnaire graph fallback.
@@ -833,7 +862,9 @@ Evidence:
 - Stage 11 closed AgentRun-backed async fill migration by tagging queued fill
   jobs with `agent_run_id` and delegating those jobs back through the AgentRun
   fill continuation helper without changing legacy task fill job payloads.
+- Stage 12 closed the audited Review Queue compatibility narrowing gap by
+  requiring field proposal types before syncing FormField or field rows.
 - Review Mapping now reads AgentRun review items first when `agent_run_id` or `agent_runtime.run_id` is present, then falls back to legacy `/tasks/{task_id}/review-items`.
-- Review Mapping still keeps legacy `/tasks/{task_id}/review-items` fallback and FormField sync compatibility during migration.
+- Review Mapping still keeps legacy `/tasks/{task_id}/review-items` fallback and field-proposal FormField sync compatibility during migration.
 - Phase A closes only the frontend AgentRun boundary. Backend compatibility
   paths and broader runtime migration gaps remain.

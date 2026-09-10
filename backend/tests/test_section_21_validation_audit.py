@@ -34,6 +34,7 @@ STAGE_7_STATUS = "Stage 7 Workflow-Specific Read Runtime Migration"
 STAGE_9_STATUS = "Stage 9 Primary AgentRun Browser-Write Continue Boundary Thin Slice"
 STAGE_10_STATUS = "Stage 10 Primary AgentRun Submit Continue Boundary Thin Slice"
 STAGE_11_STATUS = "Stage 11 Browser-Write Runtime Migration Closure"
+STAGE_12_STATUS = "Stage 12 Review Compatibility Retirement Slice"
 
 
 def test_section_21_validation_audit_indexes_runtime_object_evidence() -> None:
@@ -215,6 +216,23 @@ def test_stage_11_async_fill_closure_status_is_reflected() -> None:
         assert "`agent_run_id`" in text
         assert "test_continue_agent_run_enqueues_async_fill_with_run_id" in text
         assert "test_execute_fill_stage_delegates_agent_run_backed_job" in text
+        assert "runtime refactor complete" not in text.lower()
+
+
+def test_stage_12_review_compatibility_status_is_reflected() -> None:
+    """Verify Stage 12 documents Review Queue compatibility retirement."""
+
+    for path in [
+        REPO_ROOT / "README.md",
+        REPO_ROOT / "docs" / "roadmap" / "00-ai-engineer-alignment-roadmap.md",
+        REPO_ROOT / "docs" / "agent-runtime-refactor-rfc.md",
+        REPO_ROOT / "docs" / "agent-runtime-refactor-rfc.zh.md",
+        AUDIT_DOC,
+    ]:
+        text = path.read_text(encoding="utf-8")
+        assert STAGE_12_STATUS in text
+        assert "test_review_queue_does_not_sync_non_field_proposal_with_form_field_target" in text
+        assert "proposal review helpers do not treat non-field proposals as field rows" in text
         assert "runtime refactor complete" not in text.lower()
 
 

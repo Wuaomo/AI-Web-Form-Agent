@@ -303,6 +303,8 @@ Stage 10 Primary AgentRun Submit Continue Boundary Thin Slice is closed for expl
 
 Stage 11 Browser-Write Runtime Migration Closure is closed for AgentRun-backed async fill. `/agent-runs/{run_id}/continue` now tags queued fill jobs with `agent_run_id`, and the worker delegates those jobs back through the AgentRun fill continuation helper without re-enqueueing. Evidence includes `test_continue_agent_run_enqueues_async_fill_with_run_id`, `test_execute_fill_stage_delegates_agent_run_backed_job`, and `test_fill_endpoint_creates_job_when_ready`. Legacy `/tasks/{task_id}/fill` jobs still enqueue with an empty payload, `/tasks/{task_id}/confirm-submit` remains the explicit-approval compatibility wrapper, and the overall runtime refactor is not complete.
 
+Stage 12 Review Compatibility Retirement Slice is closed for narrowing Review Queue compatibility. Field synchronization now requires a field proposal type (`field_value`, `answer`, or `open_ended_answer`), so non-field proposals do not write `FormField` even if their target shape references a form field. Review Mapping uses the same distinction: field proposals stay in proposal-backed rows, while non-field proposals stay in the compact Review Queue. Evidence includes `test_review_queue_does_not_sync_non_field_proposal_with_form_field_target` and `proposal review helpers do not treat non-field proposals as field rows`. Legacy `/tasks/{task_id}/review-items` remains a compatibility fallback, and the overall runtime refactor is not complete.
+
 ## Resume Bullets
 
 - Built a **review-first AI Browser Workflow Assistant** with FastAPI, React, Playwright, SQLite, optional LLM providers, reviewed memory, policy gates, trace observability, and benchmark evaluation.
