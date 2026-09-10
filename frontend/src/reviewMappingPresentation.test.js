@@ -203,6 +203,22 @@ test("proposal review helpers expose generic evidence by field id", () => {
   assert.equal(byFieldId.has(11), false);
 });
 
+test("proposal review helpers do not treat non-field proposals as field rows", () => {
+  const items = [
+    {
+      id: "task-1-field-10-memory-mapping",
+      proposal_type: "memory_write",
+      target_type: "form_field",
+      target_ref: "10",
+      proposed_value: "email",
+      status: "PENDING",
+    },
+  ];
+
+  assert.equal(getProposalReviewItemsByFieldId(items).has(10), false);
+  assert.equal(buildReviewQueueCompactItems(items)[0].proposalType, "memory_write");
+});
+
 test("proposal-backed review fields prefer proposal value status and evidence", () => {
   const fields = [
     {

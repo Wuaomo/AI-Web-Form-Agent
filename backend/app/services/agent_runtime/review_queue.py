@@ -31,6 +31,7 @@ from app.services.workflow_memory import (
 from app.workflow_constants import WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE
 
 ACTION_FIELD_TYPES = {"button", "file", "submit", "reset", "image"}
+FORM_FIELD_SYNC_PROPOSAL_TYPES = {"field_value", "answer", "open_ended_answer"}
 RAW_PROPOSAL_VALUE_KEYS = {"tool_results", "output_json", "raw_output_json"}
 
 
@@ -161,7 +162,10 @@ def resolve_task_review_item_target(
         )
     )
     if proposal is not None:
-        if proposal.target_type != "form_field":
+        if (
+            proposal.proposal_type not in FORM_FIELD_SYNC_PROPOSAL_TYPES
+            or proposal.target_type != "form_field"
+        ):
             return ReviewItemTarget(proposal, None, False)
         if not proposal.target_ref.isdigit():
             return ReviewItemTarget(proposal, None, False)
@@ -184,7 +188,7 @@ def apply_review_decision_to_field_target(
     """Sync a proposal review decision back to the legacy FormField row."""
 
     field = target.field
-    if field is None:
+    if field is None or not target.requires_form_field_sync:
         return
     if decision == "edited":
         field.mapped_value = str(edited_value)

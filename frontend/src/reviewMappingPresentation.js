@@ -1,4 +1,9 @@
 const actionFieldTypes = new Set(["button", "file", "submit", "reset", "image"]);
+const formFieldProposalTypes = new Set([
+  "field_value",
+  "answer",
+  "open_ended_answer",
+]);
 export const customProfileKeyPrefix = "custom:";
 
 export const profileKeys = [
@@ -193,7 +198,7 @@ export function buildReviewQueueSummary(items = []) {
 
 export function buildReviewQueueCompactItems(items = []) {
   return items
-    .filter((item) => item?.target_type !== "form_field")
+    .filter((item) => !isFormFieldProposal(item))
     .map((item) => ({
       id: item.id,
       label: formatProposalTypeLabel(item.proposal_type),
@@ -208,6 +213,13 @@ export function buildReviewQueueCompactItems(items = []) {
       ...(item.proposal_type === "form_submit" ? { reviewMode: "approval" } : {}),
       evidenceCount: Array.isArray(item.evidence) ? item.evidence.length : 0,
     }));
+}
+
+function isFormFieldProposal(item) {
+  return (
+    item?.target_type === "form_field" &&
+    formFieldProposalTypes.has(item?.proposal_type)
+  );
 }
 
 function reviewItemRiskLevel(item) {
@@ -299,7 +311,7 @@ export function getSourceSuggestionsByFieldId(checkpoints = []) {
 export function getProposalReviewItemsByFieldId(items = []) {
   const itemsByFieldId = new Map();
   items.forEach((item) => {
-    if (item?.target_type !== "form_field") {
+    if (!isFormFieldProposal(item)) {
       return;
     }
     const fieldId = Number(item.target_ref);

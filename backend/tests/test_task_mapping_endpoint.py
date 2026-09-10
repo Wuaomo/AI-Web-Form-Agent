@@ -1432,6 +1432,65 @@ def test_review_queue_resolves_non_field_target_without_form_field_sync(
     assert target.requires_form_field_sync is False
 
 
+def test_review_queue_does_not_sync_non_field_proposal_with_form_field_target(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify proposal type, not just target_type, controls FormField sync."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_value = "old@example.com"
+    field.confidence = 0.5
+    run = AgentRun(
+        id=f"non-field-form-target-run-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review non-field proposal shape.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"non-field-form-target-{task.id}",
+        run=run,
+        proposal_type="memory_write",
+        target_type="form_field",
+        target_ref=str(field.id),
+        proposed_value="email",
+        rationale="Review malformed memory proposal.",
+        confidence=0.8,
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+
+    target = review_queue.resolve_task_review_item_target(
+        session,
+        task=task,
+        proposal_id=proposal.id,
+    )
+
+    assert target is not None
+    assert target.field is None
+    assert target.requires_form_field_sync is False
+
+    response = client.post(
+        f"/tasks/{task.id}/review-items/{proposal.id}/decision",
+        json={"decision": "edited", "edited_value": "contact_email"},
+    )
+
+    assert response.status_code == 200
+    session.refresh(proposal)
+    session.refresh(field)
+    assert proposal.status == "EDITED"
+    assert proposal.proposed_value == "contact_email"
+    assert field.mapped_value == "old@example.com"
+    assert field.confidence == 0.5
+
+
 def test_review_queue_keeps_legacy_field_id_fallback(
     test_environment: tuple[TestClient, Session],
 ) -> None:
