@@ -127,6 +127,7 @@ def load_or_create_task_review_proposals(
         proposal.target_ref
         for proposal in persisted
         if proposal.target_type == "form_field"
+        and proposal.proposal_type in FORM_FIELD_SYNC_PROPOSAL_TYPES
     }
     derived = build_task_review_proposals(
         task=task,

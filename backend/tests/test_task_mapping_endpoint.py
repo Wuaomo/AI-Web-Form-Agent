@@ -1491,6 +1491,48 @@ def test_review_queue_does_not_sync_non_field_proposal_with_form_field_target(
     assert field.confidence == 0.5
 
 
+def test_review_items_backfill_field_row_when_non_field_proposal_targets_form_field(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify non-field proposals do not suppress legacy field-row fallback."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    run = AgentRun(
+        id=f"non-field-form-target-run-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review non-field proposal shape.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"non-field-form-target-{task.id}",
+        run=run,
+        proposal_type="memory_write",
+        target_type="form_field",
+        target_ref=str(field.id),
+        proposed_value="email",
+        rationale="Review malformed memory proposal.",
+        confidence=0.8,
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+
+    response = client.get(f"/tasks/{task.id}/review-items")
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()] == [
+        proposal.id,
+        f"task-{task.id}-field-{field.id}",
+    ]
+
+
 def test_review_queue_keeps_legacy_field_id_fallback(
     test_environment: tuple[TestClient, Session],
 ) -> None:
