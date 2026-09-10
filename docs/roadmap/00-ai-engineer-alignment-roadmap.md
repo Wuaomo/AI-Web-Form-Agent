@@ -308,6 +308,16 @@ Still missing from the runtime refactor direction:
   `submit run cockpit uses AgentRun continue boundary when run id exists`. Async
   fill jobs remain a browser-write migration gap. This is not an overall
   runtime refactor completion claim.
+- Stage 11 Browser-Write Runtime Migration Closure is closed for AgentRun-backed
+  async fill. `/agent-runs/{run_id}/continue` now tags queued fill jobs with
+  `agent_run_id`, and the worker delegates those jobs through the AgentRun fill
+  continuation helper without re-enqueueing. Legacy `/tasks/{task_id}/fill`
+  jobs still enqueue unchanged, `/tasks/{task_id}/confirm-submit` remains the
+  explicit-approval compatibility wrapper, and the task facade stays compact.
+  Evidence: `test_continue_agent_run_enqueues_async_fill_with_run_id`,
+  `test_execute_fill_stage_delegates_agent_run_backed_job`, and
+  `test_fill_endpoint_creates_job_when_ready`. This closes Stage 11, not the
+  overall runtime refactor.
 
 ## Post-Portfolio Extensions
 

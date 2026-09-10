@@ -33,6 +33,7 @@ STAGE_6_STATUS = "Stage 6 Compatibility Runtime Boundary Retirement Sweep"
 STAGE_7_STATUS = "Stage 7 Workflow-Specific Read Runtime Migration"
 STAGE_9_STATUS = "Stage 9 Primary AgentRun Browser-Write Continue Boundary Thin Slice"
 STAGE_10_STATUS = "Stage 10 Primary AgentRun Submit Continue Boundary Thin Slice"
+STAGE_11_STATUS = "Stage 11 Browser-Write Runtime Migration Closure"
 
 
 def test_section_21_validation_audit_indexes_runtime_object_evidence() -> None:
@@ -196,6 +197,24 @@ def test_stage_10_submit_continue_status_is_reflected() -> None:
         assert "test_continue_agent_run_delegates_submit_to_shared_task_path" in text
         assert "submit run cockpit uses AgentRun continue boundary when run id exists" in text
         assert "async fill jobs" in text
+        assert "runtime refactor complete" not in text.lower()
+
+
+def test_stage_11_async_fill_closure_status_is_reflected() -> None:
+    """Verify Stage 11 documents AgentRun-backed async fill closure."""
+
+    for path in [
+        REPO_ROOT / "README.md",
+        REPO_ROOT / "docs" / "roadmap" / "00-ai-engineer-alignment-roadmap.md",
+        REPO_ROOT / "docs" / "agent-runtime-refactor-rfc.md",
+        REPO_ROOT / "docs" / "agent-runtime-refactor-rfc.zh.md",
+        AUDIT_DOC,
+    ]:
+        text = path.read_text(encoding="utf-8")
+        assert STAGE_11_STATUS in text
+        assert "`agent_run_id`" in text
+        assert "test_continue_agent_run_enqueues_async_fill_with_run_id" in text
+        assert "test_execute_fill_stage_delegates_agent_run_backed_job" in text
         assert "runtime refactor complete" not in text.lower()
 
 

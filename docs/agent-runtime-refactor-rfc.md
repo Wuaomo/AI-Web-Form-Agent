@@ -1306,3 +1306,24 @@ Creates a plan, executes read-only tools, creates evidence-backed proposals, pau
 
 The result is not just a browser automation demo. It becomes a reusable architecture for trustworthy agentic web workflows.
 
+## 24. Migration Status Trail
+
+Current status: section 21 validation audit completed; remaining gaps documented.
+Phase 11 Agent Runtime API primary boundary audit completed; remaining migration gaps documented.
+Phase 12 Agent Runtime API read boundary thin slice completed; remaining migration gaps documented.
+Review Queue primary AgentRun API boundary thin slice completed; remaining migration gaps documented.
+Review Mapping AgentRun Review Queue client helper thin slice completed; remaining migration gaps documented.
+Run Cockpit AgentRun read helper thin slice completed; remaining migration gaps documented.
+Phase B backend AgentRun/review boundary evidence sweep completed; remaining migration gaps documented.
+
+Stage 6 Compatibility Runtime Boundary Retirement Sweep closed boundary classification for primary AgentRun/governed endpoints, legacy `/tasks` facade paths, workflow-specific endpoints, and the old security questionnaire graph fallback.
+
+Stage 7 Workflow-Specific Read Runtime Migration closed audited read-only product paths with `test_governed_start_web_data_extract_runs_read_only_page_plan` and `test_governed_start_job_summary_runs_read_only_summary_plan`.
+
+Stage 9 Primary AgentRun Browser-Write Continue Boundary Thin Slice closed reviewed fill through `/agent-runs/{run_id}/continue`; evidence includes `test_continue_agent_run_delegates_reviewed_fill_to_shared_task_path`. At that point, async fill jobs and `/tasks/{task_id}/confirm-submit` remained browser-write migration gaps.
+
+Stage 10 Primary AgentRun Submit Continue Boundary Thin Slice closed explicit final submit through `/agent-runs/{run_id}/continue` with `{"action":"submit_form"}`; evidence includes `test_continue_agent_run_delegates_submit_to_shared_task_path` and `submit run cockpit uses AgentRun continue boundary when run id exists`. At that point, async fill jobs remained open.
+
+Stage 11 Browser-Write Runtime Migration Closure closed AgentRun-backed async fill. `/agent-runs/{run_id}/continue` now tags queued fill jobs with `agent_run_id`, and the worker delegates those jobs through the AgentRun fill continuation helper without re-enqueueing. Legacy `/tasks/{task_id}/fill` jobs keep an empty payload, `/tasks/{task_id}/confirm-submit` remains the explicit-approval compatibility wrapper, and broader migration gaps still include the legacy `/tasks` facade, workflow-specific endpoints, legacy `/tasks/{task_id}/review-items` fallback, FormField sync, and the old security questionnaire graph fallback. Evidence: `test_continue_agent_run_enqueues_async_fill_with_run_id`, `test_execute_fill_stage_delegates_agent_run_backed_job`, and `test_fill_endpoint_creates_job_when_ready`.
+
+The overall refactor remains open.

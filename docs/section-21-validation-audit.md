@@ -1,6 +1,6 @@
 # Section 21 Validation Audit
 
-Date: 2026-09-08
+Date: 2026-09-10
 
 Scope: RFC section 21 validation only. Current status: section 21 validation
 audit completed; remaining gaps documented. This audit records current evidence
@@ -69,17 +69,25 @@ Stage 10 Primary AgentRun Submit Continue Boundary Thin Slice completed for
 explicit final submit execution. `/agent-runs/{run_id}/continue` now accepts
 `{"action":"submit_form"}` as the AgentRun-backed final submit boundary while
 legacy `/tasks/{task_id}/confirm-submit` stays as a compatibility wrapper and
-no-run-id fallback. Async fill jobs remain a browser-write migration gap.
+no-run-id fallback. At Stage 10, async fill jobs still remained a browser-write
+migration gap.
+Stage 11 Browser-Write Runtime Migration Closure completed for AgentRun-backed
+async fill. `/agent-runs/{run_id}/continue` now tags queued fill jobs with
+`agent_run_id`, and the worker delegates those jobs through the AgentRun fill
+continuation helper without re-enqueueing. Legacy `/tasks/{task_id}/fill` jobs
+still enqueue with an empty payload, and `/tasks/{task_id}/confirm-submit`
+remains the explicit-approval compatibility wrapper.
 
 ## Overall Runtime Refactor Stage Status
 
-Current stage: Stage 10 Primary AgentRun Submit Continue Boundary Thin Slice is
-closed for explicit final submit execution. Browser-write migration is not
-fully closed because async fill jobs still enter through the legacy worker,
-even though they reuse shared fill gates and Tool Runtime helpers. Stage 9
-reviewed-fill continue, Stage 8 audit, Stage 7 read-only migration, Stage 6
-boundary classification, Stage 5 verification, and Stage 4 governance remain
-closed in their scoped senses. The overall runtime refactor is not complete.
+Current stage: Stage 11 Browser-Write Runtime Migration Closure is closed for
+AgentRun-backed async fill. Browser-write runtime migration is closed for the
+audited AgentRun-backed fill, async fill, and explicit submit paths while
+legacy `/tasks/{task_id}/fill` and `/tasks/{task_id}/confirm-submit` remain
+compatibility entrypoints. Stage 10 submit continue, Stage 9 reviewed-fill
+continue, Stage 8 audit, Stage 7 read-only migration, Stage 6 boundary
+classification, Stage 5 verification, and Stage 4 governance remain closed in
+their scoped senses. The overall runtime refactor is not complete.
 
 Stage 2, Primary API Boundary Hardening, has focused test evidence for:
 
@@ -736,6 +744,32 @@ Evidence:
 - `frontend/src/runCockpitActions.test.js::submit run cockpit uses AgentRun continue boundary when run id exists`
 - `frontend/src/runCockpitActions.test.js::submit run cockpit falls back to legacy confirm submit without run id`
 
+## Stage 11 Browser-Write Runtime Migration Closure
+
+Status: completed for AgentRun-backed async fill. This is not an overall
+runtime refactor completion claim.
+
+- Fixed: AgentRun fill continuation now passes `agent_run_id` into queued
+  `FILL_FORM` jobs when async mode is enabled.
+- Fixed: AgentRun-backed `FILL_FORM` jobs now delegate through the AgentRun
+  fill continuation helper and execute without re-enqueueing.
+- Kept: legacy `/tasks/{task_id}/fill` enqueue behavior remains compatible and
+  still writes an empty job payload.
+- Kept: review-first fill gates, stale-value checks, stale-selector checks,
+  Tool Runtime execution, and required readback failure persistence continue to
+  come from the shared fill path.
+- Kept: `/tasks/{task_id}/confirm-submit` remains the explicit final-submit
+  compatibility wrapper.
+- Kept out of scope: new dashboards, new dependencies, endpoint deletion, old
+  security questionnaire graph fallback, and claiming the overall runtime
+  refactor is complete.
+
+Evidence:
+
+- `backend/tests/test_agent_run_read_endpoint.py::test_continue_agent_run_enqueues_async_fill_with_run_id`
+- `backend/tests/test_job_worker.py::test_execute_fill_stage_delegates_agent_run_backed_job`
+- `backend/tests/test_task_job_enqueue.py::test_fill_endpoint_creates_job_when_ready`
+
 ## Compatibility Paths Kept
 
 - `/tasks` task detail and list facades.
@@ -748,8 +782,8 @@ Evidence:
   expressible as generic AgentRun planned tool steps.
 - `/tasks/{task_id}/fill` remains a browser-write compatibility endpoint and
   no-run-id fallback after Stage 9; `/tasks/{task_id}/confirm-submit` remains
-  a no-run-id compatibility wrapper after Stage 10; async fill jobs remain a
-  browser-write compatibility runtime center.
+  a no-run-id compatibility wrapper after Stage 10; AgentRun-backed async fill
+  jobs now delegate through the Stage 11 continuation helper.
 - Benchmark/test fixture helpers remain direct local evaluation helpers and are
   not product runtime boundaries.
 
@@ -795,9 +829,10 @@ Evidence:
   the primary UI/API path.
 - Stage 10 closed the explicit-submit AgentRun continue boundary thin slice:
   `/agent-runs/{run_id}/continue` now owns AgentRun-backed final submit from
-  the primary UI/API path through `{"action":"submit_form"}`. Browser-write
-  migration is still not fully closed because async fill jobs remain a legacy
-  compatibility runtime center.
+  the primary UI/API path through `{"action":"submit_form"}`.
+- Stage 11 closed AgentRun-backed async fill migration by tagging queued fill
+  jobs with `agent_run_id` and delegating those jobs back through the AgentRun
+  fill continuation helper without changing legacy task fill job payloads.
 - Review Mapping now reads AgentRun review items first when `agent_run_id` or `agent_runtime.run_id` is present, then falls back to legacy `/tasks/{task_id}/review-items`.
 - Review Mapping still keeps legacy `/tasks/{task_id}/review-items` fallback and FormField sync compatibility during migration.
 - Phase A closes only the frontend AgentRun boundary. Backend compatibility

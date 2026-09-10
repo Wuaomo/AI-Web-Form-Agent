@@ -1215,6 +1215,19 @@ verification persistence、compact task facade 都沿用同一条 submit path。
 `agent run API client sends submit continue action payload`、`submit run cockpit uses AgentRun continue boundary when run id exists`。Async fill jobs 仍是
 browser-write migration gap。这不是整体 runtime refactor 完成声明。
 
+当前补充状态（2026-09-10）：Stage 11 Browser-Write Runtime Migration Closure
+completed for AgentRun-backed async fill。
+`/agent-runs/{run_id}/continue` 现在会在 async fill enqueue 时写入
+`agent_run_id`，worker 对这类 job 会 delegate 回 AgentRun fill continuation
+helper，并且不会再次 enqueue。legacy `/tasks/{task_id}/fill` job enqueue
+payload 继续保持为空；legacy `/tasks/{task_id}/confirm-submit` 仍是 explicit
+approval compatibility wrapper；task facade 继续 compact，不暴露 raw
+`tool_results` / `output_json`。证据：
+`test_continue_agent_run_enqueues_async_fill_with_run_id`、
+`test_execute_fill_stage_delegates_agent_run_backed_job`、
+`test_fill_endpoint_creates_job_when_ready`。这关闭 Stage 11，不是整体 runtime
+refactor 完成声明。
+
 ## 22. 不算完成的状态
 
 以下状态不能称为“整体重构完成”：
