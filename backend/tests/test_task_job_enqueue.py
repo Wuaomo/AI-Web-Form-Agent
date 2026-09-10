@@ -147,6 +147,7 @@ def test_fill_endpoint_creates_job_when_ready(async_env):
     job = session.scalar(select(Job).where(Job.task_id == task.id))
     assert job is not None
     assert job.job_type == JOB_TYPE_FILL_FORM
+    assert job.payload == {}
 
 
 def test_fill_endpoint_rejects_when_not_ready(async_env):

@@ -7,9 +7,10 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import config
 from app.database import get_db
 from app.models import AgentRun, FormField, TaskCheckpoint
-from app.routers.tasks import fill_task_form, submit_reviewed_task_form
+from app.routers.tasks import fill_agent_run_task_form, submit_reviewed_task_form
 from app.routers.workflows import _to_governed_compact_state
 from app.schemas import JobResponse, SubmissionConfirmationResponse, TaskResponse
 from app.services.agent_runtime.review_queue import (
@@ -77,7 +78,33 @@ async def continue_agent_run(
         )
     if (request or AgentRunContinueRequest()).action == "submit_form":
         return await submit_reviewed_task_form(run.legacy_task_id, db)
-    return await fill_task_form(run.legacy_task_id, db=db)
+    return await fill_agent_run_task_form(
+        task_id=run.legacy_task_id,
+        agent_run_id=run.id,
+        db=db,
+        enqueue_async=config.ASYNC_JOBS_ENABLED,
+    )
+
+
+async def continue_agent_run_fill_job(
+    run_id: str,
+    db: Session,
+    *,
+    task_id: int | None = None,
+) -> object:
+    """Execute an AgentRun-backed async fill job without re-enqueueing it."""
+
+    run = db.get(AgentRun, run_id)
+    if run is None or run.task is None:
+        raise ValueError(f"No agent run state found for {run_id}.")
+    if task_id is not None and run.legacy_task_id != task_id:
+        raise ValueError(f"Agent run {run_id} does not belong to task {task_id}.")
+    return await fill_agent_run_task_form(
+        task_id=run.legacy_task_id,
+        agent_run_id=run.id,
+        db=db,
+        enqueue_async=False,
+    )
 
 
 @router.get("/{run_id}/review-items", response_model=list[Proposal])

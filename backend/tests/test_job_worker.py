@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
 from app.models import (
+    AgentRun,
     AgentVerificationResult,
     AgentToolCall,
     AgentToolResult,
@@ -481,6 +482,59 @@ def test_execute_fill_stage_persists_runtime_tool_call(db_session):
         "screenshot_id": 9,
         "verification_count": 0,
     }
+
+
+def test_execute_fill_stage_delegates_agent_run_backed_job(db_session):
+    """Verify AgentRun-backed async fill jobs use the shared continue boundary."""
+
+    from app.services.job_worker import _execute_fill_stage
+
+    db, task_id = db_session
+    task = db.get(Task, task_id)
+    task.status = "READY_TO_FILL"
+    task.workflow_status = "READY_TO_FILL"
+    field = FormField(
+        task_id=task_id,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        required=True,
+        mapped_profile_key="email",
+        mapped_value="ada@example.com",
+        confidence=0.99,
+    )
+    run = AgentRun(
+        id=f"task-{task_id}",
+        legacy_task_id=task_id,
+        goal="Fill reviewed fields.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="READY_TO_FILL",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    job = Job(
+        task_id=task_id,
+        job_type=JOB_TYPE_FILL_FORM,
+        status=JOB_STATUS_RUNNING,
+        attempts=1,
+        max_attempts=3,
+    )
+    job.payload = {"agent_run_id": run.id}
+    db.add_all([field, run, job])
+    db.commit()
+
+    with patch(
+        "app.routers.tasks.fill_form_and_capture_screenshot",
+        new_callable=AsyncMock,
+    ) as fill_form:
+        fill_form.return_value = (SimpleNamespace(id=9), [])
+        _execute_fill_stage(db, job)
+
+    fill_form.assert_awaited_once()
+    db.refresh(task)
+    assert task.status == "WAITING_APPROVAL"
 
 
 def test_execute_fill_stage_blocks_required_verification_failure(db_session):

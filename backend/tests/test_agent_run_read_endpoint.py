@@ -19,9 +19,12 @@ from app.models import (
     AgentToolCall,
     AgentToolResult,
     FormField,
+    Job,
     Profile,
     Task,
 )
+from app import config
+from app.job_constants import JOB_TYPE_FILL_FORM
 from app.services.agent_runtime.tool_runtime import AgentTool, ToolExecutionContext, ToolRuntime
 
 
@@ -187,6 +190,52 @@ def test_continue_agent_run_delegates_reviewed_fill_to_shared_task_path() -> Non
             "verification_count": 0,
         }
     finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_continue_agent_run_enqueues_async_fill_with_run_id() -> None:
+    client, session = build_environment()
+    task = create_task(session)
+    task.status = "READY_TO_FILL"
+    task.workflow_status = "READY_TO_FILL"
+    field = FormField(
+        task_id=task.id,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        mapped_profile_key="email",
+        mapped_value="ada@example.com",
+        confidence=0.99,
+        required=True,
+    )
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Fill reviewed fields.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="READY_TO_FILL",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    session.add_all([field, run])
+    session.commit()
+    original_async = config.ASYNC_JOBS_ENABLED
+    config.ASYNC_JOBS_ENABLED = True
+
+    try:
+        response = client.post(f"/agent-runs/task-{task.id}/continue")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["job_type"] == JOB_TYPE_FILL_FORM
+        job = session.get(Job, payload["id"])
+        assert job is not None
+        assert job.payload == {"agent_run_id": f"task-{task.id}"}
+    finally:
+        config.ASYNC_JOBS_ENABLED = original_async
         app.dependency_overrides.clear()
         session.close()
 

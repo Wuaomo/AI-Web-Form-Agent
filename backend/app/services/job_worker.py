@@ -460,6 +460,20 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
         job: The job being executed
     """
 
+    agent_run_id = job.payload.get("agent_run_id")
+    if isinstance(agent_run_id, str) and agent_run_id:
+        import asyncio
+        from app.routers.agent_runs import continue_agent_run_fill_job
+
+        asyncio.run(
+            continue_agent_run_fill_job(
+                agent_run_id,
+                db,
+                task_id=job.task_id,
+            )
+        )
+        return
+
     task = db.get(Task, job.task_id)
     if task is None:
         raise ValueError(f"Task {job.task_id} not found")

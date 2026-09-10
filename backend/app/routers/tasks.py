@@ -2214,6 +2214,39 @@ async def fill_task_form(
     task_id: int,
     db: Session = Depends(get_db),
 ) -> Task | Job:
+    """Fill mapped fields through the legacy task compatibility endpoint."""
+
+    return await _fill_task_form(
+        task_id,
+        db,
+        enqueue_async=config.ASYNC_JOBS_ENABLED,
+    )
+
+
+async def fill_agent_run_task_form(
+    *,
+    task_id: int,
+    agent_run_id: str,
+    db: Session,
+    enqueue_async: bool,
+) -> Task | Job:
+    """Continue reviewed fill for an AgentRun-backed legacy task."""
+
+    return await _fill_task_form(
+        task_id,
+        db,
+        enqueue_async=enqueue_async,
+        agent_run_id=agent_run_id,
+    )
+
+
+async def _fill_task_form(
+    task_id: int,
+    db: Session,
+    *,
+    enqueue_async: bool,
+    agent_run_id: str | None = None,
+) -> Task | Job:
     """Fill mapped fields and pause before any final submission.
 
     When ASYNC_JOBS_ENABLED is True, enqueues a FILL_FORM job instead of
@@ -2268,11 +2301,12 @@ async def fill_task_form(
             detail="No mapped fields are ready to fill",
         )
 
-    if config.ASYNC_JOBS_ENABLED:
+    if enqueue_async:
         job = enqueue_job(
             db=db,
             job_type=JOB_TYPE_FILL_FORM,
             task_id=task.id,
+            payload={"agent_run_id": agent_run_id} if agent_run_id else None,
         )
         db.commit()
         return job
