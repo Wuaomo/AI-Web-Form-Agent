@@ -329,6 +329,17 @@ Still missing from the runtime refactor direction:
   and `proposal review helpers do not treat non-field proposals as field rows`.
   Legacy `/tasks/{task_id}/review-items` remains a compatibility fallback. This
   closes Stage 12, not the overall runtime refactor.
+- Stage 13 Legacy Review Endpoint Delegate Slice is closed for audited Review
+  Queue delegate/fallback behavior. `/agent-runs/{run_id}/review-items` now
+  stays bound to the requested AgentRun instead of borrowing the latest task
+  run, while legacy `/tasks/{task_id}/review-items` keeps task-level fallback
+  behavior. Legacy review backfill now treats only field proposal types as
+  field-row coverage, so non-field proposals with a `form_field` target do not
+  hide the compatible field proposal row. Evidence:
+  `test_get_agent_run_review_items_stays_bound_to_requested_run` and
+  `test_review_items_backfill_field_row_when_non_field_proposal_targets_form_field`.
+  Legacy `/tasks/{task_id}/review-items` remains a compatibility fallback; this
+  closes Stage 13, not the overall runtime refactor.
 
 ## Post-Portfolio Extensions
 

@@ -799,6 +799,36 @@ Evidence:
 - `backend/tests/test_task_mapping_endpoint.py::test_review_queue_does_not_sync_non_field_proposal_with_form_field_target`
 - `frontend/src/reviewMappingPresentation.test.js::proposal review helpers do not treat non-field proposals as field rows`
 
+## Stage 13 Legacy Review Endpoint Delegate Slice
+
+Status: completed for audited Review Queue delegate/fallback behavior. This is
+not an overall runtime refactor completion claim.
+
+- Fixed: `/agent-runs/{run_id}/review-items` now passes the requested
+  AgentRun id into the shared Review Queue loader, so AgentRun-backed review
+  reads cannot borrow proposals from a newer run on the same legacy task.
+- Fixed: legacy review backfill now counts only field proposal types
+  (`field_value`, `answer`, `open_ended_answer`) as existing field-row
+  coverage, so non-field proposals with a `form_field` target do not hide the
+  compatible field proposal row.
+- Kept: legacy `/tasks/{task_id}/review-items` and
+  `/tasks/{task_id}/review-items/{item_id}/decision` remain compatibility
+  fallback/delegate paths.
+- Kept: proposal-backed field approve/edit/reject still synchronizes
+  `FormField` only for field proposal types; non-field proposal decisions stay
+  runtime-only.
+- Kept: review-first browser write gates, explicit final-submit approval,
+  rejected/needs-more-evidence non-resume behavior, stale value checks, stale
+  selector checks, and compact task facade behavior.
+- Kept out of scope: endpoint deletion, new dashboards, new dependencies, old
+  security questionnaire graph fallback retirement, and claiming the overall
+  runtime refactor is complete.
+
+Evidence:
+
+- `backend/tests/test_agent_run_read_endpoint.py::test_get_agent_run_review_items_stays_bound_to_requested_run`
+- `backend/tests/test_task_mapping_endpoint.py::test_review_items_backfill_field_row_when_non_field_proposal_targets_form_field`
+
 ## Compatibility Paths Kept
 
 - `/tasks` task detail and list facades.
@@ -864,6 +894,9 @@ Evidence:
   fill continuation helper without changing legacy task fill job payloads.
 - Stage 12 closed the audited Review Queue compatibility narrowing gap by
   requiring field proposal types before syncing FormField or field rows.
+- Stage 13 closed the audited legacy review endpoint delegate gap by binding
+  AgentRun review reads to the requested run and keeping non-field proposals
+  from suppressing legacy field-row backfill.
 - Review Mapping now reads AgentRun review items first when `agent_run_id` or `agent_runtime.run_id` is present, then falls back to legacy `/tasks/{task_id}/review-items`.
 - Review Mapping still keeps legacy `/tasks/{task_id}/review-items` fallback and field-proposal FormField sync compatibility during migration.
 - Phase A closes only the frontend AgentRun boundary. Backend compatibility

@@ -1240,6 +1240,18 @@ Review Queue。证据：
 legacy `/tasks/{task_id}/review-items` 仍是 compatibility fallback。这关闭
 Stage 12，不是整体 runtime refactor 完成声明。
 
+当前补充状态（2026-09-10）：Stage 13 Legacy Review Endpoint Delegate Slice
+completed for audited Review Queue delegate/fallback behavior。
+`/agent-runs/{run_id}/review-items` 现在绑定请求的 AgentRun，不再从同一个
+task 的 latest run 借 proposal；legacy `/tasks/{task_id}/review-items` 继续保持
+task-level fallback 行为。legacy review backfill 现在只把 field proposal type
+算作 field row coverage，所以 non-field proposal 即使 `target_type=form_field`
+也不会隐藏兼容 field proposal row。证据：
+`test_get_agent_run_review_items_stays_bound_to_requested_run` 和
+`test_review_items_backfill_field_row_when_non_field_proposal_targets_form_field`。
+legacy `/tasks/{task_id}/review-items` 仍是 compatibility fallback。这关闭
+Stage 13，不是整体 runtime refactor 完成声明。
+
 ## 22. 不算完成的状态
 
 以下状态不能称为“整体重构完成”：
