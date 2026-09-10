@@ -441,6 +441,68 @@ def test_get_agent_run_review_items_strips_nested_raw_tool_payloads() -> None:
         session.close()
 
 
+def test_get_agent_run_review_items_stays_bound_to_requested_run() -> None:
+    client, session = build_environment()
+    task = create_task(session)
+    older_run = AgentRun(
+        id=f"older-run-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review older run.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    older_run.final_result = {}
+    newer_run = AgentRun(
+        id=f"newer-run-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review newer run.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    newer_run.final_result = {}
+    older_proposal = AgentProposal(
+        id=f"older-proposal-{task.id}",
+        run=older_run,
+        proposal_type="browser_click",
+        target_type="browser_action",
+        target_ref="#older",
+        proposed_value={"selector": "#older"},
+        rationale="Older run proposal.",
+        risk_level="medium",
+        status="PENDING",
+    )
+    newer_proposal = AgentProposal(
+        id=f"newer-proposal-{task.id}",
+        run=newer_run,
+        proposal_type="browser_click",
+        target_type="browser_action",
+        target_ref="#newer",
+        proposed_value={"selector": "#newer"},
+        rationale="Newer run proposal.",
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([older_run, newer_run, older_proposal, newer_proposal])
+    session.commit()
+
+    try:
+        response = client.get(f"/agent-runs/{older_run.id}/review-items")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert [item["id"] for item in payload] == [older_proposal.id]
+        assert payload[0]["run_id"] == older_run.id
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
 def test_agent_run_review_item_decision_persists_decision_and_syncs_field() -> None:
     client, session = build_environment()
     task = create_task(session)

@@ -49,19 +49,30 @@ def build_task_review_proposals(
     task: Task,
     fields: list[FormField],
     checkpoints: list[TaskCheckpoint],
+    run_id: str | None = None,
 ) -> list[Proposal]:
     """Project existing mapping review rows into generic runtime proposals."""
 
-    evidence_by_field_id = _evidence_by_field_id(task.id, checkpoints)
+    runtime_run_id = run_id or _run_id(task.id)
+    evidence_by_field_id = _evidence_by_field_id(
+        task.id,
+        checkpoints,
+        run_id=runtime_run_id,
+    )
     field_proposals = [
-        _field_proposal(task, field, evidence_by_field_id.get(field.id, []))
+        _field_proposal(
+            task,
+            field,
+            evidence_by_field_id.get(field.id, []),
+            run_id=runtime_run_id,
+        )
         for field in fields
         if _is_reviewable_field(field)
     ]
     memory_proposals = [
         proposal
         for field in fields
-        for proposal in _memory_write_proposals(task, field)
+        for proposal in _memory_write_proposals(task, field, run_id=runtime_run_id)
     ]
     return field_proposals + memory_proposals
 
@@ -70,14 +81,23 @@ def load_persisted_task_review_proposals(
     db: Session,
     *,
     task: Task,
+    run_id: str | None = None,
 ) -> list[Proposal]:
     """Restore review proposals already persisted for the task runtime run."""
 
-    run = db.execute(
-        select(AgentRun)
-        .where(AgentRun.legacy_task_id == task.id)
-        .order_by(AgentRun.updated_at.desc(), AgentRun.created_at.desc())
-    ).scalars().first()
+    if run_id is None:
+        run = db.execute(
+            select(AgentRun)
+            .where(AgentRun.legacy_task_id == task.id)
+            .order_by(AgentRun.updated_at.desc(), AgentRun.created_at.desc())
+        ).scalars().first()
+    else:
+        run = db.scalar(
+            select(AgentRun).where(
+                AgentRun.id == run_id,
+                AgentRun.legacy_task_id == task.id,
+            )
+        )
     if run is None:
         return []
 
@@ -97,10 +117,11 @@ def load_or_create_task_review_proposals(
     task: Task,
     fields: list[FormField],
     checkpoints: list[TaskCheckpoint],
+    run_id: str | None = None,
 ) -> list[Proposal]:
     """Return persisted review proposals, backfilling only missing legacy rows."""
 
-    persisted = load_persisted_task_review_proposals(db, task=task)
+    persisted = load_persisted_task_review_proposals(db, task=task, run_id=run_id)
     persisted_ids = {proposal.id for proposal in persisted}
     persisted_field_refs = {
         proposal.target_ref
@@ -111,6 +132,7 @@ def load_or_create_task_review_proposals(
         task=task,
         fields=fields,
         checkpoints=checkpoints,
+        run_id=run_id,
     )
     missing = [
         proposal
@@ -342,8 +364,10 @@ def persist_task_review_proposals(
 ) -> None:
     """Double-write Review Mapping proposals into runtime persistence tables."""
 
-    run = _ensure_agent_run(db, task)
+    run_ids: set[str] = set()
     for proposal in proposals:
+        _ensure_agent_run(db, task, run_id=proposal.run_id)
+        run_ids.add(proposal.run_id)
         row = db.get(AgentProposal, proposal.id)
         if row is None:
             row = AgentProposal(
@@ -377,7 +401,8 @@ def persist_task_review_proposals(
                 db.delete(evidence_row)
         for evidence in proposal.evidence:
             _upsert_evidence_item(db, evidence)
-    refresh_pending_review_count(db, run_id=run.id)
+    for run_id in run_ids:
+        refresh_pending_review_count(db, run_id=run_id)
 
 
 def persist_review_decision(
@@ -494,6 +519,8 @@ def _field_proposal(
     task: Task,
     field: FormField,
     evidence: list[EvidenceItem],
+    *,
+    run_id: str,
 ) -> Proposal:
     proposal_type = (
         "answer"
@@ -513,7 +540,7 @@ def _field_proposal(
         )
     return Proposal(
         id=_proposal_id(task.id, field.id),
-        run_id=_run_id(task.id),
+        run_id=run_id,
         proposal_type=proposal_type,
         target_type="form_field",
         target_ref=str(field.id),
@@ -525,8 +552,8 @@ def _field_proposal(
     )
 
 
-def _ensure_agent_run(db: Session, task: Task) -> AgentRun:
-    run_id = _run_id(task.id)
+def _ensure_agent_run(db: Session, task: Task, *, run_id: str | None = None) -> AgentRun:
+    run_id = run_id or _run_id(task.id)
     run = db.get(AgentRun, run_id)
     if run is None:
         run = AgentRun(
@@ -575,7 +602,12 @@ def _proposal_status_for_decision(decision: str) -> str:
     }[decision]
 
 
-def _memory_write_proposals(task: Task, field: FormField) -> list[Proposal]:
+def _memory_write_proposals(
+    task: Task,
+    field: FormField,
+    *,
+    run_id: str,
+) -> list[Proposal]:
     proposals: list[Proposal] = []
     if should_save_mapping_memory(field):
         proposals.append(
@@ -585,6 +617,7 @@ def _memory_write_proposals(task: Task, field: FormField) -> list[Proposal]:
                 kind="mapping",
                 proposed_value=field.mapped_profile_key,
                 rationale="Save this reviewed mapping for future retrieval.",
+                run_id=run_id,
             )
         )
     if should_save_answer_memory(task, field):
@@ -595,6 +628,7 @@ def _memory_write_proposals(task: Task, field: FormField) -> list[Proposal]:
                 kind="answer",
                 proposed_value="reviewed_answer",
                 rationale="Save this reviewed answer for future retrieval.",
+                run_id=run_id,
             )
         )
     return proposals
@@ -607,10 +641,11 @@ def _memory_write_proposal(
     kind: str,
     proposed_value: str | None,
     rationale: str,
+    run_id: str,
 ) -> Proposal:
     return Proposal(
         id=f"{_proposal_id(task.id, field.id)}-memory-{kind}",
-        run_id=_run_id(task.id),
+        run_id=run_id,
         proposal_type="memory_write",
         target_type="workflow_memory",
         target_ref=str(field.id),
@@ -624,6 +659,8 @@ def _memory_write_proposal(
 def _evidence_by_field_id(
     task_id: int,
     checkpoints: list[TaskCheckpoint],
+    *,
+    run_id: str,
 ) -> dict[int, list[EvidenceItem]]:
     evidence_by_field: dict[int, list[EvidenceItem]] = {}
     for checkpoint in checkpoints:
@@ -633,10 +670,10 @@ def _evidence_by_field_id(
         for suggestion in _dict_items(output.get("retrieval_suggestions")):
             _append_evidence(
                 evidence_by_field,
-                _retrieval_evidence(task_id, suggestion),
+                _retrieval_evidence(task_id, suggestion, run_id=run_id),
             )
         for suggestion in _dict_items(output.get("source_suggestions")):
-            for item in _source_evidence(task_id, suggestion):
+            for item in _source_evidence(task_id, suggestion, run_id=run_id):
                 _append_evidence(evidence_by_field, item)
     return evidence_by_field
 
@@ -644,6 +681,8 @@ def _evidence_by_field_id(
 def _retrieval_evidence(
     task_id: int,
     suggestion: dict[str, Any],
+    *,
+    run_id: str,
 ) -> tuple[int, EvidenceItem] | None:
     field_id = _field_id(suggestion)
     if field_id is None:
@@ -655,7 +694,7 @@ def _retrieval_evidence(
         field_id,
         EvidenceItem(
             id=_evidence_id(task_id, field_id, "memory", len(str(source_id or ""))),
-            run_id=_run_id(task_id),
+            run_id=run_id,
             proposal_id=_proposal_id(task_id, field_id),
             source_type="memory",
             source_id=str(source_id) if source_id is not None else None,
@@ -670,6 +709,8 @@ def _retrieval_evidence(
 def _source_evidence(
     task_id: int,
     suggestion: dict[str, Any],
+    *,
+    run_id: str,
 ) -> list[tuple[int, EvidenceItem]]:
     field_id = _field_id(suggestion)
     if field_id is None:
@@ -682,7 +723,7 @@ def _source_evidence(
             field_id,
             EvidenceItem(
                 id=_evidence_id(task_id, field_id, "source", index),
-                run_id=_run_id(task_id),
+                run_id=run_id,
                 proposal_id=_proposal_id(task_id, field_id),
                 source_type=_source_type(item.get("source_type")),
                 source_id=_optional_str(item.get("source_id") or suggestion.get("source_id")),

@@ -139,6 +139,7 @@ def list_agent_run_review_items(
         task=run.task,
         fields=fields,
         checkpoints=checkpoints,
+        run_id=run.id,
     )
     db.commit()
     return proposals
