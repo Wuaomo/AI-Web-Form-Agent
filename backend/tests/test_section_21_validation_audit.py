@@ -35,6 +35,7 @@ STAGE_9_STATUS = "Stage 9 Primary AgentRun Browser-Write Continue Boundary Thin 
 STAGE_10_STATUS = "Stage 10 Primary AgentRun Submit Continue Boundary Thin Slice"
 STAGE_11_STATUS = "Stage 11 Browser-Write Runtime Migration Closure"
 STAGE_12_STATUS = "Stage 12 Review Compatibility Retirement Slice"
+STAGE_14_STATUS = "Stage 14 Governed Review Decision Delegate Slice"
 
 
 def test_section_21_validation_audit_indexes_runtime_object_evidence() -> None:
@@ -233,6 +234,22 @@ def test_stage_12_review_compatibility_status_is_reflected() -> None:
         assert STAGE_12_STATUS in text
         assert "test_review_queue_does_not_sync_non_field_proposal_with_form_field_target" in text
         assert "proposal review helpers do not treat non-field proposals as field rows" in text
+        assert "runtime refactor complete" not in text.lower()
+
+
+def test_stage_14_governed_review_decision_status_is_reflected() -> None:
+    """Verify Stage 14 documents governed review decision delegation."""
+
+    for path in [
+        REPO_ROOT / "docs" / "roadmap" / "00-ai-engineer-alignment-roadmap.md",
+        REPO_ROOT / "docs" / "agent-runtime-refactor-rfc.md",
+        REPO_ROOT / "docs" / "agent-runtime-refactor-rfc.zh.md",
+        AUDIT_DOC,
+    ]:
+        text = path.read_text(encoding="utf-8")
+        assert STAGE_14_STATUS in text
+        assert "test_governed_review_decision_stays_scoped_to_governed_run" in text
+        assert "shared Review Queue decision helper" in text
         assert "runtime refactor complete" not in text.lower()
 
 

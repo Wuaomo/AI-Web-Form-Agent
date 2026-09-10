@@ -829,6 +829,44 @@ Evidence:
 - `backend/tests/test_agent_run_read_endpoint.py::test_get_agent_run_review_items_stays_bound_to_requested_run`
 - `backend/tests/test_task_mapping_endpoint.py::test_review_items_backfill_field_row_when_non_field_proposal_targets_form_field`
 
+## Stage 14 Governed Review Decision Delegate Slice
+
+Status: completed for audited governed review decision delegation. This is not
+an overall runtime refactor completion claim.
+
+- Fixed: `/workflows/{task_id}/governed/review-items/{item_id}/decision` now
+  scopes proposal lookup to the canonical governed AgentRun (`task-{task_id}`),
+  so stale proposals from another AgentRun on the same legacy task are rejected
+  instead of written.
+- Fixed: governed, AgentRun, and legacy task review decision routes now share
+  the shared Review Queue decision helper for edited-value validation,
+  `AgentReviewDecision` persistence, proposal status updates, field-proposal
+  `FormField` sync, and legacy field-row backfill.
+- Kept: AgentRun-backed review writes remain primary through
+  `/agent-runs/{run_id}/review-items/{item_id}/decision`.
+- Kept: legacy `/tasks/{task_id}/review-items` and
+  `/tasks/{task_id}/review-items/{item_id}/decision` remain compatibility
+  fallback/delegate paths.
+- Kept: governed endpoint resume behavior still runs only for approved/edited
+  decisions after pending review count reaches zero and the runtime is actually
+  paused at `interrupt_at == "review"`.
+- Kept: non-field proposals remain runtime-only; proposal-backed field
+  approve/edit/reject still synchronizes `FormField` only for field proposal
+  types.
+- Kept: rejected/needs-more-evidence non-resume behavior, stale value checks,
+  stale selector checks, explicit final-submit approval, no-key deterministic
+  path, and compact task facade behavior.
+- Kept out of scope: endpoint deletion, new dashboards, new dependencies, old
+  security questionnaire graph fallback retirement, and claiming the overall
+  runtime refactor is complete.
+
+Evidence:
+
+- `backend/tests/test_workflow_runtime_endpoint.py::test_governed_review_decision_stays_scoped_to_governed_run`
+- Existing focused coverage for AgentRun decisions, legacy task decisions,
+  rejected/needs-more-evidence non-resume, stale value checks, stale selector
+  checks, non-field proposal sync guards, and compact task facade output.
+
 ## Compatibility Paths Kept
 
 - `/tasks` task detail and list facades.
@@ -897,6 +935,9 @@ Evidence:
 - Stage 13 closed the audited legacy review endpoint delegate gap by binding
   AgentRun review reads to the requested run and keeping non-field proposals
   from suppressing legacy field-row backfill.
+- Stage 14 closed the audited governed review decision delegate gap by moving
+  route-level decision duplication into the shared Review Queue decision helper
+  and scoping governed proposal writes to the canonical governed AgentRun.
 - Review Mapping now reads AgentRun review items first when `agent_run_id` or `agent_runtime.run_id` is present, then falls back to legacy `/tasks/{task_id}/review-items`.
 - Review Mapping still keeps legacy `/tasks/{task_id}/review-items` fallback and field-proposal FormField sync compatibility during migration.
 - Phase A closes only the frontend AgentRun boundary. Backend compatibility

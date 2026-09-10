@@ -1252,6 +1252,18 @@ task-level fallback 行为。legacy review backfill 现在只把 field proposal 
 legacy `/tasks/{task_id}/review-items` 仍是 compatibility fallback。这关闭
 Stage 13，不是整体 runtime refactor 完成声明。
 
+当前补充状态（2026-09-10）：Stage 14 Governed Review Decision Delegate Slice
+completed for audited governed review decision delegation。
+`/workflows/{task_id}/governed/review-items/{item_id}/decision` 现在把
+shared decision persistence、field sync 和 legacy backfill 委托给
+shared Review Queue decision helper，并且只接受 canonical governed AgentRun
+（`task-{task_id}`）的 proposal；同一 task 的 stale AgentRun proposal 会返回
+404，不会被 governed endpoint 写入。证据：
+`test_governed_review_decision_stays_scoped_to_governed_run`。legacy
+`/tasks/{task_id}/review-items` 和 AgentRun-first
+`/agent-runs/{run_id}/review-items` 仍分别保留为 compatibility/primary
+boundary。这关闭 Stage 14，不是整体 runtime refactor 完成声明。
+
 ## 22. 不算完成的状态
 
 以下状态不能称为“整体重构完成”：

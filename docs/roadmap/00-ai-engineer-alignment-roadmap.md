@@ -340,6 +340,16 @@ Still missing from the runtime refactor direction:
   `test_review_items_backfill_field_row_when_non_field_proposal_targets_form_field`.
   Legacy `/tasks/{task_id}/review-items` remains a compatibility fallback; this
   closes Stage 13, not the overall runtime refactor.
+- Stage 14 Governed Review Decision Delegate Slice is closed for audited
+  governed review decision delegation. `/workflows/{task_id}/governed/review-items/{item_id}/decision`
+  now delegates shared decision persistence, field sync, and legacy backfill to
+  the shared Review Queue decision helper, and stays scoped to the canonical
+  governed AgentRun (`task-{task_id}`) so stale same-task AgentRun proposals are
+  rejected instead of written. Evidence:
+  `test_governed_review_decision_stays_scoped_to_governed_run`. Legacy
+  `/tasks/{task_id}/review-items` and AgentRun-first `/agent-runs/{run_id}/review-items`
+  remain compatibility/primary boundaries respectively; this closes Stage 14,
+  not the overall runtime refactor.
 
 ## Post-Portfolio Extensions
 
