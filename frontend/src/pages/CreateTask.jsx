@@ -89,13 +89,11 @@ function CreateTask() {
         profile_id: Number(form.profile_id),
         description: form.description || null,
       });
-      if (form.workflow_type === "web_data_extract") {
-        await api.extractTaskPage(task.id);
-        navigate(`/tasks/${task.id}`);
-        return;
-      }
-      if (form.workflow_type === "job_research_summary") {
-        await api.generateJobSummary(task.id);
+      if (
+        form.workflow_type === "web_data_extract" ||
+        form.workflow_type === "job_research_summary"
+      ) {
+        await api.startReadOnlyWorkflow(task.id, form.workflow_type);
         navigate(`/tasks/${task.id}`);
         return;
       }

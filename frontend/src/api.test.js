@@ -136,6 +136,66 @@ test("workflow runtime API client uses correct paths", async () => {
   }
 });
 
+test("read-only workflow start uses governed deterministic path first", async () => {
+  clearApiCache();
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, method: options.method || "GET" });
+    return jsonResponse({ run_id: "task-7", status: "COMPLETED" });
+  };
+
+  try {
+    await api.startReadOnlyWorkflow(7, "web_data_extract");
+    await api.startReadOnlyWorkflow(8, "job_research_summary");
+
+    assert.deepEqual(
+      calls.map((call) => call.url.replace(/^.*?:\/\/[^/]+/, "")),
+      [
+        "/workflows/7/governed/start?planner_mode=deterministic",
+        "/workflows/8/governed/start?planner_mode=deterministic",
+      ],
+    );
+    assert.deepEqual(calls.map((call) => call.method), ["POST", "POST"]);
+  } finally {
+    clearApiCache();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("read-only workflow start keeps legacy endpoint as governed fallback", async () => {
+  clearApiCache();
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, method: options.method || "GET" });
+    if (url.endsWith("/workflows/7/governed/start?planner_mode=deterministic")) {
+      return new Response(JSON.stringify({ detail: "governed start unavailable" }), {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return jsonResponse({ status: "EXTRACTED" });
+  };
+
+  try {
+    const result = await api.startReadOnlyWorkflow(7, "web_data_extract");
+
+    assert.deepEqual(result, { status: "EXTRACTED" });
+    assert.deepEqual(
+      calls.map((call) => call.url.replace(/^.*?:\/\/[^/]+/, "")),
+      [
+        "/workflows/7/governed/start?planner_mode=deterministic",
+        "/tasks/7/extract-page",
+      ],
+    );
+    assert.deepEqual(calls.map((call) => call.method), ["POST", "POST"]);
+  } finally {
+    clearApiCache();
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("agent run API client uses primary read boundary", async () => {
   clearApiCache();
   const originalFetch = globalThis.fetch;

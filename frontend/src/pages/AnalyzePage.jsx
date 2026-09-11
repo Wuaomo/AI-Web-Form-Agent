@@ -90,14 +90,11 @@ function AnalyzePage() {
 
       const workflowType = persistedIntake.recommended_workflow;
 
-      if (workflowType === "web_data_extract") {
-        await api.extractTaskPage(task.id);
-        navigate(`/tasks/${task.id}`);
-        return;
-      }
-
-      if (workflowType === "job_research_summary") {
-        await api.generateJobSummary(task.id);
+      if (
+        workflowType === "web_data_extract" ||
+        workflowType === "job_research_summary"
+      ) {
+        await api.startReadOnlyWorkflow(task.id, workflowType);
         navigate(`/tasks/${task.id}`);
         return;
       }
