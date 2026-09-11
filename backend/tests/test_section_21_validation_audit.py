@@ -36,6 +36,7 @@ STAGE_10_STATUS = "Stage 10 Primary AgentRun Submit Continue Boundary Thin Slice
 STAGE_11_STATUS = "Stage 11 Browser-Write Runtime Migration Closure"
 STAGE_12_STATUS = "Stage 12 Review Compatibility Retirement Slice"
 STAGE_14_STATUS = "Stage 14 Governed Review Decision Delegate Slice"
+STAGE_15_STATUS = "Stage 15 Security Questionnaire Graph Fallback Retirement Readiness Slice"
 
 
 def test_section_21_validation_audit_indexes_runtime_object_evidence() -> None:
@@ -250,6 +251,25 @@ def test_stage_14_governed_review_decision_status_is_reflected() -> None:
         assert STAGE_14_STATUS in text
         assert "test_governed_review_decision_stays_scoped_to_governed_run" in text
         assert "shared Review Queue decision helper" in text
+        assert "runtime refactor complete" not in text.lower()
+
+
+def test_stage_15_security_questionnaire_fallback_status_is_reflected() -> None:
+    """Verify Stage 15 documents old graph readiness without deleting fallback."""
+
+    for path in [
+        REPO_ROOT / "README.md",
+        REPO_ROOT / "docs" / "roadmap" / "00-ai-engineer-alignment-roadmap.md",
+        REPO_ROOT / "docs" / "agent-runtime-refactor-rfc.md",
+        REPO_ROOT / "docs" / "agent-runtime-refactor-rfc.zh.md",
+        AUDIT_DOC,
+    ]:
+        text = path.read_text(encoding="utf-8")
+        assert STAGE_15_STATUS in text
+        assert "test_old_security_graph_review_fallback_stays_non_mutating_and_compact" in text
+        assert "test_governed_start_security_questionnaire_uses_source_answer_proposals" in text
+        assert "old security questionnaire graph fallback" in text
+        assert "compatibility fallback" in text
         assert "runtime refactor complete" not in text.lower()
 
 

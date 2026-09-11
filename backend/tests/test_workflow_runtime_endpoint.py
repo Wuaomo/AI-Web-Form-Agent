@@ -14,13 +14,16 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.models import (
+    ActionLog,
     AgentPlan,
     AgentProposal,
     AgentReviewDecision,
     AgentRun,
     AgentVerificationResult,
+    FieldVerificationResult,
     FormField,
     Profile,
+    Screenshot,
     Task,
     WorkflowMemoryItem,
 )
@@ -265,6 +268,38 @@ def test_start_endpoint_runs_to_review_interrupt() -> None:
     assert payload["current_node"] == "apply_review_decision"
     assert len(payload["suggestions"]) > 0
     assert "policy_result" in payload
+    session.close()
+
+
+def test_old_security_graph_review_fallback_stays_non_mutating_and_compact() -> None:
+    """POST /workflows/{task_id}/review keeps the old fallback non-mutating."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_security_questionnaire_task(session, profile)
+
+    start_response = client.post(f"/workflows/{task.id}/start")
+    assert start_response.status_code == 200
+
+    response = client.post(
+        f"/workflows/{task.id}/review",
+        json={"decision": "approve_all", "approvals": []},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "AWAITING_SUBMIT_APPROVAL"
+    assert "verification_result" not in payload
+    assert "browser_execution_id" not in payload
+    assert session.query(Screenshot).filter(Screenshot.task_id == task.id).count() == 0
+    assert session.query(ActionLog).filter(ActionLog.task_id == task.id).count() == 0
+    assert (
+        session.query(FieldVerificationResult)
+        .filter(FieldVerificationResult.task_id == task.id)
+        .count()
+        == 0
+    )
+    assert session.query(AgentVerificationResult).count() == 0
     session.close()
 
 

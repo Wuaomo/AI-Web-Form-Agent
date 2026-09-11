@@ -350,6 +350,22 @@ Still missing from the runtime refactor direction:
   `/tasks/{task_id}/review-items` and AgentRun-first `/agent-runs/{run_id}/review-items`
   remain compatibility/primary boundaries respectively; this closes Stage 14,
   not the overall runtime refactor.
+- Stage 15 Security Questionnaire Graph Fallback Retirement Readiness Slice is
+  closed for classification only. The audit confirms the security questionnaire
+  demo primary path is generic governed runtime through
+  `/workflows/{task_id}/governed/start`, source-backed answers become
+  proposal-backed Review Queue items with compact evidence, sensitive and
+  unsupported answers remain blocked or review-gated, reviewed browser fill and
+  explicit final submit continue through shared runtime gates, and verification
+  trust evidence comes from generic runtime persistence rather than the old
+  graph skeleton. The old security questionnaire graph fallback remains a
+  compatibility fallback and does not create browser-write screenshots, action
+  logs, field verification rows, or generic verification rows when reviewed.
+  Evidence:
+  `test_governed_start_security_questionnaire_uses_source_answer_proposals` and
+  `test_old_security_graph_review_fallback_stays_non_mutating_and_compact`.
+  This closes Stage 15 readiness classification, not the overall runtime
+  refactor.
 
 ## Post-Portfolio Extensions
 

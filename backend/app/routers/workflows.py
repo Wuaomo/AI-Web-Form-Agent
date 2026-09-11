@@ -62,7 +62,7 @@ def list_templates() -> list[dict[str, object]]:
 
 
 # ---------------------------------------------------------------------------
-# Runtime endpoints (security_questionnaire only)
+# Runtime endpoints
 # ---------------------------------------------------------------------------
 
 

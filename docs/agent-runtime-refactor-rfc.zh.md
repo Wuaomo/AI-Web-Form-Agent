@@ -1264,6 +1264,21 @@ shared Review Queue decision helper，并且只接受 canonical governed AgentRu
 `/agent-runs/{run_id}/review-items` 仍分别保留为 compatibility/primary
 boundary。这关闭 Stage 14，不是整体 runtime refactor 完成声明。
 
+当前补充状态（2026-09-11）：Stage 15 Security Questionnaire Graph Fallback Retirement Readiness Slice
+completed for classification only。
+security questionnaire demo 主路径继续通过
+`/workflows/{task_id}/governed/start` 走 generic governed runtime；
+source-backed answers 仍生成带 compact evidence 的 `answer` proposals 进入
+Review Queue；unsupported 和 sensitive answers 仍 blocked 或 review-gated；
+reviewed fill 和 explicit final submit 仍通过 shared runtime gates；
+verification trust evidence 来自 generic runtime persistence，而不是 old graph
+skeleton。old security questionnaire graph fallback 继续作为 compatibility
+fallback 保留；review 后不会创建 browser-write screenshots、action logs、
+field verification rows 或 generic verification rows。证据：
+`test_governed_start_security_questionnaire_uses_source_answer_proposals` 和
+`test_old_security_graph_review_fallback_stays_non_mutating_and_compact`。
+这关闭 Stage 15 readiness classification，不是整体 runtime refactor 完成声明。
+
 ## 22. 不算完成的状态
 
 以下状态不能称为“整体重构完成”：

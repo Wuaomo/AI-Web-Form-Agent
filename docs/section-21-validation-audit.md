@@ -867,6 +867,52 @@ Evidence:
   rejected/needs-more-evidence non-resume, stale value checks, stale selector
   checks, non-field proposal sync guards, and compact task facade output.
 
+## Stage 15 Security Questionnaire Graph Fallback Retirement Readiness Slice
+
+Status: completed for retirement readiness classification. This keeps the old
+security questionnaire graph as a compatibility fallback and does not claim the
+overall runtime refactor is complete.
+
+- Audited: the security questionnaire demo primary path is the generic
+  governed runtime through `/workflows/{task_id}/governed/start`, where
+  deterministic `extract_form` and `map_fields` tool steps create
+  proposal-backed questionnaire answers.
+- Audited: source-backed questionnaire answers still become `answer`
+  proposals with compact evidence in the Review Queue through the generic
+  `map_fields` Tool Runtime path.
+- Audited: unsupported answers remain empty proposal values with unsupported
+  rationale, and sensitive one-time/payment/auth/CAPTCHA answers remain
+  blocked or review-gated before browser write.
+- Audited: approved or edited field proposals are required before browser
+  fill; rejected and `needs_more_evidence` decisions do not resume browser
+  write.
+- Audited: final submit remains explicit approval only through the shared
+  `submit_form` path.
+- Audited: verification trust evidence comes from generic Tool Runtime
+  persistence and `AgentVerificationResult`, not from the old graph skeleton.
+- Audited: legacy task and AgentRun facades stay compact and do not expose
+  raw `tool_results`, `output_json`, or raw tool payloads.
+- Compatibility fallback: `/workflows/{task_id}/start`,
+  `/workflows/{task_id}`, and `/workflows/{task_id}/review` remain available
+  for the old in-memory security questionnaire graph. Its review resume can
+  advance through skeleton `fill_browser` and `verify_result` nodes, but those
+  nodes do not create screenshots, action logs, field verification rows, or
+  generic verification rows.
+- Kept out of scope: compatibility API deletion, new dashboards, new
+  dependencies, no-key path changes, safety gate changes, and declaring the
+  overall refactor closed.
+
+Evidence:
+
+- `backend/tests/test_workflow_runtime_endpoint.py::test_governed_start_security_questionnaire_uses_source_answer_proposals`
+- `backend/tests/test_workflow_runtime_endpoint.py::test_governed_start_security_questionnaire_marks_sensitive_fields_blocked`
+- `backend/tests/test_workflow_runtime_endpoint.py::test_governed_start_security_questionnaire_marks_unsupported_no_evidence_answer`
+- `backend/tests/test_workflow_runtime_endpoint.py::test_old_security_graph_review_fallback_stays_non_mutating_and_compact`
+- Existing focused coverage for AgentRun continue fill/submit, Review Mapping
+  AgentRun-first review items, Run Cockpit compact verification display,
+  rejected/needs-more-evidence non-resume, stale value/selector checks, compact
+  task facade output, and no-key deterministic runtime benchmark paths.
+
 ## Compatibility Paths Kept
 
 - `/tasks` task detail and list facades.
@@ -938,6 +984,10 @@ Evidence:
 - Stage 14 closed the audited governed review decision delegate gap by moving
   route-level decision duplication into the shared Review Queue decision helper
   and scoping governed proposal writes to the canonical governed AgentRun.
+- Stage 15 closed retirement readiness classification for the old security
+  questionnaire graph fallback: the primary security questionnaire demo path is
+  generic governed runtime; the fallback remains compatibility-only,
+  non-mutating for browser writes, and not a verification trust path.
 - Review Mapping now reads AgentRun review items first when `agent_run_id` or `agent_runtime.run_id` is present, then falls back to legacy `/tasks/{task_id}/review-items`.
 - Review Mapping still keeps legacy `/tasks/{task_id}/review-items` fallback and field-proposal FormField sync compatibility during migration.
 - Phase A closes only the frontend AgentRun boundary. Backend compatibility

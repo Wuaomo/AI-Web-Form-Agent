@@ -1,7 +1,7 @@
-"""Agent runtime package — LangGraph-based workflow runtimes.
+"""Agent runtime package: generic governed runtime plus legacy fallback.
 
-Only the ``security_questionnaire`` workflow uses the graph runtime.
-Other workflows continue to use the existing service layer.
+The generic governed graph is the primary runtime path. The old security
+questionnaire graph remains only as a compatibility fallback.
 """
 
 from app.services.agent_runtime.form_field_persistence import replace_task_form_fields
