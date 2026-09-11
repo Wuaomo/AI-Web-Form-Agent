@@ -1296,6 +1296,25 @@ compatibility window 结束后进入 future removal planning。Evidence:
 `test_security_questionnaire_agent_run_exposes_compact_answer_review_items`。
 本轮不删除，也不是 overall runtime refactor completion claim。
 
+当前补充状态（2026-09-11）：Legacy Task / Review Compatibility Retirement
+Readiness Track Phase 19/20/21/22/23 completed for contract tightening and
+readiness evidence。`/tasks` 和 `/tasks/{task_id}` 继续作为 compact
+compatibility facade，不暴露 raw `tool_results` / `output_json`；
+`/agent-runs/{run_id}` 仍是 primary AgentRun read boundary。legacy
+`/tasks/{task_id}/review-items` 现在只读取 canonical compatibility run
+（`task-{task_id}`）和派生 legacy rows，不再借用任意 same-task AgentRun
+proposal；legacy task review decision endpoint 也不能写任意 same-task
+AgentRun-owned proposal。Review Mapping 在有 AgentRun id 时，review write
+失败不再 fallback 到 legacy task decision endpoint。`FormField` sync 继续只限
+`field_value`、`answer`、`open_ended_answer`；`memory_write`、`form_submit`、
+`browser_click`、`browser_navigation`、`external_api_write` 和 unknown proposal
+types 保持 runtime-only。workflow-specific
+`/tasks/{task_id}/extract-page` / `/tasks/{task_id}/job-summary` 保留为
+read-only compatibility facades，主路径已可通过
+`/workflows/{task_id}/governed/start` 表达为 AgentRun planned tool steps。
+本 track 可以关闭，下一轮可以进入 compatibility removal planning，但本轮没有
+删除 compatibility API，也不是 overall runtime refactor completion claim。
+
 ## 22. 不算完成的状态
 
 以下状态不能称为“整体重构完成”：

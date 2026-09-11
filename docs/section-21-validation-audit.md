@@ -77,17 +77,26 @@ async fill. `/agent-runs/{run_id}/continue` now tags queued fill jobs with
 continuation helper without re-enqueueing. Legacy `/tasks/{task_id}/fill` jobs
 still enqueue with an empty payload, and `/tasks/{task_id}/confirm-submit`
 remains the explicit-approval compatibility wrapper.
+Legacy Task / Review Compatibility Retirement Readiness Track Phase 19-23 is
+closed for contract tightening and readiness evidence. One real review
+boundary gap was fixed: legacy task review fallback reads/writes are now
+limited to the canonical compatibility run (`task-{task_id}`), and Review
+Mapping no longer falls back to legacy task review writes when an AgentRun id
+exists. This keeps `/agent-runs/{run_id}/review-items` and
+`/agent-runs/{run_id}/review-items/{item_id}/decision` as the primary Review
+Queue boundary for AgentRun-owned proposals. This does not delete any
+compatibility API and does not claim the overall runtime refactor is complete.
 
 ## Overall Runtime Refactor Stage Status
 
-Current stage: Stage 11 Browser-Write Runtime Migration Closure is closed for
-AgentRun-backed async fill. Browser-write runtime migration is closed for the
-audited AgentRun-backed fill, async fill, and explicit submit paths while
-legacy `/tasks/{task_id}/fill` and `/tasks/{task_id}/confirm-submit` remain
-compatibility entrypoints. Stage 10 submit continue, Stage 9 reviewed-fill
-continue, Stage 8 audit, Stage 7 read-only migration, Stage 6 boundary
-classification, Stage 5 verification, and Stage 4 governance remain closed in
-their scoped senses. The overall runtime refactor is not complete.
+Current stage: Legacy Task / Review Compatibility Retirement Readiness Track
+Phase 19/20/21/22/23 is closed for contract tightening and readiness evidence.
+Browser-write runtime migration remains closed for audited AgentRun-backed
+fill, async fill, and explicit submit paths, while legacy
+`/tasks/{task_id}/fill` and `/tasks/{task_id}/confirm-submit` remain
+compatibility entrypoints. Stage 15, Stage 14, Stage 13, Stage 12, Stage 11,
+Stage 10, Stage 9, Stage 8, Stage 7, Stage 6, Stage 5, and Stage 4 remain
+closed in their scoped senses. The overall runtime refactor is not complete.
 
 Stage 2, Primary API Boundary Hardening, has focused test evidence for:
 
@@ -984,11 +993,135 @@ Remaining gaps:
   FormField sync compatibility remain migration surfaces.
 - Overall runtime refactor is still not complete.
 
+## Legacy Task / Review Compatibility Retirement Readiness Track
+
+Status: closed for Phase 19/20/21/22/23 contract tightening, audit, and
+readiness evidence. Compatibility APIs remain available. This is not an
+overall runtime refactor completion claim.
+
+### Phase 19 Legacy Task Facade Contract Tightening
+
+- Closed as audit/doc/test evidence only; no production code change was needed.
+- `/agent-runs/{run_id}` remains the primary AgentRun read boundary.
+- `/tasks` and `/tasks/{task_id}` remain legacy task facades and expose only
+  compact `agent_run_id` / `agent_runtime` state.
+- The task facade reports compact runtime fields such as status, planner mode,
+  pending review count, current step, interrupt marker, tool result count, and
+  compact verification summary.
+- The task facade does not expose raw `tool_results`, `output_json`, or
+  `raw_output_json`, and it is not a raw runtime trust boundary.
+- Task API shape was preserved.
+
+Evidence:
+
+- `backend/tests/test_task_mapping_endpoint.py::test_get_task_includes_compact_agent_runtime_state`
+- `backend/tests/test_task_mapping_endpoint.py::test_list_tasks_includes_compact_agent_runtime_state`
+- `backend/tests/test_agent_run_read_endpoint.py::test_get_agent_run_returns_compact_persisted_state`
+- `frontend/src/runCockpitActions.test.js::run cockpit reads AgentRun compact state before governed workflow fallback`
+- `frontend/src/runCockpitActions.test.js::run cockpit falls back to task facade when primary reads fail`
+
+### Phase 20 Legacy Review Endpoint Fallback Contract Tightening
+
+- Closed with a production behavior fix and focused tests.
+- `/agent-runs/{run_id}/review-items` remains the primary Review Queue read
+  boundary for AgentRun-owned proposals.
+- `/agent-runs/{run_id}/review-items/{item_id}/decision` remains the primary
+  Review Queue write boundary for AgentRun-owned proposals.
+- Fixed: legacy `/tasks/{task_id}/review-items` no longer borrows proposals
+  from arbitrary same-task AgentRuns; without an explicit run id it reads only
+  the canonical compatibility run (`task-{task_id}`) plus derived legacy rows.
+- Fixed: legacy `/tasks/{task_id}/review-items/{item_id}/decision` no longer
+  writes arbitrary same-task AgentRun-owned proposals; those must be decided
+  through the AgentRun API.
+- Fixed: Review Mapping write actions with an AgentRun id no longer fall back
+  to the legacy task review decision endpoint after an AgentRun write failure.
+- Kept: legacy review endpoints still support canonical compatibility rows and
+  legacy field ids for no-run-id fallback flows.
+- Kept: non-field proposals do not sync `FormField`.
+
+Evidence:
+
+- `backend/tests/test_task_mapping_endpoint.py::test_legacy_review_items_do_not_borrow_agent_run_bound_proposals`
+- `backend/tests/test_task_mapping_endpoint.py::test_legacy_review_decision_rejects_agent_run_bound_proposals`
+- `backend/tests/test_agent_run_read_endpoint.py::test_get_agent_run_review_items_stays_bound_to_requested_run`
+- `backend/tests/test_task_mapping_endpoint.py::test_review_items_backfill_field_row_when_non_field_proposal_targets_form_field`
+- `frontend/src/reviewMappingActions.test.js::review item decisions surface AgentRun errors without task fallback`
+
+### Phase 21 FormField Sync Compatibility Narrowing Audit
+
+- Closed as audit/test evidence only; no additional production code change was
+  needed beyond Phase 20's boundary scoping.
+- `FormField` synchronization remains a compatibility bridge for field
+  proposals only: `field_value`, `answer`, and `open_ended_answer`.
+- `memory_write`, `form_submit`, `browser_click`, `browser_navigation`,
+  `external_api_write`, unknown proposal types, and malformed non-field
+  proposals remain runtime-only and do not update legacy field mappings.
+- Rejected and `needs_more_evidence` decisions do not resume browser writes.
+- Stale field value and stale selector approvals cannot be reused for browser
+  fill or submit execution.
+
+Evidence:
+
+- `backend/tests/test_task_mapping_endpoint.py::test_review_queue_does_not_sync_non_field_proposal_with_form_field_target`
+- `backend/tests/test_agent_run_read_endpoint.py::test_agent_run_review_item_decision_keeps_non_field_proposals_runtime_only`
+- `backend/tests/test_task_mapping_endpoint.py::test_fill_returns_409_when_approved_proposal_value_is_stale`
+- `backend/tests/test_task_mapping_endpoint.py::test_fill_returns_409_when_approved_proposal_selector_is_stale`
+- `backend/tests/test_workflow_runtime_endpoint.py::test_governed_review_rejection_does_not_resume_paused_fill_form`
+- `backend/tests/test_workflow_runtime_endpoint.py::test_governed_review_decision_needs_more_evidence_decrements_pending_review_count`
+
+### Phase 22 Workflow-Specific Read Facade Closure Audit
+
+- Closed as audit/doc/test evidence only; no production code change was needed.
+- `/workflows/{task_id}/governed/start` remains able to express read-only
+  `web_data_extract` and `job_research_summary` work as AgentRun planned tool
+  steps.
+- Legacy `/tasks/{task_id}/extract-page` and `/tasks/{task_id}/job-summary`
+  remain read-only compatibility facades for existing demos and scripts.
+- These legacy read facades do not perform browser writes; they use
+  `extract_page`, `capture_screenshot`, and deterministic summary runtime
+  evidence.
+- Compact runtime evidence stays out of the primary task facade; raw payloads
+  remain in persistence/checkpoints/debug evidence, not in compact UI state.
+- No UI was added.
+
+Evidence:
+
+- `backend/tests/test_workflow_runtime_endpoint.py::test_governed_start_web_data_extract_runs_read_only_page_plan`
+- `backend/tests/test_workflow_runtime_endpoint.py::test_governed_start_job_summary_runs_read_only_summary_plan`
+- `backend/tests/test_task_mapping_endpoint.py::test_extract_page_persists_runtime_call_without_raw_task_facade_output`
+- `backend/tests/test_task_mapping_endpoint.py::test_job_summary_page_extraction_persists_runtime_call`
+
+### Phase 23 Compatibility Retirement Readiness Summary
+
+- Closed for readiness summary only; API removal is future planning, not this
+  track.
+- Remaining compatibility surfaces:
+  `/tasks`, `/tasks/{task_id}`, `/tasks/{task_id}/review-items`,
+  `/tasks/{task_id}/review-items/{item_id}/decision`,
+  `/tasks/{task_id}/extract-page`, `/tasks/{task_id}/job-summary`,
+  `/tasks/{task_id}/fill`, `/tasks/{task_id}/confirm-submit`,
+  field-proposal `FormField` sync, old security questionnaire graph fallback,
+  and benchmark/test fixture helpers.
+- Future removal candidates once external compatibility windows and parity
+  evidence allow it: old security questionnaire graph endpoints, legacy task
+  review fallback for non-AgentRun pages, and workflow-specific read facades
+  after demos/scripts consistently use governed AgentRun starts.
+- Cannot remove yet: `/tasks` task facade because Task Detail/list and
+  compatibility flows still use its stable shape; `FormField` sync because the
+  legacy fill path still consumes field rows; `/tasks/{task_id}/fill` and
+  `/tasks/{task_id}/confirm-submit` because no-run-id fallback flows still use
+  those explicit gated wrappers.
+- This track can be closed. Next work may enter compatibility removal planning,
+  but no API was deleted here.
+
 ## Compatibility Paths Kept
 
 - `/tasks` task detail and list facades.
 - `FormField` fallback and synchronization for field proposals only.
 - legacy `/tasks/{task_id}/review-items` fallback when no persisted `AgentProposal` exists.
+- legacy `/tasks/{task_id}/review-items` now stays scoped to the canonical
+  compatibility run (`task-{task_id}`) and cannot borrow arbitrary same-task
+  AgentRun proposals.
 - Explicit approval endpoints for final submit and policy gates.
 - Old security questionnaire graph fallback.
 - Workflow-specific page extraction and job summary endpoints remain
@@ -1060,6 +1193,8 @@ Remaining gaps:
   generic governed runtime; the fallback remains compatibility-only,
   non-mutating for browser writes, and not a verification trust path.
 - Review Mapping now reads AgentRun review items first when `agent_run_id` or `agent_runtime.run_id` is present, then falls back to legacy `/tasks/{task_id}/review-items`.
-- Review Mapping still keeps legacy `/tasks/{task_id}/review-items` fallback and field-proposal FormField sync compatibility during migration.
+- Review Mapping still keeps legacy `/tasks/{task_id}/review-items` read
+  fallback and field-proposal FormField sync compatibility during migration,
+  but AgentRun review writes no longer fall back to legacy task writes.
 - Phase A closes only the frontend AgentRun boundary. Backend compatibility
   paths and broader runtime migration gaps remain.

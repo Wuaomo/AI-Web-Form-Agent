@@ -380,6 +380,21 @@ Still missing from the runtime refactor direction:
   The old graph is retirable when the external compatibility window ends, but
   it is not deleted here and this is not an overall runtime refactor completion
   claim.
+- Legacy Task / Review Compatibility Retirement Readiness Track Phase 19/20/21/22/23
+  is closed for contract tightening and readiness evidence. `/tasks` and
+  `/tasks/{task_id}` stay compact compatibility facades without raw
+  `tool_results` / `output_json`; `/agent-runs/{run_id}` remains the primary
+  AgentRun read boundary. Legacy `/tasks/{task_id}/review-items` now stays
+  scoped to the canonical compatibility run (`task-{task_id}`), so it cannot
+  borrow or decide arbitrary same-task AgentRun-owned proposals; Review Mapping
+  AgentRun review writes no longer fall back to the legacy task decision
+  endpoint. `FormField` sync remains narrowed to field proposals
+  (`field_value`, `answer`, `open_ended_answer`), and workflow-specific
+  `/tasks/{task_id}/extract-page` / `/tasks/{task_id}/job-summary` remain
+  read-only compatibility facades now expressible through governed AgentRun
+  planned tools. This track can close and future work may enter compatibility
+  removal planning, but no compatibility API is deleted and the overall runtime
+  refactor is not complete.
 
 ## Post-Portfolio Extensions
 
