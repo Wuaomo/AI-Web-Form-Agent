@@ -395,6 +395,13 @@ Still missing from the runtime refactor direction:
   planned tools. This track can close and future work may enter compatibility
   removal planning, but no compatibility API is deleted and the overall runtime
   refactor is not complete.
+- Compatibility Removal Planning & Primary Path Consolidation Track Phase
+  24/25/26/27/28 is closed as planning/audit only in
+  `docs/compatibility-removal-map.md`. No compatibility API was deleted. The
+  map classifies primary replacements, current consumers, no-run-id fallback
+  reasons, removal blockers, runtime/security gaps, and the next removal order.
+  No new runtime/security gap was found, so no production code change was made.
+  This does not claim the overall runtime refactor is complete.
 
 ## Post-Portfolio Extensions
 

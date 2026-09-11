@@ -313,6 +313,8 @@ Security Questionnaire Legacy Fallback Retirement Track Phase 16/17/18 is closed
 
 Legacy Task / Review Compatibility Retirement Readiness Track Phase 19/20/21/22/23 is closed for contract tightening and readiness evidence. `/tasks` and `/tasks/{task_id}` remain compact compatibility facades without raw `tool_results` / `output_json`; `/agent-runs/{run_id}` remains the primary AgentRun read boundary. Legacy `/tasks/{task_id}/review-items` is now scoped to the canonical compatibility run (`task-{task_id}`), so it cannot borrow or decide arbitrary same-task AgentRun-owned proposals; Review Mapping AgentRun review writes no longer fall back to the legacy task decision endpoint. `FormField` sync remains limited to field proposals (`field_value`, `answer`, `open_ended_answer`), and `/tasks/{task_id}/extract-page` / `/tasks/{task_id}/job-summary` remain read-only compatibility facades now expressible through governed AgentRun planned tools. No compatibility API was deleted, no dashboard was added, and the overall runtime refactor is not complete.
 
+Compatibility Removal Planning & Primary Path Consolidation Track Phase 24/25/26/27/28 is closed as planning/audit only in [docs/compatibility-removal-map.md](docs/compatibility-removal-map.md). The map identifies primary replacements, current consumers, no-run-id fallback reasons, removal blockers, runtime/security gaps, and the next removal order. No compatibility API was deleted, no production runtime gap was found, and the overall runtime refactor is not complete.
+
 ## Resume Bullets
 
 - Built a **review-first AI Browser Workflow Assistant** with FastAPI, React, Playwright, SQLite, optional LLM providers, reviewed memory, policy gates, trace observability, and benchmark evaluation.
