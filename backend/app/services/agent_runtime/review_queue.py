@@ -93,19 +93,12 @@ def load_persisted_task_review_proposals(
 ) -> list[Proposal]:
     """Restore review proposals already persisted for the task runtime run."""
 
-    if run_id is None:
-        run = db.execute(
-            select(AgentRun)
-            .where(AgentRun.legacy_task_id == task.id)
-            .order_by(AgentRun.updated_at.desc(), AgentRun.created_at.desc())
-        ).scalars().first()
-    else:
-        run = db.scalar(
-            select(AgentRun).where(
-                AgentRun.id == run_id,
-                AgentRun.legacy_task_id == task.id,
-            )
+    run = db.scalar(
+        select(AgentRun).where(
+            AgentRun.id == (run_id or _run_id(task.id)),
+            AgentRun.legacy_task_id == task.id,
         )
+    )
     if run is None:
         return []
 
@@ -188,9 +181,8 @@ def resolve_task_review_item_target(
     conditions = [
         AgentProposal.id == proposal_id,
         AgentRun.legacy_task_id == task.id,
+        AgentProposal.run_id == (run_id or _run_id(task.id)),
     ]
-    if run_id is not None:
-        conditions.append(AgentProposal.run_id == run_id)
     proposal = db.scalar(
         select(AgentProposal)
         .join(AgentRun)

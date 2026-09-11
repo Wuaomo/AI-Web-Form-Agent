@@ -47,11 +47,7 @@ export async function applyReviewItemDecision({
 }) {
   const payload = buildReviewDecisionPayload(decision, editedValue);
   if (runId) {
-    try {
-      await apiClient.reviewAgentRunItem(runId, reviewItem.id, payload);
-    } catch {
-      await apiClient.reviewTaskItem(taskId, reviewItem.id, payload);
-    }
+    await apiClient.reviewAgentRunItem(runId, reviewItem.id, payload);
   } else {
     await apiClient.reviewTaskItem(taskId, reviewItem.id, payload);
   }

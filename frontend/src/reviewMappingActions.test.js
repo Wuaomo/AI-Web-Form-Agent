@@ -90,7 +90,7 @@ test("review mapping falls back to task review items when AgentRun review fails"
   ]);
 });
 
-test("review item decisions prefer AgentRun review boundary with task fallback", async () => {
+test("review item decisions prefer AgentRun review boundary when run id exists", async () => {
   const apiClient = fakeApi();
   const reviewItem = { id: "proposal-7", status: "PENDING" };
 
@@ -112,7 +112,7 @@ test("review item decisions prefer AgentRun review boundary with task fallback",
   ]);
 });
 
-test("review item decisions fall back to task review when AgentRun review fails", async () => {
+test("review item decisions surface AgentRun errors without task fallback", async () => {
   const apiClient = {
     ...fakeApi(),
     reviewAgentRunItem: async (runId, itemId, decision) => {
@@ -127,24 +127,21 @@ test("review item decisions fall back to task review when AgentRun review fails"
   };
   const reviewItem = { id: "proposal-7", status: "PENDING" };
 
-  await applyReviewItemDecision({
-    apiClient,
-    taskId: 7,
-    runId: "run-7",
-    reviewItem,
-    decision: "approved",
-  });
+  await assert.rejects(
+    applyReviewItemDecision({
+      apiClient,
+      taskId: 7,
+      runId: "run-7",
+      reviewItem,
+      decision: "approved",
+    }),
+    /missing run/,
+  );
 
   assert.deepEqual(apiClient.calls, [
     {
       name: "reviewAgentRunItem",
       runId: "run-7",
-      itemId: "proposal-7",
-      decision: { decision: "approved" },
-    },
-    {
-      name: "reviewTaskItem",
-      taskId: 7,
       itemId: "proposal-7",
       decision: { decision: "approved" },
     },

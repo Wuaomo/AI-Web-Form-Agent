@@ -1261,7 +1261,7 @@ def test_review_item_decision_uses_persisted_form_field_target_ref(
     field.mapped_value = "old@example.com"
     field.confidence = 0.5
     run = AgentRun(
-        id=f"persisted-run-{task.id}",
+        id=f"task-{task.id}",
         legacy_task_id=task.id,
         goal="Review persisted proposal ids.",
         target_url=task.url,
@@ -1308,7 +1308,7 @@ def test_review_item_decision_approve_syncs_persisted_proposal_value(
     field.mapped_value = "stale-field@example.com"
     field.confidence = 0.5
     run = AgentRun(
-        id=f"persisted-approve-run-{task.id}",
+        id=f"task-{task.id}",
         legacy_task_id=task.id,
         goal="Approve persisted proposal value.",
         target_url=task.url,
@@ -1352,7 +1352,7 @@ def test_review_queue_resolves_persisted_form_field_target(
     _, session = test_environment
     task, field = create_task_with_field(session)
     run = AgentRun(
-        id=f"helper-run-{task.id}",
+        id=f"task-{task.id}",
         legacy_task_id=task.id,
         goal="Resolve persisted field proposal.",
         target_url=task.url,
@@ -1396,7 +1396,7 @@ def test_review_queue_resolves_non_field_target_without_form_field_sync(
     _, session = test_environment
     task, field = create_task_with_field(session)
     run = AgentRun(
-        id=f"helper-memory-run-{task.id}",
+        id=f"task-{task.id}",
         legacy_task_id=task.id,
         goal="Resolve persisted memory proposal.",
         target_url=task.url,
@@ -1442,7 +1442,7 @@ def test_review_queue_does_not_sync_non_field_proposal_with_form_field_target(
     field.mapped_value = "old@example.com"
     field.confidence = 0.5
     run = AgentRun(
-        id=f"non-field-form-target-run-{task.id}",
+        id=f"task-{task.id}",
         legacy_task_id=task.id,
         goal="Review non-field proposal shape.",
         target_url=task.url,
@@ -1499,7 +1499,7 @@ def test_review_items_backfill_field_row_when_non_field_proposal_targets_form_fi
     client, session = test_environment
     task, field = create_task_with_field(session)
     run = AgentRun(
-        id=f"non-field-form-target-run-{task.id}",
+        id=f"task-{task.id}",
         legacy_task_id=task.id,
         goal="Review non-field proposal shape.",
         target_url=task.url,
@@ -1531,6 +1531,104 @@ def test_review_items_backfill_field_row_when_non_field_proposal_targets_form_fi
         proposal.id,
         f"task-{task.id}-field-{field.id}",
     ]
+
+
+def test_legacy_review_items_do_not_borrow_agent_run_bound_proposals(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify the legacy task review fallback stays on compatibility rows."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_value = "legacy@example.com"
+    canonical_run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Legacy compatibility run.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    canonical_run.final_result = {}
+    agent_run = AgentRun(
+        id=f"agent-run-{task.id}",
+        legacy_task_id=task.id,
+        goal="Primary AgentRun proposal.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    agent_run.final_result = {}
+    proposal = AgentProposal(
+        id=f"agent-run-proposal-{task.id}",
+        run=agent_run,
+        proposal_type="browser_click",
+        target_type="browser_action",
+        target_ref="#continue",
+        proposed_value={"selector": "#continue"},
+        rationale="Primary AgentRun proposal.",
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([canonical_run, agent_run, proposal])
+    session.commit()
+
+    response = client.get(f"/tasks/{task.id}/review-items")
+
+    assert response.status_code == 200
+    ids = [item["id"] for item in response.json()]
+    assert proposal.id not in ids
+    assert ids == [f"task-{task.id}-field-{field.id}"]
+
+
+def test_legacy_review_decision_rejects_agent_run_bound_proposals(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify AgentRun-owned proposals must be decided through AgentRun API."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_value = "old@example.com"
+    run = AgentRun(
+        id=f"agent-run-{task.id}",
+        legacy_task_id=task.id,
+        goal="Primary AgentRun proposal.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"agent-run-proposal-{task.id}",
+        run=run,
+        proposal_type="field_value",
+        target_type="form_field",
+        target_ref=str(field.id),
+        proposed_value="primary@example.com",
+        rationale="Primary AgentRun proposal.",
+        risk_level="low",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+
+    response = client.post(
+        f"/tasks/{task.id}/review-items/{proposal.id}/decision",
+        json={"decision": "approved"},
+    )
+
+    assert response.status_code == 404
+    assert session.get(AgentReviewDecision, f"decision-{proposal.id}") is None
+    session.refresh(proposal)
+    session.refresh(field)
+    assert proposal.status == "PENDING"
+    assert field.mapped_value == "old@example.com"
 
 
 def test_review_queue_keeps_legacy_field_id_fallback(
@@ -1674,7 +1772,7 @@ def test_review_item_decision_persists_non_field_decision_without_side_effects(
     field.mapped_value = "old@example.com"
     field.confidence = 0.5
     run = AgentRun(
-        id=f"memory-run-{task.id}",
+        id=f"task-{task.id}",
         legacy_task_id=task.id,
         goal="Review memory proposal.",
         target_url=task.url,
@@ -1726,7 +1824,7 @@ def test_review_item_decision_edits_non_field_proposed_value_only(
     field.mapped_value = "old@example.com"
     field.confidence = 0.5
     run = AgentRun(
-        id=f"edited-memory-run-{task.id}",
+        id=f"task-{task.id}",
         legacy_task_id=task.id,
         goal="Review edited memory proposal.",
         target_url=task.url,
@@ -1786,7 +1884,7 @@ def test_review_item_decision_requests_more_evidence_for_non_field_proposals(
     field.mapped_value = "old@example.com"
     field.confidence = 0.5
     run = AgentRun(
-        id=f"evidence-run-{task.id}-{proposal_type}",
+        id=f"task-{task.id}",
         legacy_task_id=task.id,
         goal="Review non-field proposal.",
         target_url=task.url,
@@ -1836,7 +1934,7 @@ def test_review_items_show_external_write_without_raw_tool_results(
     client, session = test_environment
     task, _ = create_task_with_field(session)
     run = AgentRun(
-        id=f"external-write-run-{task.id}",
+        id=f"task-{task.id}",
         legacy_task_id=task.id,
         goal="Review external write proposal.",
         target_url=task.url,
@@ -1886,7 +1984,7 @@ def test_review_items_restore_unknown_proposal_type_without_crashing(
     client, session = test_environment
     task, _ = create_task_with_field(session)
     run = AgentRun(
-        id=f"unknown-proposal-run-{task.id}",
+        id=f"task-{task.id}",
         legacy_task_id=task.id,
         goal="Review unknown proposal.",
         target_url=task.url,
@@ -1942,7 +2040,7 @@ def test_review_item_decision_keeps_memory_write_proposal_only(
     field.mapped_value = "old@example.com"
     field.confidence = 0.5
     run = AgentRun(
-        id=f"proposal-only-memory-run-{task.id}",
+        id=f"task-{task.id}",
         legacy_task_id=task.id,
         goal="Review memory proposal.",
         target_url=task.url,
