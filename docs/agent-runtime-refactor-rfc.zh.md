@@ -1279,6 +1279,23 @@ field verification rows 或 generic verification rows。证据：
 `test_old_security_graph_review_fallback_stays_non_mutating_and_compact`。
 这关闭 Stage 15 readiness classification，不是整体 runtime refactor 完成声明。
 
+当前补充状态（2026-09-11）：Security Questionnaire Legacy Fallback
+Retirement Track Phase 16/17/18 completed for deprecation contract, primary
+path evidence tightening, and readiness audit only。旧
+`/workflows/{task_id}/start`、`/workflows/{task_id}`、
+`/workflows/{task_id}/review` 保留为 deprecated compatibility fallback；
+旧 start 不创建 AgentRun / AgentPlan / AgentToolCall / AgentToolResult /
+AgentProposal rows，旧 review resume 不执行危险 browser write，也不作为
+verification trust path。security questionnaire 主路径证据继续走
+`/workflows/{task_id}/governed/start`、`/agent-runs/{run_id}`、
+`/agent-runs/{run_id}/review-items` 和
+`/agent-runs/{run_id}/review-items/{item_id}/decision`，source-backed answers
+作为 compact `answer` proposals 进入 Review Queue。旧 graph 可以在 external
+compatibility window 结束后进入 future removal planning。Evidence:
+`test_old_security_graph_start_stays_out_of_agent_run_primary_path` 和
+`test_security_questionnaire_agent_run_exposes_compact_answer_review_items`。
+本轮不删除，也不是 overall runtime refactor completion claim。
+
 ## 22. 不算完成的状态
 
 以下状态不能称为“整体重构完成”：

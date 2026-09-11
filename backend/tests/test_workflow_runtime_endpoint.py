@@ -19,6 +19,8 @@ from app.models import (
     AgentProposal,
     AgentReviewDecision,
     AgentRun,
+    AgentToolCall,
+    AgentToolResult,
     AgentVerificationResult,
     FieldVerificationResult,
     FormField,
@@ -300,6 +302,25 @@ def test_old_security_graph_review_fallback_stays_non_mutating_and_compact() -> 
         == 0
     )
     assert session.query(AgentVerificationResult).count() == 0
+    session.close()
+
+
+def test_old_security_graph_start_stays_out_of_agent_run_primary_path() -> None:
+    """POST /workflows/{task_id}/start remains compatibility-only."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_security_questionnaire_task(session, profile)
+
+    response = client.post(f"/workflows/{task.id}/start")
+
+    assert response.status_code == 200
+    assert response.json()["interrupt_at"] == "review"
+    assert session.query(AgentRun).count() == 0
+    assert session.query(AgentPlan).count() == 0
+    assert session.query(AgentToolCall).count() == 0
+    assert session.query(AgentToolResult).count() == 0
+    assert session.query(AgentProposal).count() == 0
     session.close()
 
 

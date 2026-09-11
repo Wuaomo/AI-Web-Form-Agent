@@ -33,14 +33,14 @@ flowchart TD
 - `app/main.py` wires the FastAPI app, routers, CORS, database startup, and screenshot serving.
 - `app/database.py` owns SQLite setup and lightweight schema migrations.
 - `app/routers/*` expose profiles, tasks, workflows, approvals, jobs, traces, LLM usage, benchmarks, and admin trace endpoints.
-- `app/routers/workflows.py` exposes the governed runtime compatibility API: start, get compact state, and review resume.
+- `app/routers/workflows.py` exposes governed runtime start/state/review helpers plus deprecated old security questionnaire compatibility endpoints.
 - `app/services/form_extractor.py` reads form fields from real pages through Playwright.
 - `app/services/field_mapper.py` maps extracted fields to profile values with deterministic logic and optional provider help.
 - `app/services/policy_answer_retrieval.py` suggests security questionnaire answers from local policy fixtures with source evidence.
 - `app/services/browser_executor.py` fills the browser and captures execution evidence.
 - `app/services/policy_engine.py` and `approval_gate_service.py` classify blocked and review-required actions.
 - `app/services/workflow_trace_service.py` records workflow spans, screenshots, and diagnostic metadata.
-- `app/services/agent_runtime/` contains shared AgentRun schemas, tool runtime, governance, review queue helpers, compact persistence, and the governed graph. The legacy Security Questionnaire graph remains as a compatibility path.
+- `app/services/agent_runtime/` contains shared AgentRun schemas, tool runtime, governance, review queue helpers, compact persistence, and the governed graph. The legacy Security Questionnaire graph remains as a deprecated compatibility fallback.
 - `app/services/benchmark_runner.py` and related benchmark services run local fixture evaluations across rules/memory/LLM/runtime modes.
 
 ## Frontend Pages
@@ -56,20 +56,14 @@ flowchart TD
 
 ## Compatibility Workflow Loop (Security Questionnaire)
 
-The Security Questionnaire compatibility path still uses LangGraph orchestration with interrupt points while the generic governed runtime becomes the primary Run Cockpit surface:
+The Security Questionnaire primary path uses the generic governed runtime and AgentRun APIs. The old `/workflows/{task_id}/start`, `/workflows/{task_id}`, and `/workflows/{task_id}/review` path is a deprecated compatibility fallback for older clients:
 
-1. **Start**: The user starts the governed runtime from Task Detail, or the legacy questionnaire workflow where compatibility is still needed.
-2. **Analyze**: Extract questionnaire items and form fields from the page.
-3. **Retrieve**: Fetch source evidence from reviewed memory or local policy documents.
-4. **Suggest**: Generate answer suggestions with confidence scores and safety classifications.
-5. **Policy Check**: PolicyEngine evaluates each suggestion (block/warn/safe).
-6. **Review Interrupt**: LangGraph pauses with `interrupt_before=REVIEW_GATE_NODE`.
-7. **Human Review**: User approves, edits, or rejects each suggestion in Review Mapping.
-8. **Resume**: User clicks "Submit review", workflow resumes.
-9. **Fill**: Playwright fills only approved values in the browser.
-10. **Verify**: DOM verification records field-level evidence.
-11. **Submit Interrupt**: LangGraph pauses with `interrupt_before=SUBMIT_GATE_NODE`.
-12. **Final Approval**: User must explicitly approve before submission.
+1. **Primary start**: Task Detail/Create Run/Page Intake call `/workflows/{task_id}/governed/start`.
+2. **Primary review**: Source-backed answers become AgentRun Review Queue `answer` proposals with compact evidence.
+3. **Primary browser write**: Approved/edited proposals continue through `/agent-runs/{run_id}/continue` and shared Tool Runtime gates.
+4. **Primary submit**: Final submit still requires explicit approval through the AgentRun continue boundary.
+5. **Compatibility start/get/review**: The old security graph remains available but does not create AgentRun/ToolRuntime/proposal state on start.
+6. **Compatibility fill/verify**: Old graph fill/verify nodes are skeleton-only and are not browser-write execution or verification trust evidence.
 
 ## Policy And Approval Model
 

@@ -913,6 +913,77 @@ Evidence:
   rejected/needs-more-evidence non-resume, stale value/selector checks, compact
   task facade output, and no-key deterministic runtime benchmark paths.
 
+## Security Questionnaire Legacy Fallback Retirement Track
+
+Status: closed for Phase 16/17/18 audit and evidence tightening. This track
+does not delete the compatibility API and does not claim the overall runtime
+refactor is complete.
+
+### Phase 16 Legacy Security Graph Deprecation Contract
+
+- Closed as documentation/test contract only; no runtime behavior change was
+  needed.
+- `/workflows/{task_id}/start`, `/workflows/{task_id}`, and
+  `/workflows/{task_id}/review` remain available as deprecated compatibility
+  fallback endpoints for the old security-only graph.
+- The old graph is not the primary runtime path, does not create AgentRun,
+  AgentPlan, AgentToolCall, AgentToolResult, or AgentProposal rows on start,
+  and its review resume remains non-mutating for browser writes.
+- The old graph skeleton is not a verification trust path; generic
+  `AgentVerificationResult` evidence remains owned by the governed runtime.
+
+Evidence:
+
+- `backend/tests/test_workflow_runtime_endpoint.py::test_old_security_graph_start_stays_out_of_agent_run_primary_path`
+- `backend/tests/test_workflow_runtime_endpoint.py::test_old_security_graph_review_fallback_stays_non_mutating_and_compact`
+
+### Phase 17 Security Questionnaire Primary Path Evidence Tightening
+
+- Closed with focused API evidence; no production code change was needed.
+- Security questionnaire demo preparation continues through
+  `/workflows/{task_id}/governed/start` in deterministic no-key mode.
+- Source-backed questionnaire answers enter the AgentRun Review Queue as
+  `answer` proposals with compact evidence.
+- `/agent-runs/{run_id}` and `/agent-runs/{run_id}/review-items` remain compact
+  and do not expose raw `tool_results` / `output_json` payloads.
+- Existing coverage continues to pin unsupported answer refusal, sensitive
+  answer blocking/review-gating, rejected and needs-more-evidence non-resume,
+  approved/edited-only browser write, and explicit final-submit approval.
+
+Evidence:
+
+- `backend/tests/test_agent_run_read_endpoint.py::test_security_questionnaire_agent_run_exposes_compact_answer_review_items`
+- `backend/tests/test_workflow_runtime_endpoint.py::test_governed_start_security_questionnaire_uses_source_answer_proposals`
+- `backend/tests/test_workflow_runtime_endpoint.py::test_governed_start_security_questionnaire_marks_sensitive_fields_blocked`
+- `backend/tests/test_workflow_runtime_endpoint.py::test_governed_start_security_questionnaire_marks_unsupported_no_evidence_answer`
+- `backend/tests/test_workflow_runtime_endpoint.py::test_governed_review_rejection_does_not_resume_paused_fill_form`
+- `backend/tests/test_workflow_runtime_endpoint.py::test_governed_review_decision_needs_more_evidence_decrements_pending_review_count`
+- `frontend/src/runCockpitActions.test.js`
+- `frontend/src/reviewMappingActions.test.js`
+- `frontend/src/runCockpitPresentation.test.js`
+- `frontend/src/reviewMappingPresentation.test.js`
+
+### Phase 18 Legacy Fallback Readiness Closure Audit
+
+- Closed as audit/doc/test evidence only; no true product runtime gap was found.
+- Frontend primary creation, page-intake, Task Detail prepare, Review Mapping,
+  Run Cockpit continue, and final submit paths use governed/AgentRun-first
+  helpers when a run id exists.
+- Old security graph endpoints are manual compatibility endpoints only.
+- No benchmark or demo primary path needs the old graph for security
+  questionnaire evidence.
+- The old graph is retirable when the external compatibility window ends, but
+  removal planning is future work and this track intentionally keeps the
+  endpoints.
+
+Remaining gaps:
+
+- The deprecated old security graph and `/workflows/{task_id}` compatibility
+  endpoints still exist until the compatibility window ends.
+- Legacy `/tasks` facade, `/tasks/{task_id}/review-items` fallback, and
+  FormField sync compatibility remain migration surfaces.
+- Overall runtime refactor is still not complete.
+
 ## Compatibility Paths Kept
 
 - `/tasks` task detail and list facades.

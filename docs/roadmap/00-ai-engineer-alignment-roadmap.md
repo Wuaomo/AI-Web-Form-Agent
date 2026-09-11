@@ -366,6 +366,20 @@ Still missing from the runtime refactor direction:
   `test_old_security_graph_review_fallback_stays_non_mutating_and_compact`.
   This closes Stage 15 readiness classification, not the overall runtime
   refactor.
+- Security Questionnaire Legacy Fallback Retirement Track Phase 16/17/18 is
+  closed for deprecation contract, primary-path evidence tightening, and
+  readiness audit. Old `/workflows/{task_id}/start`, `/workflows/{task_id}`,
+  and `/workflows/{task_id}/review` are documented as deprecated compatibility
+  fallback endpoints; focused evidence confirms old start does not create
+  AgentRun/ToolRuntime/proposal rows, old review remains non-mutating and not a
+  verification trust path, and the security questionnaire primary path
+  continues through governed/AgentRun APIs with compact `answer` proposals.
+  Evidence:
+  `test_old_security_graph_start_stays_out_of_agent_run_primary_path` and
+  `test_security_questionnaire_agent_run_exposes_compact_answer_review_items`.
+  The old graph is retirable when the external compatibility window ends, but
+  it is not deleted here and this is not an overall runtime refactor completion
+  claim.
 
 ## Post-Portfolio Extensions
 

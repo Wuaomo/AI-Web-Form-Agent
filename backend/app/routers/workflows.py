@@ -316,9 +316,10 @@ def start_workflow(
     task_id: int,
     db: Session = Depends(get_db),
 ) -> dict:
-    """Start the graph runtime for a task and run to the first interrupt.
+    """Start the deprecated compatibility graph and run to first interrupt.
 
-    Only ``security_questionnaire`` workflows are supported.
+    Only ``security_questionnaire`` workflows are supported. New product paths
+    should use ``/workflows/{task_id}/governed/start`` and AgentRun APIs.
     """
 
     task = _get_task_or_404(db, task_id)
@@ -487,9 +488,9 @@ def get_workflow_state(
     task_id: int,
     db: Session = Depends(get_db),
 ) -> dict:
-    """Get the current compact runtime state for a task.
+    """Get deprecated compatibility graph state for a task.
 
-    Returns 404 if no runtime has been started for the task.
+    Returns 404 if no compatibility runtime has been started for the task.
     """
 
     task = _get_task_or_404(db, task_id)
@@ -517,11 +518,12 @@ def review_workflow(
     body: WorkflowReviewRequest,
     db: Session = Depends(get_db),
 ) -> dict:
-    """Submit a review decision and resume the graph.
+    """Submit review to the deprecated compatibility graph.
 
     Only works when the runtime is paused at the review gate.
-    Does not expose a generic resume endpoint — review is the
-    only way to advance past the review gate.
+    Does not expose a generic resume endpoint — review is the only way to
+    advance past the review gate. This fallback is not a browser-write or
+    verification trust path; primary review uses AgentRun Review Queue APIs.
     """
 
     task = _get_task_or_404(db, task_id)

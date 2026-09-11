@@ -26,6 +26,7 @@ from app.models import (
 from app import config
 from app.job_constants import JOB_TYPE_FILL_FORM
 from app.services.agent_runtime.tool_runtime import AgentTool, ToolExecutionContext, ToolRuntime
+from app.services.agent_runtime.tools import build_default_tool_runtime
 
 
 def build_environment() -> tuple[TestClient, Session]:
@@ -56,6 +57,32 @@ def create_task(session: Session) -> Task:
         workflow_status="READY",
     )
     session.add(task)
+    session.commit()
+    return task
+
+
+def create_security_questionnaire_task(session: Session) -> Task:
+    profile = Profile(profile_name="Security profile", email="ada@example.com")
+    session.add(profile)
+    session.flush()
+    task = Task(
+        url="https://example.com/security-questionnaire",
+        profile_id=profile.id,
+        workflow_type="security_questionnaire",
+        status="READY",
+        workflow_status="READY",
+    )
+    session.add(task)
+    session.flush()
+    session.add(
+        FormField(
+            task_id=task.id,
+            label="Do you encrypt data at rest?",
+            selector="#encrypt-at-rest",
+            field_type="text",
+            required=True,
+        )
+    )
     session.commit()
     return task
 
@@ -132,6 +159,45 @@ def test_get_agent_run_returns_404_for_missing_run() -> None:
 
         assert response.status_code == 404
         assert response.json()["detail"] == "No agent run state found for missing-run."
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_security_questionnaire_agent_run_exposes_compact_answer_review_items() -> None:
+    client, session = build_environment()
+    task = create_security_questionnaire_task(session)
+    runtime = build_default_tool_runtime(
+        extract_form_analysis_handler=AsyncMock(
+            return_value=SimpleNamespace(fields=[], login_required=False)
+        )
+    )
+
+    try:
+        with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+            start_response = client.post(
+                f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+            )
+        assert start_response.status_code == 200
+        assert start_response.json()["workflow_type"] == "security_questionnaire"
+
+        run_response = client.get(f"/agent-runs/task-{task.id}")
+        review_response = client.get(f"/agent-runs/task-{task.id}/review-items")
+
+        assert run_response.status_code == 200
+        run_payload = run_response.json()
+        assert run_payload["status"] == "WAITING_REVIEW"
+        assert run_payload["planner_mode"] == "deterministic"
+        assert "output_json" not in json.dumps(run_payload)
+
+        assert review_response.status_code == 200
+        items = review_response.json()
+        answer = next(item for item in items if item["proposal_type"] == "answer")
+        assert answer["proposed_value"] == "Yes."
+        assert answer["target_type"] == "form_field"
+        assert answer["evidence"][0]["section_title"] == "Encryption At Rest"
+        assert "output_json" not in json.dumps(items)
+        assert "tool_results" not in json.dumps(items)
     finally:
         app.dependency_overrides.clear()
         session.close()

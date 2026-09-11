@@ -1,7 +1,8 @@
-"""Agent runtime package: generic governed runtime plus legacy fallback.
+"""Agent runtime package: generic governed runtime plus deprecated fallback.
 
 The generic governed graph is the primary runtime path. The old security
-questionnaire graph remains only as a compatibility fallback.
+questionnaire graph remains only as a compatibility fallback for legacy
+``/workflows/{task_id}`` clients.
 """
 
 from app.services.agent_runtime.form_field_persistence import replace_task_form_fields

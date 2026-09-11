@@ -37,6 +37,9 @@ STAGE_11_STATUS = "Stage 11 Browser-Write Runtime Migration Closure"
 STAGE_12_STATUS = "Stage 12 Review Compatibility Retirement Slice"
 STAGE_14_STATUS = "Stage 14 Governed Review Decision Delegate Slice"
 STAGE_15_STATUS = "Stage 15 Security Questionnaire Graph Fallback Retirement Readiness Slice"
+SECURITY_FALLBACK_RETIREMENT_TRACK = (
+    "Security Questionnaire Legacy Fallback Retirement Track"
+)
 
 
 def test_section_21_validation_audit_indexes_runtime_object_evidence() -> None:
@@ -270,6 +273,27 @@ def test_stage_15_security_questionnaire_fallback_status_is_reflected() -> None:
         assert "test_governed_start_security_questionnaire_uses_source_answer_proposals" in text
         assert "old security questionnaire graph fallback" in text
         assert "compatibility fallback" in text
+        assert "runtime refactor complete" not in text.lower()
+
+
+def test_security_questionnaire_fallback_retirement_track_is_reflected() -> None:
+    """Verify Phase 16/17/18 record deprecated fallback readiness."""
+
+    for path in [
+        REPO_ROOT / "README.md",
+        REPO_ROOT / "docs" / "roadmap" / "00-ai-engineer-alignment-roadmap.md",
+        REPO_ROOT / "docs" / "agent-runtime-refactor-rfc.zh.md",
+        AUDIT_DOC,
+    ]:
+        text = path.read_text(encoding="utf-8")
+        assert re.search(SECURITY_FALLBACK_RETIREMENT_TRACK.replace(" ", r"\s+"), text)
+        assert "Phase 16/17/18" in text
+        assert "`/workflows/{task_id}/start`" in text
+        assert "`/workflows/{task_id}`" in text
+        assert "`/workflows/{task_id}/review`" in text
+        assert re.search(r"deprecated compatibility\s+fallback", text)
+        assert "test_old_security_graph_start_stays_out_of_agent_run_primary_path" in text
+        assert "test_security_questionnaire_agent_run_exposes_compact_answer_review_items" in text
         assert "runtime refactor complete" not in text.lower()
 
 
