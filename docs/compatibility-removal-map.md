@@ -2,10 +2,9 @@
 
 Compatibility Removal Planning & Primary Path Consolidation Track
 
-Status: Phase 37-42 old security graph final consumer audit complete through
-the remove-now gate. The gate did not pass, so Phase 41 endpoint deletion was
-not run. No compatibility API is deleted here, and this does not claim the
-overall runtime refactor is complete.
+Status: Old security graph endpoint gate complete. The remove-now gate did not
+pass, so endpoint deletion was not run. No compatibility API is deleted here,
+and this does not claim the overall runtime refactor is complete.
 
 ## Primary Boundaries
 
@@ -272,14 +271,14 @@ Removal readiness:
   assertions, and final confirmation that demos/scripts have no old graph
   dependency.
 
-## Phase 37-42 Old Security Graph Final Audit
+## Old Security Graph Endpoint Gate
 
 Audit commands:
 
 - `rg -n "startWorkflow|getWorkflowState|reviewWorkflow" frontend/src backend/app backend/tests README.md docs scripts backend/benchmarks`
 - `rg -n "workflows/.*start|workflows/.*review|workflows/.*governed|agent-runs/.*/continue|agent_run_id|agent_runtime" README.md docs scripts backend/benchmarks frontend/src/pages backend/tests`
 
-Phase 37 consumer classification:
+Consumer classification:
 
 - Product primary consumer: none found for
   `POST /workflows/{task_id}/start`, `GET /workflows/{task_id}`, or
@@ -308,7 +307,7 @@ Phase 37 consumer classification:
   graph endpoints was found in this audit; benchmark references are runtime
   helper imports or docs, not direct old endpoint dependencies.
 
-Phase 38 no-run-id gap closure:
+No-run-id gap closure:
 
 - Create Task starts `security_questionnaire`, `vendor_onboarding`, and
   `form_fill` through `api.startGovernedWorkflow(..., plannerMode:
@@ -326,7 +325,7 @@ Phase 38 no-run-id gap closure:
   fixtures, or a failed/interrupted create-start sequence that leaves a task
   shell without a governed run.
 
-Phase 39 frontend old graph helper quarantine:
+Frontend old graph helper quarantine:
 
 - `api.startWorkflow`, `api.getWorkflowState`, and `api.reviewWorkflow` remain
   compatibility helpers only.
@@ -337,7 +336,7 @@ Phase 39 frontend old graph helper quarantine:
   `shouldShowLegacyWorkflowRuntimePanel hides old graph fallback when a run id
   exists`.
 
-Phase 40 remove-now decision:
+Remove-now decision:
 
 | Endpoint | Frontend primary path removed | Decision | Minimal remaining blocker |
 | --- | --- | --- | --- |
@@ -345,8 +344,8 @@ Phase 40 remove-now decision:
 | `GET /workflows/{task_id}` | yes | remove-later | Guarded no-run-id UI fallback remains for legacy/manual security questionnaire tasks. |
 | `POST /workflows/{task_id}/review` | yes | remove-later | Guarded no-run-id Review Mapping submit fallback remains for legacy/manual security questionnaire tasks. |
 
-Phase 41 was not executed because the map decision is not remove-now. Phase 42
-is verification and commit only.
+Endpoint deletion was not executed because the map decision is not remove-now.
+This gate is documentation, verification, and commit only.
 
 ## Runtime And Security Gaps
 
