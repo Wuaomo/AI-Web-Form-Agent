@@ -40,6 +40,7 @@ import {
   applyFieldValueEdit,
   getReviewMappingRunId,
   loadReviewItemsForReviewMapping,
+  shouldLoadLegacySecurityWorkflowFallback,
 } from "../reviewMappingActions";
 import {
   decisionLabel,
@@ -120,7 +121,7 @@ function ReviewMapping() {
       setReviewItems(proposalReviewItems);
       setSelectedLlmProvider(getSavedLlmProvider(providerItems));
 
-      if (taskResult.workflow_type === "security_questionnaire") {
+      if (shouldLoadLegacySecurityWorkflowFallback(taskResult)) {
         try {
           const runtime = await api.getWorkflowState(taskId);
           setWorkflowRuntime(runtime);

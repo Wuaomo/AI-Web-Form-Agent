@@ -77,8 +77,14 @@ export function shouldShowRunCockpit(runtime) {
   );
 }
 
+export function shouldLoadLegacyWorkflowRuntimeFallback(task) {
+  return (
+    task?.workflow_type === "security_questionnaire" && !getRunCockpitRunId(task)
+  );
+}
+
 export function shouldShowLegacyWorkflowRuntimePanel(task, runtime) {
-  return task?.workflow_type === "security_questionnaire" && !shouldShowRunCockpit(runtime);
+  return shouldLoadLegacyWorkflowRuntimeFallback(task) && !shouldShowRunCockpit(runtime);
 }
 
 export function getRunCockpitRunId(task) {

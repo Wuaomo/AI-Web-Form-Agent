@@ -7,6 +7,7 @@ import {
   applyFieldValueEdit,
   getReviewMappingRunId,
   loadReviewItemsForReviewMapping,
+  shouldLoadLegacySecurityWorkflowFallback,
 } from "./reviewMappingActions.js";
 
 function fakeApi() {
@@ -88,6 +89,33 @@ test("review mapping falls back to task review items when AgentRun review fails"
     { name: "listAgentRunReviewItems", runId: "run-7" },
     { name: "listTaskReviewItems", taskId: 7 },
   ]);
+});
+
+test("review mapping only loads old security graph without a run id", () => {
+  assert.equal(
+    shouldLoadLegacySecurityWorkflowFallback({
+      workflow_type: "security_questionnaire",
+      agent_run_id: "run-7",
+    }),
+    false,
+  );
+  assert.equal(
+    shouldLoadLegacySecurityWorkflowFallback({
+      workflow_type: "security_questionnaire",
+      agent_runtime: { run_id: "runtime-run-7" },
+    }),
+    false,
+  );
+  assert.equal(
+    shouldLoadLegacySecurityWorkflowFallback({
+      workflow_type: "security_questionnaire",
+    }),
+    true,
+  );
+  assert.equal(
+    shouldLoadLegacySecurityWorkflowFallback({ workflow_type: "form_fill" }),
+    false,
+  );
 });
 
 test("review item decisions prefer AgentRun review boundary when run id exists", async () => {

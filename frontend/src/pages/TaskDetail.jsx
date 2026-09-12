@@ -65,6 +65,7 @@ import {
   getRunCockpitPlanSteps,
   getRunCockpitToolCalls,
   getRunCockpitVerificationDetails,
+  shouldLoadLegacyWorkflowRuntimeFallback,
   shouldShowLegacyWorkflowRuntimePanel,
   shouldShowRunCockpit,
 } from "../runCockpitPresentation";
@@ -128,8 +129,8 @@ function TaskDetail() {
     }
   }
 
-  async function getWorkflowRuntimeOrNull(currentTaskId, workflowType) {
-    if (workflowType !== "security_questionnaire") {
+  async function getWorkflowRuntimeOrNull(currentTaskId, currentTask) {
+    if (!shouldLoadLegacyWorkflowRuntimeFallback(currentTask)) {
       return null;
     }
     try {
@@ -200,7 +201,7 @@ function TaskDetail() {
 
         const runtimeState = await getWorkflowRuntimeOrNull(
           taskId,
-          taskResult.workflow_type,
+          taskResult,
         );
         setWorkflowRuntime(runtimeState);
       })
@@ -265,21 +266,6 @@ function TaskDetail() {
     } finally {
       agentReviewInFlight.current = false;
       setRunningReview(null);
-    }
-  }
-
-  async function startWorkflowRun() {
-    setBusyAction("start-runtime");
-    setError("");
-    setNotice("");
-    try {
-      const runtimeState = await api.startWorkflow(taskId);
-      setWorkflowRuntime(runtimeState);
-      setNotice("Workflow started. Review suggestions before filling.");
-    } catch (requestError) {
-      setError(requestError.message);
-    } finally {
-      setBusyAction("");
     }
   }
 
@@ -1072,10 +1058,10 @@ function TaskDetail() {
                   <button
                     className="button"
                     type="button"
-                    onClick={startWorkflowRun}
+                    onClick={startGovernedWorkflowRun}
                     disabled={isBusy}
                   >
-                    {busyAction === "start-runtime"
+                    {busyAction === "start-governed-runtime"
                       ? "Starting..."
                       : "Start agent workflow"}
                   </button>

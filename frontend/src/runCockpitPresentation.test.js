@@ -144,6 +144,26 @@ test("shouldShowLegacyWorkflowRuntimePanel hides legacy panel when Run Cockpit h
   );
 });
 
+test("shouldShowLegacyWorkflowRuntimePanel hides old graph fallback when a run id exists", () => {
+  assert.equal(
+    shouldShowLegacyWorkflowRuntimePanel(
+      { workflow_type: "security_questionnaire", agent_run_id: "run-7" },
+      null,
+    ),
+    false,
+  );
+  assert.equal(
+    shouldShowLegacyWorkflowRuntimePanel(
+      {
+        workflow_type: "security_questionnaire",
+        agent_runtime: { run_id: "runtime-run-7" },
+      },
+      null,
+    ),
+    false,
+  );
+});
+
 test("buildRunCockpitSummary reads persisted generic verification status", () => {
   const summary = buildRunCockpitSummary({
     status: "COMPLETED",

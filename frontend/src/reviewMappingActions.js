@@ -21,6 +21,12 @@ export function getReviewMappingRunId(task) {
   return task?.agent_run_id || task?.agent_runtime?.run_id || null;
 }
 
+export function shouldLoadLegacySecurityWorkflowFallback(task) {
+  return (
+    task?.workflow_type === "security_questionnaire" && !getReviewMappingRunId(task)
+  );
+}
+
 export async function loadReviewItemsForReviewMapping({
   apiClient,
   taskId,
