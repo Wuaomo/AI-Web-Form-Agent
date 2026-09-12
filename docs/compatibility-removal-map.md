@@ -2,10 +2,10 @@
 
 Compatibility Removal Planning & Primary Path Consolidation Track
 
-Status: Phase 33-36 old security graph frontend primary-path removal prep
-complete. No
-compatibility API is deleted here, and this does not claim the overall runtime
-refactor is complete.
+Status: Phase 37-42 old security graph final consumer audit complete through
+the remove-now gate. The gate did not pass, so Phase 41 endpoint deletion was
+not run. No compatibility API is deleted here, and this does not claim the
+overall runtime refactor is complete.
 
 ## Primary Boundaries
 
@@ -32,9 +32,9 @@ refactor is complete.
 | `POST /tasks/{task_id}/job-summary` | remove-later | `POST /workflows/{task_id}/governed/start` for `job_research_summary` AgentRun plan | Frontend compatibility fallback helper, backend compatibility tests | Workflow-specific read fallback, not browser-write | Summary/checkpoint/log/screenshot parity e2e, benchmark/docs update, no external consumers |
 | `POST /tasks/{task_id}/fill` | remove-later | `POST /agent-runs/{run_id}/continue` | Task Detail no-run-id fallback, legacy async jobs, backend/frontend tests | Yes | All fill-capable paths must expose run id before fill; sync/async continue e2e; legacy empty-payload job retirement plan |
 | `POST /tasks/{task_id}/confirm-submit` | remove-later | `POST /agent-runs/{run_id}/continue` with `{"action":"submit_form"}` | Task Detail no-run-id fallback, approval flow tests | Yes | Submit e2e through AgentRun continue, approval center/task refresh parity, stale approval regression coverage after fallback removal |
-| `POST /workflows/{task_id}/start` | remove-later | `POST /workflows/{task_id}/governed/start` | `api.startWorkflow`, API/backend compatibility tests | Old security graph compatibility helper only | External compatibility window closes, old graph tests converted to deletion/parity tests |
-| `GET /workflows/{task_id}` | remove-later | `GET /agent-runs/{run_id}` or `GET /workflows/{task_id}/governed` | Task Detail and Review Mapping no-run-id compatibility fallback, `api.getWorkflowState`, API/backend compatibility tests | Old security graph fallback only when no AgentRun id exists | Guarantee security questionnaire pages always have a run id, remove no-run-id old graph reads, convert old graph tests to deletion/parity tests |
-| `POST /workflows/{task_id}/review` | remove-later | AgentRun Review Queue decision endpoint | Review Mapping no-run-id compatibility submit, `api.reviewWorkflow`, API/backend compatibility tests | Old security graph fallback only when no AgentRun id exists | Guarantee security questionnaire review pages always have a run id, remove legacy review submit UI, prove approved security answers fill only through AgentRun continue |
+| `POST /workflows/{task_id}/start` | remove-later | `POST /workflows/{task_id}/governed/start` | `api.startWorkflow` compatibility helper test and backend old-graph behavior tests; no product primary caller found | Old security graph compatibility helper only | External compatibility window closes, old graph behavior tests convert to deletion/parity tests, and API helper is removed or explicitly test-only |
+| `GET /workflows/{task_id}` | remove-later | `GET /agent-runs/{run_id}` or `GET /workflows/{task_id}/governed` | Task Detail and Review Mapping guarded no-run-id security-questionnaire fallback, `api.getWorkflowState` compatibility helper test, backend old-graph behavior tests | Old security graph fallback only when no AgentRun id exists | Decide how to handle legacy/manual no-run-id security questionnaire tasks, remove old graph UI fallback, convert old graph tests to deletion/parity tests |
+| `POST /workflows/{task_id}/review` | remove-later | AgentRun Review Queue decision endpoint | Review Mapping guarded no-run-id compatibility submit, `api.reviewWorkflow` compatibility helper test, backend old-graph behavior tests | Old security graph fallback only when no AgentRun id exists | Decide how to handle legacy/manual no-run-id security questionnaire review submit, remove old graph submit UI, prove approved security answers fill only through AgentRun continue |
 | Frontend Task Detail fallbacks | remove-later | Run Cockpit helpers using AgentRun first | `loadRunCockpitRuntime`, no-run-id old workflow state display, fill/submit action helpers | Mixed: AgentRun read failure, no-run-id, task facade; old graph only for no-run-id state display | Require run id for security questionnaire task detail, remove no-run-id old graph display |
 | Frontend Run Cockpit fallback order | keep-for-now | `getAgentRun` -> governed state -> task facade | `runCockpitActions.js`, tests | AgentRun read failure and no-run-id | Keep until task facade read removal has a replacement route |
 | Frontend Review Mapping fallbacks | remove-later | AgentRun review read/write | `reviewMappingActions.js`, `ReviewMapping.jsx` no-run-id old graph state/review submit | Review read fallback and no-run-id old graph fallback | Remove task review fallback after all review pages have run id; remove old graph review UI |
@@ -272,6 +272,82 @@ Removal readiness:
   assertions, and final confirmation that demos/scripts have no old graph
   dependency.
 
+## Phase 37-42 Old Security Graph Final Audit
+
+Audit commands:
+
+- `rg -n "startWorkflow|getWorkflowState|reviewWorkflow" frontend/src backend/app backend/tests README.md docs scripts backend/benchmarks`
+- `rg -n "workflows/.*start|workflows/.*review|workflows/.*governed|agent-runs/.*/continue|agent_run_id|agent_runtime" README.md docs scripts backend/benchmarks frontend/src/pages backend/tests`
+
+Phase 37 consumer classification:
+
+- Product primary consumer: none found for
+  `POST /workflows/{task_id}/start`, `GET /workflows/{task_id}`, or
+  `POST /workflows/{task_id}/review`.
+- No-run-id compatibility fallback:
+  `frontend/src/pages/TaskDetail.jsx` calls `api.getWorkflowState` only through
+  `shouldLoadLegacyWorkflowRuntimeFallback`, which requires a
+  `security_questionnaire` task without `agent_run_id` or
+  `agent_runtime.run_id`.
+- No-run-id compatibility fallback:
+  `frontend/src/pages/ReviewMapping.jsx` calls `api.getWorkflowState` and
+  `api.reviewWorkflow` only when
+  `shouldLoadLegacySecurityWorkflowFallback` allows the old graph branch.
+- Compatibility API helper tests: `frontend/src/api.test.js` still pins
+  `api.startWorkflow`, `api.getWorkflowState`, and `api.reviewWorkflow` path
+  construction.
+- Backend compatibility behavior tests:
+  `backend/tests/test_workflow_runtime_endpoint.py` still verifies old start,
+  get, review, non-security rejection, and missing-runtime behavior.
+- Backend endpoint implementation:
+  `backend/app/routers/workflows.py` still exposes the deprecated old graph
+  routes and documents governed/AgentRun APIs as the product path.
+- Docs-only mentions: README, architecture, roadmap, RFC, Section 21 audit, and
+  this map describe the old endpoints as deprecated compatibility fallback.
+- Demo scripts and benchmark helpers: no product/demo script caller of the old
+  graph endpoints was found in this audit; benchmark references are runtime
+  helper imports or docs, not direct old endpoint dependencies.
+
+Phase 38 no-run-id gap closure:
+
+- Create Task starts `security_questionnaire`, `vendor_onboarding`, and
+  `form_fill` through `api.startGovernedWorkflow(..., plannerMode:
+  "deterministic")` immediately after task creation.
+- Page Intake persists the intake task and then starts the same governed
+  deterministic path for `security_questionnaire`.
+- Task Detail prepare uses `startRunCockpitRuntime`, which calls governed
+  deterministic start, not old graph start.
+- With a run id, Task Detail reads `GET /agent-runs/{run_id}` first and
+  fill/submit use `POST /agent-runs/{run_id}/continue`.
+- With a run id, Review Mapping reads/writes AgentRun review items and does not
+  fall back to task review writes after AgentRun write errors.
+- No real product-created security questionnaire run-id gap was found. The
+  remaining no-run-id fallback source is legacy/manual old clients, old task
+  fixtures, or a failed/interrupted create-start sequence that leaves a task
+  shell without a governed run.
+
+Phase 39 frontend old graph helper quarantine:
+
+- `api.startWorkflow`, `api.getWorkflowState`, and `api.reviewWorkflow` remain
+  compatibility helpers only.
+- Task Detail does not call old start; its prepare button calls governed start.
+- Review Mapping does not read/write the old graph when a run id is present.
+- Existing focused tests cover the no-run-id guards:
+  `review mapping only loads old security graph without a run id` and
+  `shouldShowLegacyWorkflowRuntimePanel hides old graph fallback when a run id
+  exists`.
+
+Phase 40 remove-now decision:
+
+| Endpoint | Frontend primary path removed | Decision | Minimal remaining blocker |
+| --- | --- | --- | --- |
+| `POST /workflows/{task_id}/start` | yes | remove-later | API helper/backend behavior tests and external compatibility window remain. |
+| `GET /workflows/{task_id}` | yes | remove-later | Guarded no-run-id UI fallback remains for legacy/manual security questionnaire tasks. |
+| `POST /workflows/{task_id}/review` | yes | remove-later | Guarded no-run-id Review Mapping submit fallback remains for legacy/manual security questionnaire tasks. |
+
+Phase 41 was not executed because the map decision is not remove-now. Phase 42
+is verification and commit only.
+
 ## Runtime And Security Gaps
 
 Found in this audit:
@@ -302,9 +378,9 @@ Already covered by existing evidence:
 
 remove-now:
 
-- None. Read-only frontend primary routing has moved, but compatibility
-  fallback, backend compatibility tests, and external/demo parity blockers still
-  exist.
+- None. Old security graph frontend primary routing has moved, but guarded
+  no-run-id fallback, API helper tests, backend compatibility tests, and the
+  external compatibility window still exist.
 
 remove-later:
 
