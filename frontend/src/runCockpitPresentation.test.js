@@ -133,7 +133,7 @@ test("shouldShowLegacyWorkflowRuntimePanel hides legacy panel when Run Cockpit h
       { workflow_type: "security_questionnaire" },
       null,
     ),
-    true,
+    false,
   );
   assert.equal(
     shouldShowLegacyWorkflowRuntimePanel(

@@ -22,9 +22,7 @@ export function getReviewMappingRunId(task) {
 }
 
 export function shouldLoadLegacySecurityWorkflowFallback(task) {
-  return (
-    task?.workflow_type === "security_questionnaire" && !getReviewMappingRunId(task)
-  );
+  return false;
 }
 
 export async function loadReviewItemsForReviewMapping({

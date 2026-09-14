@@ -78,9 +78,7 @@ export function shouldShowRunCockpit(runtime) {
 }
 
 export function shouldLoadLegacyWorkflowRuntimeFallback(task) {
-  return (
-    task?.workflow_type === "security_questionnaire" && !getRunCockpitRunId(task)
-  );
+  return false;
 }
 
 export function shouldShowLegacyWorkflowRuntimePanel(task, runtime) {

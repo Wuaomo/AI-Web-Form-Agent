@@ -65,8 +65,6 @@ import {
   getRunCockpitPlanSteps,
   getRunCockpitToolCalls,
   getRunCockpitVerificationDetails,
-  shouldLoadLegacyWorkflowRuntimeFallback,
-  shouldShowLegacyWorkflowRuntimePanel,
   shouldShowRunCockpit,
 } from "../runCockpitPresentation";
 import {
@@ -110,7 +108,6 @@ function TaskDetail() {
   const [workflowTrace, setWorkflowTrace] = useState([]);
   const [taskPlan, setTaskPlan] = useState(null);
   const [approvalRequests, setApprovalRequests] = useState([]);
-  const [workflowRuntime, setWorkflowRuntime] = useState(null);
   const [governedRuntime, setGovernedRuntime] = useState(null);
   const [runningReview, setRunningReview] = useState(null);
   const [showAllFailedSpans, setShowAllFailedSpans] = useState(false);
@@ -121,20 +118,6 @@ function TaskDetail() {
   async function getTaskPlanOrNull(currentTaskId) {
     try {
       return await api.getTaskPlan(currentTaskId);
-    } catch (requestError) {
-      if (requestError.status === 404) {
-        return null;
-      }
-      throw requestError;
-    }
-  }
-
-  async function getWorkflowRuntimeOrNull(currentTaskId, currentTask) {
-    if (!shouldLoadLegacyWorkflowRuntimeFallback(currentTask)) {
-      return null;
-    }
-    try {
-      return await api.getWorkflowState(currentTaskId);
     } catch (requestError) {
       if (requestError.status === 404) {
         return null;
@@ -199,11 +182,6 @@ function TaskDetail() {
         );
         setSelectedLlmProvider(getSavedLlmProvider(providerItems));
 
-        const runtimeState = await getWorkflowRuntimeOrNull(
-          taskId,
-          taskResult,
-        );
-        setWorkflowRuntime(runtimeState);
       })
       .catch((requestError) => setError(requestError.message))
       .finally(() => setLoading(false));
@@ -503,40 +481,6 @@ function TaskDetail() {
     isBusy && primaryLabelByBusyAction[runState.primaryAction]
       ? primaryLabelByBusyAction[runState.primaryAction]
       : runState.primaryLabel;
-
-  function nodeLabel(nodeId) {
-    const labels = {
-      start: "Starting",
-      analyze_page: "Analyzing page",
-      extract_questions: "Extracting questions",
-      retrieve_reviewed_memory: "Retrieving memory",
-      retrieve_policy_sources: "Retrieving policy sources",
-      suggest_answers: "Suggesting answers",
-      policy_check: "Checking policy",
-      apply_review_decision: "Review pending",
-      fill_browser: "Filling browser",
-      verify_result: "Verifying result",
-      finish: "Completed",
-      fail: "Failed",
-    };
-    return labels[nodeId] || nodeId;
-  }
-
-  function runtimeDescription(runtime) {
-    if (runtime.interrupt_at === "review") {
-      return "Suggestions are ready. Review and approve before the agent fills the form.";
-    }
-    if (runtime.interrupt_at === "submit_approval") {
-      return "Form filled and verified. Awaiting your submission approval.";
-    }
-    if (runtime.status === "COMPLETED") {
-      return "Workflow completed successfully.";
-    }
-    if (runtime.status === "FAILED") {
-      return runtime.error || "Workflow failed.";
-    }
-    return "Workflow is running...";
-  }
 
   function runPrimaryAction() {
     if (runState.primaryAction === "prepare") {
@@ -1036,72 +980,6 @@ function TaskDetail() {
             </div>
 
             {renderRunCockpit()}
-
-            {shouldShowLegacyWorkflowRuntimePanel(task, governedRuntime) && (
-              <div className="runtime-status-panel">
-                <div className="runtime-status-header">
-                  <p className="eyebrow">Agent workflow</p>
-                  <h3>
-                    {workflowRuntime
-                      ? workflowRuntime.current_node
-                        ? nodeLabel(workflowRuntime.current_node)
-                        : "Running"
-                      : "Not started"}
-                  </h3>
-                  <p>
-                    {workflowRuntime
-                      ? runtimeDescription(workflowRuntime)
-                      : "Start the agent workflow to analyze the page and suggest answers."}
-                  </p>
-                </div>
-                {!workflowRuntime && (
-                  <button
-                    className="button"
-                    type="button"
-                    onClick={startGovernedWorkflowRun}
-                    disabled={isBusy}
-                  >
-                    {busyAction === "start-governed-runtime"
-                      ? "Starting..."
-                      : "Start agent workflow"}
-                  </button>
-                )}
-                {workflowRuntime?.interrupt_at === "review" && (
-                  <Link
-                    className="button button-secondary"
-                    to={`/tasks/${task.id}/review-mapping`}
-                  >
-                    Review suggestions
-                  </Link>
-                )}
-                {workflowRuntime && (
-                  <div className="runtime-summary-grid">
-                    <div>
-                      <strong>{workflowRuntime.suggestions?.length || 0}</strong>
-                      <span>Suggestions</span>
-                    </div>
-                    <div>
-                      <strong>
-                        {workflowRuntime.policy_result?.blocked || 0}
-                      </strong>
-                      <span>Blocked by policy</span>
-                    </div>
-                    <div>
-                      <strong>
-                        {workflowRuntime.policy_sources?.length || 0}
-                      </strong>
-                      <span>Policy sources</span>
-                    </div>
-                    <div>
-                      <strong>
-                        {workflowRuntime.memory_hits?.length || 0}
-                      </strong>
-                      <span>Memory hits</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
 
             <dl className="detail-list">
               <div>

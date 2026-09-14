@@ -91,7 +91,7 @@ test("review mapping falls back to task review items when AgentRun review fails"
   ]);
 });
 
-test("review mapping only loads old security graph without a run id", () => {
+test("review mapping never loads old security graph fallback", () => {
   assert.equal(
     shouldLoadLegacySecurityWorkflowFallback({
       workflow_type: "security_questionnaire",
@@ -110,7 +110,7 @@ test("review mapping only loads old security graph without a run id", () => {
     shouldLoadLegacySecurityWorkflowFallback({
       workflow_type: "security_questionnaire",
     }),
-    true,
+    false,
   );
   assert.equal(
     shouldLoadLegacySecurityWorkflowFallback({ workflow_type: "form_fill" }),
