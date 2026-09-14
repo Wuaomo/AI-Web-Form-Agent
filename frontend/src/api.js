@@ -81,8 +81,6 @@ export const api = {
   health: () => request("/health"),
   listLlmProviders: () => request("/llm/providers"),
   listWorkflowTemplates: () => request("/workflows/templates"),
-  startWorkflow: (taskId) =>
-    request(`/workflows/${taskId}/start`, { method: "POST" }),
   startGovernedWorkflow: (taskId, options = {}) => {
     const params = new URLSearchParams();
     if (options.plannerMode) {
@@ -119,12 +117,6 @@ export const api = {
     request(`/agent-runs/${runId}/review-items/${itemId}/decision`, {
       method: "POST",
       body: JSON.stringify(decision),
-    }),
-  getWorkflowState: (taskId) => request(`/workflows/${taskId}`),
-  reviewWorkflow: (taskId, reviewData = {}) =>
-    request(`/workflows/${taskId}/review`, {
-      method: "POST",
-      body: JSON.stringify(reviewData),
     }),
   runBenchmarks: (options = {}) =>
     request("/benchmarks/run", {

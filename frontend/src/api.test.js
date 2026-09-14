@@ -101,7 +101,7 @@ test("knowledge source API client uses correct paths", async () => {
   }
 });
 
-test("workflow runtime API client uses correct paths", async () => {
+test("workflow runtime API client exposes governed workflow helpers only", async () => {
   clearApiCache();
   const originalFetch = globalThis.fetch;
   const calls = [];
@@ -111,25 +111,17 @@ test("workflow runtime API client uses correct paths", async () => {
   };
 
   try {
-    await api.startWorkflow(1);
     await api.startGovernedWorkflow(1, { plannerMode: "template_guided" });
     await api.getGovernedWorkflowState(1);
-    await api.getWorkflowState(1);
-    await api.reviewWorkflow(1, { decision: "approve_all", approvals: [] });
 
-    assert.equal(calls.length, 5);
-    assert.ok(calls[0].url.endsWith("/workflows/1/start"));
+    assert.equal(api.startWorkflow, undefined);
+    assert.equal(api.getWorkflowState, undefined);
+    assert.equal(api.reviewWorkflow, undefined);
+    assert.equal(calls.length, 2);
+    assert.ok(calls[0].url.endsWith("/workflows/1/governed/start?planner_mode=template_guided"));
     assert.equal(calls[0].method, "POST");
-    assert.ok(calls[1].url.endsWith("/workflows/1/governed/start?planner_mode=template_guided"));
-    assert.equal(calls[1].method, "POST");
-    assert.ok(calls[2].url.endsWith("/workflows/1/governed"));
-    assert.equal(calls[2].method, "GET");
-    assert.ok(calls[3].url.endsWith("/workflows/1"));
-    assert.equal(calls[3].method, "GET");
-    assert.ok(calls[4].url.endsWith("/workflows/1/review"));
-    assert.equal(calls[4].method, "POST");
-    const reviewBody = JSON.parse(calls[4].body);
-    assert.equal(reviewBody.decision, "approve_all");
+    assert.ok(calls[1].url.endsWith("/workflows/1/governed"));
+    assert.equal(calls[1].method, "GET");
   } finally {
     clearApiCache();
     globalThis.fetch = originalFetch;
