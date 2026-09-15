@@ -175,7 +175,7 @@ Still missing from the runtime refactor direction:
   workflow-specific endpoints, and old security questionnaire graph fallback.
 - Phase 12 Agent Runtime API read boundary thin slice completed; remaining migration gaps documented. `/agent-runs/{run_id}` now returns compact AgentRun state without raw tool output. Remaining gaps include the legacy `/tasks` facade, workflow-specific endpoints, and old security questionnaire graph fallback.
 - Review Queue primary AgentRun API boundary thin slice completed; remaining migration gaps documented. `/agent-runs/{run_id}/review-items` and `/agent-runs/{run_id}/review-items/{item_id}/decision` now expose proposal-backed review read/write through the AgentRun API. Remaining gaps include legacy `/tasks/{task_id}/review-items` fallback, FormField sync compatibility, workflow-specific endpoints, and old security questionnaire graph fallback.
-- Review Mapping AgentRun Review Queue client helper thin slice completed; remaining migration gaps documented. Review Mapping now reads AgentRun review items first when `agent_run_id` or `agent_runtime.run_id` is present, then falls back to legacy `/tasks/{task_id}/review-items`. FormField sync compatibility remains; legacy `/tasks/{task_id}/review-items` fallback, workflow-specific endpoints, old security questionnaire graph fallback, and the legacy `/tasks` facade are still migration gaps.
+- Review Mapping AgentRun Review Queue client helper thin slice completed; remaining migration gaps documented. That earlier slice made Review Mapping read AgentRun review items first when `agent_run_id` or `agent_runtime.run_id` was present, while preserving a temporary legacy `/tasks/{task_id}/review-items` fallback that was removed in the later Review Queue Compatibility Retirement Prep Gate. FormField sync compatibility remains; workflow-specific endpoints, old security questionnaire graph fallback, and the legacy `/tasks` facade are still migration gaps.
 - Run Cockpit AgentRun read helper thin slice completed; remaining migration gaps documented. Run Cockpit now reads AgentRun compact state first when `agent_run_id` or `agent_runtime.run_id` is present, then uses the governed workflow fallback, then the task facade fallback. Remaining gaps include the legacy `/tasks` facade, workflow-specific endpoints, old security questionnaire graph fallback, and legacy `/tasks/{task_id}/review-items` fallback.
 - Task Detail governed-run start navigation now uses the refreshed Run Cockpit runtime state, so a `WAITING_REVIEW` AgentRun compact state routes to Review Mapping even when the start endpoint response is stale. Remaining gaps are unchanged.
 - Phase A frontend primary AgentRun boundary audit completed; existing frontend coverage proves Task Detail, Run Cockpit, and Review Mapping use AgentRun-first compact runtime/review boundaries with governed workflow, task facade, and legacy review fallbacks preserved. This closes Phase A frontend boundary only, not the overall runtime refactor.
@@ -402,6 +402,16 @@ Still missing from the runtime refactor direction:
   reasons, removal blockers, runtime/security gaps, and the next removal order.
   No new runtime/security gap was found, so no production code change was made.
   This does not claim the overall runtime refactor is complete.
+- Review Queue Compatibility Retirement Prep Gate tightened D readiness.
+  Review Mapping now requires `agent_run_id` or `agent_runtime.run_id`, reads
+  and writes only through `/agent-runs/{run_id}/review-items`, and surfaces
+  AgentRun review failures instead of falling back to legacy task review
+  endpoints. Frontend `listTaskReviewItems` / `reviewTaskItem` helpers are
+  removed. Legacy `/tasks/{task_id}/review-items` backend routes remain
+  remove-later, not remove-now, because backend preservation tests, external
+  consumer confirmation, and removal tests remain open. FormField sync remains
+  limited to `field_value`, `answer`, and `open_ended_answer` proposals for
+  browser-write compatibility.
 
 ## Post-Portfolio Extensions
 

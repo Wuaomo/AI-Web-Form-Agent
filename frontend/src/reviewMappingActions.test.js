@@ -14,14 +14,6 @@ function fakeApi() {
   const calls = [];
   return {
     calls,
-    reviewTaskItem: async (taskId, itemId, decision) => {
-      calls.push({ name: "reviewTaskItem", taskId, itemId, decision });
-      return { id: `decision-${itemId}`, ...decision };
-    },
-    listTaskReviewItems: async (taskId) => {
-      calls.push({ name: "listTaskReviewItems", taskId });
-      return [{ id: "task-review" }];
-    },
     listAgentRunReviewItems: async (runId) => {
       calls.push({ name: "listAgentRunReviewItems", runId });
       return [{ id: "run-review" }];
@@ -52,7 +44,7 @@ test("review mapping resolves AgentRun review items before task fallback", async
   ]);
 });
 
-test("review mapping falls back to task review items without a run id", async () => {
+test("review mapping surfaces missing run id instead of task review fallback", async () => {
   const apiClient = fakeApi();
 
   assert.equal(
@@ -60,16 +52,19 @@ test("review mapping falls back to task review items without a run id", async ()
     "runtime-run-7",
   );
 
-  await loadReviewItemsForReviewMapping({
-    apiClient,
-    taskId: 7,
-    task: {},
-  });
+  await assert.rejects(
+    loadReviewItemsForReviewMapping({
+      apiClient,
+      taskId: 7,
+      task: {},
+    }),
+    /AgentRun id is required/,
+  );
 
-  assert.deepEqual(apiClient.calls, [{ name: "listTaskReviewItems", taskId: 7 }]);
+  assert.deepEqual(apiClient.calls, []);
 });
 
-test("review mapping falls back to task review items when AgentRun review fails", async () => {
+test("review mapping surfaces AgentRun review read errors without task fallback", async () => {
   const apiClient = {
     ...fakeApi(),
     listAgentRunReviewItems: async (runId) => {
@@ -78,16 +73,17 @@ test("review mapping falls back to task review items when AgentRun review fails"
     },
   };
 
-  const items = await loadReviewItemsForReviewMapping({
-    apiClient,
-    taskId: 7,
-    task: { agent_run_id: "run-7" },
-  });
+  await assert.rejects(
+    loadReviewItemsForReviewMapping({
+      apiClient,
+      taskId: 7,
+      task: { agent_run_id: "run-7" },
+    }),
+    /missing run/,
+  );
 
-  assert.deepEqual(items, [{ id: "task-review" }]);
   assert.deepEqual(apiClient.calls, [
     { name: "listAgentRunReviewItems", runId: "run-7" },
-    { name: "listTaskReviewItems", taskId: 7 },
   ]);
 });
 
@@ -176,16 +172,17 @@ test("review item decisions surface AgentRun errors without task fallback", asyn
   ]);
 });
 
-test("field edits use generic review item decisions when a proposal exists", async () => {
+test("field edits use AgentRun review item decisions when a proposal exists", async () => {
   const apiClient = fakeApi();
   const field = { id: 4, mapped_value: "old@example.com" };
   const reviewItemsByFieldId = new Map([
-    [4, { id: "task-7-field-4", target_type: "form_field" }],
+    [4, { id: "run-7-field-4", target_type: "form_field" }],
   ]);
 
   const result = await applyFieldValueEdit({
     apiClient,
     taskId: 7,
+    runId: "run-7",
     field,
     mappedValue: "ada@example.com",
     reviewItemsByFieldId,
@@ -194,9 +191,9 @@ test("field edits use generic review item decisions when a proposal exists", asy
   assert.equal(result.usedGenericReview, true);
   assert.deepEqual(apiClient.calls, [
     {
-      name: "reviewTaskItem",
-      taskId: 7,
-      itemId: "task-7-field-4",
+      name: "reviewAgentRunItem",
+      runId: "run-7",
+      itemId: "run-7-field-4",
       decision: { decision: "edited", edited_value: "ada@example.com" },
     },
   ]);
@@ -232,12 +229,13 @@ test("generic field edits preserve blank strings as edited values", async () => 
   const apiClient = fakeApi();
   const field = { id: 4, mapped_value: "old@example.com" };
   const reviewItemsByFieldId = new Map([
-    [4, { id: "task-7-field-4", target_type: "form_field" }],
+    [4, { id: "run-7-field-4", target_type: "form_field" }],
   ]);
 
   await applyFieldValueEdit({
     apiClient,
     taskId: 7,
+    runId: "run-7",
     field,
     mappedValue: "",
     reviewItemsByFieldId,
@@ -253,12 +251,13 @@ test("field approve and reject use generic review item decisions when a proposal
   const apiClient = fakeApi();
   const field = { id: 4, mapped_value: "ada@example.com" };
   const reviewItemsByFieldId = new Map([
-    [4, { id: "task-7-field-4", target_type: "form_field" }],
+    [4, { id: "run-7-field-4", target_type: "form_field" }],
   ]);
 
   await applyFieldReviewDecision({
     apiClient,
     taskId: 7,
+    runId: "run-7",
     field,
     decision: "approved",
     reviewItemsByFieldId,
@@ -266,6 +265,7 @@ test("field approve and reject use generic review item decisions when a proposal
   await applyFieldReviewDecision({
     apiClient,
     taskId: 7,
+    runId: "run-7",
     field,
     decision: "rejected",
     reviewItemsByFieldId,
@@ -295,6 +295,7 @@ test("generic review decisions return updated review item state for proposal-bac
   const approved = await applyFieldReviewDecision({
     apiClient,
     taskId: 7,
+    runId: "run-7",
     field,
     decision: "approved",
     reviewItemsByFieldId,
@@ -302,6 +303,7 @@ test("generic review decisions return updated review item state for proposal-bac
   const edited = await applyFieldReviewDecision({
     apiClient,
     taskId: 7,
+    runId: "run-7",
     field,
     decision: "edited",
     editedValue: "edited@example.com",
@@ -310,6 +312,7 @@ test("generic review decisions return updated review item state for proposal-bac
   const rejected = await applyFieldReviewDecision({
     apiClient,
     taskId: 7,
+    runId: "run-7",
     field,
     decision: "rejected",
     reviewItemsByFieldId,
@@ -322,7 +325,7 @@ test("generic review decisions return updated review item state for proposal-bac
   assert.equal(rejected.reviewItem.status, "REJECTED");
 });
 
-test("non-field proposal decisions use generic review item API", async () => {
+test("non-field proposal decisions use AgentRun review item API", async () => {
   const apiClient = fakeApi();
   const reviewItem = {
     id: "task-7-field-4-memory-mapping",
@@ -334,12 +337,14 @@ test("non-field proposal decisions use generic review item API", async () => {
   const approved = await applyReviewItemDecision({
     apiClient,
     taskId: 7,
+    runId: "run-7",
     reviewItem,
     decision: "approved",
   });
   const edited = await applyReviewItemDecision({
     apiClient,
     taskId: 7,
+    runId: "run-7",
     reviewItem,
     decision: "edited",
     editedValue: "support_email",
@@ -347,6 +352,7 @@ test("non-field proposal decisions use generic review item API", async () => {
   const rejected = await applyReviewItemDecision({
     apiClient,
     taskId: 7,
+    runId: "run-7",
     reviewItem,
     decision: "rejected",
   });
@@ -362,6 +368,21 @@ test("non-field proposal decisions use generic review item API", async () => {
   assert.equal(approved.reviewItem.status, "APPROVED");
   assert.equal(edited.reviewItem.proposed_value, "support_email");
   assert.equal(rejected.reviewItem.status, "REJECTED");
+});
+
+test("review item decisions require an AgentRun id", async () => {
+  const apiClient = fakeApi();
+
+  await assert.rejects(
+    applyReviewItemDecision({
+      apiClient,
+      taskId: 7,
+      reviewItem: { id: "proposal-7" },
+      decision: "approved",
+    }),
+    /AgentRun id is required/,
+  );
+  assert.deepEqual(apiClient.calls, []);
 });
 
 test("field edits and rejects keep the legacy field update fallback", async () => {

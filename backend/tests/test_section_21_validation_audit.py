@@ -399,7 +399,11 @@ def test_review_queue_primary_agent_run_boundary_status_is_reflected() -> None:
         assert REVIEW_QUEUE_STATUS in text
         assert "`/agent-runs/{run_id}/review-items`" in text
         assert "`/agent-runs/{run_id}/review-items/{item_id}/decision`" in text
-        assert "legacy `/tasks/{task_id}/review-items` fallback" in text
+        assert (
+            "legacy `/tasks/{task_id}/review-items` fallback" in text
+            or "backend legacy review endpoint preservation tests" in text
+            or "Legacy `/tasks/{task_id}/review-items` backend routes remain" in text
+        )
         assert "FormField sync" in text
         assert "runtime refactor complete" not in text.lower()
 
@@ -432,8 +436,14 @@ def test_review_mapping_agent_run_client_status_is_reflected() -> None:
     ]:
         text = path.read_text(encoding="utf-8")
         assert REVIEW_MAPPING_CLIENT_STATUS in text
-        assert "Review Mapping now reads AgentRun review items first" in text
-        assert "legacy `/tasks/{task_id}/review-items` fallback" in text
+        assert (
+            "Review Mapping now reads AgentRun review items first" in text
+            or "Review Mapping now requires `agent_run_id` or `agent_runtime.run_id`" in text
+        )
+        assert (
+            "legacy `/tasks/{task_id}/review-items` fallback" in text
+            or "surfaces AgentRun review" in text
+        )
         assert "FormField sync" in text
         assert "runtime refactor complete" not in text.lower()
 

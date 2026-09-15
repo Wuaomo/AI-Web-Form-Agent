@@ -4,11 +4,13 @@ Compatibility Removal Planning & Primary Path Consolidation Track
 
 Status: Workflow compatibility endpoint removal was consolidated across the old
 security graph endpoints, read-only workflow compatibility endpoints, and
-legacy task review endpoints. The read-only frontend fallback helper has been
-removed: read-only workflow starts now surface governed deterministic start
-failures instead of calling legacy task endpoints. Backend endpoint deletion
-still does not pass remove-now because backend preservation tests, external
-consumer confirmation, and deletion tests remain open by surface. No backend
+legacy task review endpoints. The read-only frontend fallback helper and
+Review Mapping legacy task review fallback/helper have been removed:
+read-only workflow starts now surface governed deterministic start failures,
+and Review Mapping now surfaces AgentRun review read/write failures instead of
+calling legacy task review endpoints. Backend endpoint deletion still does not
+pass remove-now because backend preservation tests, external consumer
+confirmation, and deletion tests remain open by surface. No backend
 compatibility API is deleted here, and this does not claim the overall runtime
 refactor is complete.
 
@@ -30,8 +32,8 @@ refactor is complete.
 | Surface | Status | Primary replacement | Current consumers | Fallback type | Removal evidence still needed |
 | --- | --- | --- | --- | --- | --- |
 | `POST /tasks`, `GET /tasks`, `GET /tasks/{task_id}` | keep-for-now | Future create/list/read AgentRun APIs plus existing `GET /agent-runs/{run_id}` for runtime state | Dashboard, Create Task, Page Intake, Task Detail, Review Mapping, tests, demo docs | Not just no-run-id; it is still the stable task shell for profile/url/status/log/screenshot/approval navigation | Create/list AgentRun API parity, frontend route migration, demo/script migration, task facade e2e, rollback path |
-| `GET /tasks/{task_id}/review-items` | keep-for-now | `GET /agent-runs/{run_id}/review-items` | Review Mapping fallback, frontend API helper, backend/frontend tests | Yes: no run id or AgentRun read failure | Guarantee review pages always have a run id, remove frontend fallback/helper, AgentRun Review Queue parity for read/write/edit/reject/needs-more-evidence |
-| `POST /tasks/{task_id}/review-items/{item_id}/decision` | keep-for-now | `POST /agent-runs/{run_id}/review-items/{item_id}/decision` | Review Mapping only when no run id, frontend API helper, backend/frontend tests | Yes | No-run-id review write migration, remove frontend helper, AgentRun decision parity for field approvals/edits/rejections/needs-more-evidence |
+| `GET /tasks/{task_id}/review-items` | remove-later | `GET /agent-runs/{run_id}/review-items` | Backend preservation tests and docs-only mentions; frontend product fallback/helper removed | No product fallback found | Backend preservation tests still assert legacy behavior, external consumers not confirmed absent, removal tests still needed before backend deletion |
+| `POST /tasks/{task_id}/review-items/{item_id}/decision` | remove-later | `POST /agent-runs/{run_id}/review-items/{item_id}/decision` | Backend preservation tests and docs-only mentions; frontend product fallback/helper removed | No product fallback found | Backend preservation tests still assert legacy behavior, external consumers not confirmed absent, removal tests still needed before backend deletion |
 | `FormField` sync compatibility | keep-for-now | `AgentProposal` + `AgentReviewDecision`; browser write should eventually consume approved proposals directly | Review Queue sync helper, legacy fill/submit helpers, Review Mapping field edits, benchmarks, tests | Not only no-run-id; `FormField` remains extraction storage plus legacy mapped value storage | Proposal-only fill/submit path, extraction-vs-mapping storage split, benchmark parity, migration script or compatibility read model |
 | `POST /tasks/{task_id}/extract-page` | remove-later | `POST /workflows/{task_id}/governed/start` for `web_data_extract` AgentRun plan | Backend compatibility tests and docs-only mentions; frontend product fallback and helper removed | Workflow-specific read compatibility facade, not browser-write | Backend preservation tests still assert legacy behavior, external consumers not confirmed absent, removal tests still needed before backend deletion |
 | `POST /tasks/{task_id}/job-summary` | remove-later | `POST /workflows/{task_id}/governed/start` for `job_research_summary` AgentRun plan | Backend compatibility tests and docs-only mentions; frontend product fallback and helper removed | Workflow-specific read compatibility facade, not browser-write | Backend preservation tests still assert legacy behavior, external consumers not confirmed absent, removal tests still needed before backend deletion |
@@ -42,7 +44,7 @@ refactor is complete.
 | `POST /workflows/{task_id}/review` | remove-later | AgentRun Review Queue decision endpoint | Backend old-graph behavior tests; no frontend product helper or page caller found | Old security graph external compatibility only | Backend behavior tests convert to deletion/parity tests and external compatibility window closes |
 | Frontend Task Detail fallbacks | remove-later | Run Cockpit helpers using AgentRun first | `loadRunCockpitRuntime`, fill/submit action helpers | Mixed: AgentRun read failure, no-run-id task facade, no-run-id browser-write compatibility; old graph UI removed | Require run id for fill/submit-capable task detail paths before task wrapper deletion |
 | Frontend Run Cockpit fallback order | keep-for-now | `getAgentRun` -> governed state -> task facade | `runCockpitActions.js`, tests | AgentRun read failure and no-run-id | Keep until task facade read removal has a replacement route |
-| Frontend Review Mapping fallbacks | remove-later | AgentRun review read/write | `reviewMappingActions.js` task review fallback; old graph UI removed from `ReviewMapping.jsx` | Review read fallback only | Remove task review fallback after all review pages have run id |
+| Frontend Review Mapping fallbacks | removed | AgentRun review read/write | `reviewMappingActions.js`; old graph UI removed from `ReviewMapping.jsx` | None for task review endpoints | Keep AgentRun failure surfacing covered; backend routes remain until deletion criteria pass |
 | Frontend Create Task/Page Intake workflow-specific starts | removed | Governed start for all enabled demo workflows | `CreateTask.jsx`, `AnalyzePage.jsx`, `api.startReadOnlyWorkflow` | No legacy endpoint fallback; governed start failure surfaces to existing page error handling | Keep frontend on governed deterministic start |
 | Benchmark/demo/script helpers | keep-for-now | Runtime benchmark mode for AgentRun-style evidence; demos should prefer governed path | `benchmark_runner.py`, `backend/benchmarks`, `docs/demo-script.md`, README | Not product runtime fallback | Keep direct full-workflow benchmark as local deterministic evaluator; add removal checks only for product API callers |
 
@@ -63,10 +65,9 @@ Review Mapping:
 
 1. Read task facade to discover run id.
 2. If a run id exists, read `GET /agent-runs/{run_id}/review-items`.
-3. If AgentRun review read fails, read `GET /tasks/{task_id}/review-items`.
-4. Review writes use AgentRun decision when a run id exists and do not fall
-   back to the legacy task decision endpoint after AgentRun write failure.
-5. Without a run id, review writes use the legacy task decision endpoint.
+3. If no run id exists, or AgentRun review read fails, surface the error.
+4. Review writes require a run id and use AgentRun decisions; no write falls
+   back to the legacy task decision endpoint.
 
 Create Task and Page Intake:
 
@@ -76,9 +77,9 @@ Create Task and Page Intake:
   `api.startReadOnlyWorkflow`, which calls governed deterministic start and
   surfaces governed failures through existing page error handling.
 
-Conclusion: with a run id, browser-write and review writes already use AgentRun
-primary boundaries. Without a run id, fallbacks remain intentional compatibility
-paths, not security bypasses.
+Conclusion: browser-write still has intentional no-run-id compatibility
+fallbacks, but Review Mapping no longer uses legacy task review read/write
+fallbacks.
 
 ## Phase 26 Browser-Write Wrapper Retirement Planning
 
@@ -163,13 +164,19 @@ Removal order for the next track:
      path and old graph 404/removal tests after deletion.
    - Rollback: restore old graph routes only; no schema migration required.
 
-3. Require run id for Review Mapping review read/write.
+3. Retire legacy task review backend routes.
    - Candidate: `/tasks/{task_id}/review-items`,
      `/tasks/{task_id}/review-items/{item_id}/decision`.
-   - Blockers: legacy tasks without AgentRun and FormField-only review rows.
-   - Required tests: Review Mapping AgentRun read/write only, migrated old
-     task review data, decision parity.
-   - Rollback: keep helper fallback branch until migrated data is proven.
+   - Status: frontend Review Mapping reads/writes AgentRun review APIs only;
+     frontend task review helpers are removed.
+   - Blockers: backend preservation tests still assert legacy behavior,
+     external consumers are not confirmed absent, removal tests are still
+     needed, and FormField sync remains needed for browser-write
+     compatibility.
+   - Required tests: deletion/removal tests plus AgentRun Review Queue parity
+     for compact reads, all decision values, wrong-run rejection, and
+     FormField sync limits.
+   - Rollback: keep backend route implementation until deletion criteria pass.
 
 4. Require run id for browser fill/submit.
    - Candidate: `/tasks/{task_id}/fill`,
@@ -274,10 +281,9 @@ Current consumers:
   `GET /agent-runs/{run_id}` and `POST /agent-runs/{run_id}/continue` when a
   run id exists, with governed/task facade fallback only for reads or no-run-id
   browser-write compatibility.
-- `frontend/src/reviewMappingActions.js` already uses
-  AgentRun review read/write when a run id exists. Its task review fallback
-  remains for no-run-id or AgentRun read failure compatibility, and AgentRun
-  review write failures do not fall back to task writes.
+- `frontend/src/reviewMappingActions.js` uses AgentRun review read/write only.
+  Missing run ids and AgentRun review failures now surface to the page error
+  state instead of falling back to task review endpoints.
 - Related frontend tests now cover AgentRun-first Run Cockpit reads, AgentRun
   continue fill/submit, AgentRun-first Review Mapping read/write, no AgentRun
   write fallback after AgentRun errors, and old security graph UI fallback
@@ -397,7 +403,7 @@ Consumer classification:
 | --- | --- | --- | --- | --- | --- | --- |
 | B. `POST /tasks/{task_id}/extract-page`, `POST /tasks/{task_id}/job-summary` | `CreateTask.jsx` and `AnalyzePage.jsx` call `api.startReadOnlyWorkflow`, which calls governed deterministic start only. No product caller hits the legacy endpoints. | None in frontend product paths; unused `extractTaskPage` and `generateJobSummary` helpers were removed from `frontend/src/api.js`. | `backend/tests/test_task_mapping_endpoint.py` preserves legacy runtime persistence; `backend/tests/test_section_21_validation_audit.py` documents the read-only facade. | README, architecture/roadmap/RFC audit docs, Section 21 audit, and this map. | None found in `scripts` or `backend/benchmarks`. | Not confirmed closed. |
 | C. `POST /workflows/{task_id}/start`, `GET /workflows/{task_id}`, `POST /workflows/{task_id}/review` | None found in `frontend/src`, scripts, benchmarks, or product routers beyond the route implementation. | Backend route remains in `backend/app/routers/workflows.py` as deprecated old graph compatibility fallback. Frontend old graph product helpers remain absent. | `backend/tests/test_workflow_runtime_endpoint.py` preserves old start/get/review behavior; `backend/tests/test_section_21_validation_audit.py` documents the fallback. | README, architecture/roadmap/RFC audit docs, Section 21 audit, and this map. | None found in `scripts` or `backend/benchmarks`. | Yes, external compatibility window remains open. |
-| D. `GET /tasks/{task_id}/review-items`, `POST /tasks/{task_id}/review-items/{item_id}/decision` | Review Mapping uses AgentRun review APIs when `agent_run_id` or `agent_runtime.run_id` exists. | `reviewMappingActions.js` still falls back to `listTaskReviewItems` after AgentRun read failure or no run id; no-run-id writes still use `reviewTaskItem`. Frontend API helpers remain in `frontend/src/api.js`. | `backend/tests/test_task_mapping_endpoint.py` preserves legacy read/write/backfill behavior; `backend/tests/test_section_21_validation_audit.py` documents the fallback. | README, roadmap/RFC audit docs, Section 21 audit, and this map. | None found in `scripts` or `backend/benchmarks`. | Legacy/no-run-id review paths still exist; external status not confirmed closed. |
+| D. `GET /tasks/{task_id}/review-items`, `POST /tasks/{task_id}/review-items/{item_id}/decision` | Review Mapping requires `agent_run_id` or `agent_runtime.run_id` and uses AgentRun review APIs only. | None in frontend product paths; `listTaskReviewItems` and `reviewTaskItem` helpers were removed from `frontend/src/api.js`. | `backend/tests/test_task_mapping_endpoint.py` preserves legacy read/write/backfill behavior; `backend/tests/test_section_21_validation_audit.py` documents the fallback. | README, roadmap/RFC audit docs, Section 21 audit, and this map. | None found in `scripts` or `backend/benchmarks`. | External status not confirmed closed; backend preservation/removal tests remain. |
 
 Remove-now decision:
 
@@ -405,7 +411,7 @@ Remove-now decision:
 | --- | --- | --- | --- |
 | B. Read-only backend endpoints | remove-later | No | Backend preservation tests still assert legacy behavior, external consumers are not confirmed absent, and removal tests are still needed before backend deletion. |
 | C. Old security graph backend endpoints | remove-later | No | External compatibility window is still open and backend preservation tests still assert old graph behavior. |
-| D. Legacy task review endpoints | keep-for-now | No | Product review path still has no-run-id and AgentRun read failure fallback; AgentRun Review Queue parity for read/write/edit/reject/needs-more-evidence is not yet sufficient to remove the legacy task fallback/helper. |
+| D. Legacy task review endpoints | remove-later | No | Frontend fallback/helper is removed and AgentRun parity evidence is tightened, but backend preservation tests still assert legacy behavior, external consumers are not confirmed absent, and removal tests are still needed before backend deletion. |
 
 Runtime/security gaps:
 
@@ -422,9 +428,10 @@ Remaining gaps:
   no-external-consumer window before backend deletion.
 - C needs the external compatibility window closed before old graph removal
   tests replace preservation tests.
-- D needs Review Mapping to require an AgentRun id or have a migration/backfill
-  path that removes AgentRun read failure/no-run-id fallback, plus AgentRun
-  Review Queue parity for read/write/edit/reject/needs-more-evidence.
+- D needs backend preservation tests converted to deletion/removal tests and a
+  confirmed no-external-consumer window before backend deletion. FormField sync
+  remains intentionally limited to field proposals for browser-write
+  compatibility.
 
 Next consolidated gate:
 
@@ -433,8 +440,9 @@ Next consolidated gate:
 2. Confirm governed read-only parity stays covered by AgentRun/plan/tool-call,
    trace-span, summary, and screenshot evidence.
 3. Close or explicitly extend C external compatibility window.
-4. Tighten D by requiring run ids for Review Mapping before converting legacy
-   task review preservation tests to removal tests.
+4. Convert D backend preservation tests into removal tests after external
+   consumers are confirmed absent; keep FormField sync until browser write no
+   longer depends on mapped `FormField` values.
 
 ## Runtime And Security Gaps
 
@@ -449,6 +457,10 @@ Found in this audit:
 - Fixed: `frontend/src/api.js` still exposed product helpers for the old graph
   endpoints. Those helpers are now removed, and the API client test asserts
   they stay absent.
+- Fixed: Review Mapping still had a legacy task review read/write fallback.
+  Missing run ids and AgentRun review failures now surface errors, and
+  `frontend/src/api.js` no longer exposes `listTaskReviewItems` or
+  `reviewTaskItem`.
 - No browser-write safety bypass was found; reviewed fill and final submit
   still use the shared AgentRun/Tool Runtime gates when a run id exists.
 
@@ -476,6 +488,7 @@ remove-now:
 removed:
 
 - Frontend read-only compatibility fallback branch.
+- Frontend Review Mapping legacy task review fallback/helper.
 
 remove-later:
 
@@ -486,13 +499,12 @@ remove-later:
 - `/workflows/{task_id}/start`
 - `/workflows/{task_id}`
 - `/workflows/{task_id}/review`
+- `/tasks/{task_id}/review-items`
+- `/tasks/{task_id}/review-items/{item_id}/decision`
 
 keep-for-now:
 
 - `POST /tasks`, `GET /tasks`, `GET /tasks/{task_id}`.
-- `/tasks/{task_id}/review-items` and
-  `/tasks/{task_id}/review-items/{item_id}/decision` while Review Mapping still
-  has no-run-id and AgentRun read failure fallback.
 - `FormField` extraction rows and field-proposal sync.
 - Run Cockpit task facade fallback.
 - Benchmark full-workflow/direct fixture helpers.
@@ -506,6 +518,8 @@ This endpoint gate can close when:
 - Frontend tests pass.
 - Frontend production build passes.
 
-The next consolidated gate should delete only after its target surface has no
-frontend consumer, no benchmark/demo dependency, closed external compatibility
-window, and parity tests covering the replacement.
+The next consolidated gate should convert D backend preservation tests into
+removal tests after external consumers are confirmed absent, then delete only
+after its target surface has no frontend consumer, no benchmark/demo
+dependency, closed external compatibility window, and parity tests covering the
+replacement.

@@ -108,7 +108,7 @@ function ReviewMapping() {
           apiClient: api,
           taskId,
           task: taskResult,
-        }).catch(() => []),
+        }),
       ]);
       setTask(taskResult);
       setFields(fieldItems);
@@ -221,7 +221,7 @@ function ReviewMapping() {
           apiClient: api,
           taskId,
           task,
-        }).catch(() => []),
+        }),
       );
       setNotice("Agent mappings generated.");
     } catch (requestError) {

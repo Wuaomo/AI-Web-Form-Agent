@@ -27,18 +27,13 @@ export function shouldLoadLegacySecurityWorkflowFallback(task) {
 
 export async function loadReviewItemsForReviewMapping({
   apiClient,
-  taskId,
   task,
 }) {
   const runId = getReviewMappingRunId(task);
-  if (runId) {
-    try {
-      return await apiClient.listAgentRunReviewItems(runId);
-    } catch {
-      // Keep the migration fallback until Review Mapping fully leaves /tasks.
-    }
+  if (!runId) {
+    throw new Error("AgentRun id is required for Review Mapping review items.");
   }
-  return apiClient.listTaskReviewItems(taskId);
+  return apiClient.listAgentRunReviewItems(runId);
 }
 
 export async function applyReviewItemDecision({
@@ -50,11 +45,10 @@ export async function applyReviewItemDecision({
   editedValue,
 }) {
   const payload = buildReviewDecisionPayload(decision, editedValue);
-  if (runId) {
-    await apiClient.reviewAgentRunItem(runId, reviewItem.id, payload);
-  } else {
-    await apiClient.reviewTaskItem(taskId, reviewItem.id, payload);
+  if (!runId) {
+    throw new Error("AgentRun id is required for Review Mapping review decisions.");
   }
+  await apiClient.reviewAgentRunItem(runId, reviewItem.id, payload);
   return {
     reviewItem: applyDecisionToReviewItem(reviewItem, decision, editedValue),
   };

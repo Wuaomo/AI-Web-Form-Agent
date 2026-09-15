@@ -1192,9 +1192,10 @@ Evidence:
   questionnaire graph fallback: the primary security questionnaire demo path is
   generic governed runtime; the fallback remains compatibility-only,
   non-mutating for browser writes, and not a verification trust path.
-- Review Mapping now reads AgentRun review items first when `agent_run_id` or `agent_runtime.run_id` is present, then falls back to legacy `/tasks/{task_id}/review-items`.
-- Review Mapping still keeps legacy `/tasks/{task_id}/review-items` read
-  fallback and field-proposal FormField sync compatibility during migration,
-  but AgentRun review writes no longer fall back to legacy task writes.
+- Review Mapping now requires `agent_run_id` or `agent_runtime.run_id` for
+  AgentRun review reads/writes and surfaces AgentRun review errors instead of
+  falling back to legacy `/tasks/{task_id}/review-items`.
+- Field-proposal FormField sync compatibility remains during migration, but
+  Review Mapping no longer has a frontend task review read/write fallback.
 - Phase A closes only the frontend AgentRun boundary. Backend compatibility
   paths and broader runtime migration gaps remain.

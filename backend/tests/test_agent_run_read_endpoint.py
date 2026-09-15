@@ -5,6 +5,7 @@ from collections.abc import Generator
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
@@ -569,6 +570,65 @@ def test_get_agent_run_review_items_stays_bound_to_requested_run() -> None:
         session.close()
 
 
+def test_agent_run_review_items_keep_non_field_form_targets_compact() -> None:
+    client, session = build_environment()
+    task = create_task(session)
+    field = FormField(
+        task_id=task.id,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        mapped_value="legacy@example.com",
+        confidence=0.99,
+    )
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review mixed proposals.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    non_field_proposal = AgentProposal(
+        id=f"memory-form-target-{task.id}",
+        run=run,
+        proposal_type="memory_write",
+        target_type="form_field",
+        target_ref="pending",
+        proposed_value="email",
+        rationale="Non-field proposal with a field-shaped target.",
+        confidence=0.5,
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([field, run, non_field_proposal])
+    session.flush()
+    non_field_proposal.target_ref = str(field.id)
+    session.commit()
+
+    try:
+        response = client.get(f"/agent-runs/task-{task.id}/review-items")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert [item["id"] for item in payload] == [
+            non_field_proposal.id,
+            f"task-{task.id}-field-{field.id}",
+        ]
+        assert payload[0]["proposal_type"] == "memory_write"
+        assert payload[0]["target_type"] == "form_field"
+        assert payload[1]["proposal_type"] == "field_value"
+        assert payload[1]["proposed_value"] == "legacy@example.com"
+        assert "tool_results" not in json.dumps(payload)
+        assert "output_json" not in json.dumps(payload)
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
 def test_agent_run_review_item_decision_persists_decision_and_syncs_field() -> None:
     client, session = build_environment()
     task = create_task(session)
@@ -629,6 +689,83 @@ def test_agent_run_review_item_decision_persists_decision_and_syncs_field() -> N
         assert field.mapped_value == "proposal@example.com"
         assert field.confidence == 1.0
         assert run.pending_review_count == 0
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+@pytest.mark.parametrize(
+    ("decision_value", "payload", "expected_status", "expected_field_value"),
+    [
+        ("approved", {}, "APPROVED", "proposal@example.com"),
+        ("edited", {"edited_value": "edited@example.com"}, "EDITED", "edited@example.com"),
+        ("rejected", {}, "REJECTED", None),
+        ("needs_more_evidence", {}, "NEEDS_MORE_EVIDENCE", "legacy@example.com"),
+    ],
+)
+def test_agent_run_review_item_decision_persists_all_decision_values(
+    decision_value: str,
+    payload: dict[str, object],
+    expected_status: str,
+    expected_field_value: str | None,
+) -> None:
+    client, session = build_environment()
+    task = create_task(session)
+    field = FormField(
+        task_id=task.id,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        mapped_profile_key="email",
+        mapped_value="legacy@example.com",
+        confidence=0.5,
+    )
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review all decision values.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+        pending_review_count=1,
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"{decision_value}-field-proposal-{task.id}",
+        run=run,
+        proposal_type="field_value",
+        target_type="form_field",
+        target_ref="pending",
+        proposed_value="proposal@example.com",
+        rationale="Persist every review decision.",
+        confidence=0.42,
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([field, run, proposal])
+    session.flush()
+    proposal.target_ref = str(field.id)
+    session.commit()
+
+    try:
+        response = client.post(
+            f"/agent-runs/task-{task.id}/review-items/{proposal.id}/decision",
+            json={"decision": decision_value, **payload},
+        )
+
+        assert response.status_code == 200
+        decision = session.get(AgentReviewDecision, f"decision-{proposal.id}")
+        assert decision is not None
+        assert decision.decision == decision_value
+        assert decision.edited_value == payload.get("edited_value")
+        session.refresh(proposal)
+        session.refresh(field)
+        assert proposal.status == expected_status
+        assert field.mapped_value == expected_field_value
+        if decision_value == "rejected":
+            assert field.mapped_profile_key is None
     finally:
         app.dependency_overrides.clear()
         session.close()
