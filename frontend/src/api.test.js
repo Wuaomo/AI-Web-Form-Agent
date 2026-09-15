@@ -155,7 +155,7 @@ test("read-only workflow start uses governed deterministic path first", async ()
   }
 });
 
-test("read-only workflow start keeps legacy endpoint as governed fallback", async () => {
+test("read-only workflow start surfaces governed failure without legacy fallback", async () => {
   clearApiCache();
   const originalFetch = globalThis.fetch;
   const calls = [];
@@ -171,17 +171,16 @@ test("read-only workflow start keeps legacy endpoint as governed fallback", asyn
   };
 
   try {
-    const result = await api.startReadOnlyWorkflow(7, "web_data_extract");
+    await assert.rejects(
+      () => api.startReadOnlyWorkflow(7, "web_data_extract"),
+      /governed start unavailable/,
+    );
 
-    assert.deepEqual(result, { status: "EXTRACTED" });
     assert.deepEqual(
       calls.map((call) => call.url.replace(/^.*?:\/\/[^/]+/, "")),
-      [
-        "/workflows/7/governed/start?planner_mode=deterministic",
-        "/tasks/7/extract-page",
-      ],
+      ["/workflows/7/governed/start?planner_mode=deterministic"],
     );
-    assert.deepEqual(calls.map((call) => call.method), ["POST", "POST"]);
+    assert.deepEqual(calls.map((call) => call.method), ["POST"]);
   } finally {
     clearApiCache();
     globalThis.fetch = originalFetch;

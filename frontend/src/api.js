@@ -67,16 +67,6 @@ async function request(path, options = {}) {
   });
 }
 
-function legacyReadOnlyWorkflowStartPath(taskId, workflowType) {
-  if (workflowType === "web_data_extract") {
-    return `/tasks/${taskId}/extract-page`;
-  }
-  if (workflowType === "job_research_summary") {
-    return `/tasks/${taskId}/job-summary`;
-  }
-  return null;
-}
-
 export const api = {
   health: () => request("/health"),
   listLlmProviders: () => request("/llm/providers"),
@@ -91,19 +81,10 @@ export const api = {
       method: "POST",
     });
   },
-  startReadOnlyWorkflow: async (taskId, workflowType) => {
-    try {
-      return await api.startGovernedWorkflow(taskId, {
-        plannerMode: "deterministic",
-      });
-    } catch (error) {
-      const fallbackPath = legacyReadOnlyWorkflowStartPath(taskId, workflowType);
-      if (!fallbackPath) {
-        throw error;
-      }
-      return request(fallbackPath, { method: "POST" });
-    }
-  },
+  startReadOnlyWorkflow: (taskId) =>
+    api.startGovernedWorkflow(taskId, {
+      plannerMode: "deterministic",
+    }),
   getGovernedWorkflowState: (taskId) => request(`/workflows/${taskId}/governed`),
   getAgentRun: (runId) => request(`/agent-runs/${runId}`),
   continueAgentRun: (runId, options = {}) =>
