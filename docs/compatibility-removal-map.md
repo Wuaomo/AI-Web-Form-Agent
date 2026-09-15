@@ -7,11 +7,10 @@ security graph endpoints, read-only workflow compatibility endpoints, and
 legacy task review endpoints. The read-only frontend fallback helper has been
 removed: read-only workflow starts now surface governed deterministic start
 failures instead of calling legacy task endpoints. Backend endpoint deletion
-still does not pass remove-now because parity e2e evidence, backend
-preservation tests, frontend compatibility helpers/fallbacks, and
-external-consumer confirmation remain open by surface. No backend compatibility
-API is deleted here, and this does not claim the overall runtime refactor is
-complete.
+still does not pass remove-now because backend preservation tests, external
+consumer confirmation, and deletion tests remain open by surface. No backend
+compatibility API is deleted here, and this does not claim the overall runtime
+refactor is complete.
 
 ## Primary Boundaries
 
@@ -34,8 +33,8 @@ complete.
 | `GET /tasks/{task_id}/review-items` | keep-for-now | `GET /agent-runs/{run_id}/review-items` | Review Mapping fallback, frontend API helper, backend/frontend tests | Yes: no run id or AgentRun read failure | Guarantee review pages always have a run id, remove frontend fallback/helper, AgentRun Review Queue parity for read/write/edit/reject/needs-more-evidence |
 | `POST /tasks/{task_id}/review-items/{item_id}/decision` | keep-for-now | `POST /agent-runs/{run_id}/review-items/{item_id}/decision` | Review Mapping only when no run id, frontend API helper, backend/frontend tests | Yes | No-run-id review write migration, remove frontend helper, AgentRun decision parity for field approvals/edits/rejections/needs-more-evidence |
 | `FormField` sync compatibility | keep-for-now | `AgentProposal` + `AgentReviewDecision`; browser write should eventually consume approved proposals directly | Review Queue sync helper, legacy fill/submit helpers, Review Mapping field edits, benchmarks, tests | Not only no-run-id; `FormField` remains extraction storage plus legacy mapped value storage | Proposal-only fill/submit path, extraction-vs-mapping storage split, benchmark parity, migration script or compatibility read model |
-| `POST /tasks/{task_id}/extract-page` | remove-later | `POST /workflows/{task_id}/governed/start` for `web_data_extract` AgentRun plan | Backend compatibility tests, docs-only mentions; frontend product fallback removed; unused `api.extractTaskPage` helper remains | Workflow-specific read compatibility facade, not browser-write | Checkpoint/log/screenshot parity e2e, remove unused frontend helper, no external consumers, convert preservation tests before backend deletion |
-| `POST /tasks/{task_id}/job-summary` | remove-later | `POST /workflows/{task_id}/governed/start` for `job_research_summary` AgentRun plan | Backend compatibility tests, docs-only mentions; frontend product fallback removed; unused `api.generateJobSummary` helper remains | Workflow-specific read compatibility facade, not browser-write | Summary/checkpoint/log/screenshot parity e2e, remove unused frontend helper, no external consumers, convert preservation tests before backend deletion |
+| `POST /tasks/{task_id}/extract-page` | remove-later | `POST /workflows/{task_id}/governed/start` for `web_data_extract` AgentRun plan | Backend compatibility tests and docs-only mentions; frontend product fallback and helper removed | Workflow-specific read compatibility facade, not browser-write | Backend preservation tests still assert legacy behavior, external consumers not confirmed absent, removal tests still needed before backend deletion |
+| `POST /tasks/{task_id}/job-summary` | remove-later | `POST /workflows/{task_id}/governed/start` for `job_research_summary` AgentRun plan | Backend compatibility tests and docs-only mentions; frontend product fallback and helper removed | Workflow-specific read compatibility facade, not browser-write | Backend preservation tests still assert legacy behavior, external consumers not confirmed absent, removal tests still needed before backend deletion |
 | `POST /tasks/{task_id}/fill` | remove-later | `POST /agent-runs/{run_id}/continue` | Task Detail no-run-id fallback, legacy async jobs, backend/frontend tests | Yes | All fill-capable paths must expose run id before fill; sync/async continue e2e; legacy empty-payload job retirement plan |
 | `POST /tasks/{task_id}/confirm-submit` | remove-later | `POST /agent-runs/{run_id}/continue` with `{"action":"submit_form"}` | Task Detail no-run-id fallback, approval flow tests | Yes | Submit e2e through AgentRun continue, approval center/task refresh parity, stale approval regression coverage after fallback removal |
 | `POST /workflows/{task_id}/start` | remove-later | `POST /workflows/{task_id}/governed/start` | Backend old-graph behavior tests; no frontend product helper or primary caller found | Old security graph external compatibility only | External compatibility window closes and old graph behavior tests convert to deletion/parity tests |
@@ -145,11 +144,13 @@ Removal order for the next track:
    - Candidate: `/tasks/{task_id}/extract-page`,
      `/tasks/{task_id}/job-summary`.
    - Status: frontend helper fallback removed.
-   - Blockers: checkpoint/log/screenshot parity e2e, demo/script migration,
-     external compatibility window.
-   - Required tests still needed before deletion: one e2e-style read-only task
-     flow per workflow and removal tests proving no product caller remains.
-   - Rollback: keep task endpoints behind API helpers until parity passes.
+   - Blockers: backend preservation tests still assert legacy behavior,
+     external consumers are not confirmed absent, and removal tests are still
+     needed before backend deletion.
+   - Required tests still needed before deletion: removal tests proving no
+     product caller remains and legacy endpoint deletion returns the intended
+     contract.
+   - Rollback: keep backend task endpoints until deletion criteria pass.
 
 2. Remove old security questionnaire graph UI consumers.
    - Candidate: `/workflows/{task_id}/start`, `/workflows/{task_id}`,
@@ -221,9 +222,11 @@ Removal readiness:
 - Frontend primary path removed: yes.
 - Frontend legacy fallback removed: yes.
 - Delete now: no.
-- Next deletion blockers: add checkpoint/log/screenshot parity e2e for extraction, add
-  summary/checkpoint/log/screenshot parity e2e for job summary, and confirm no
-  external consumers.
+- Governed parity evidence: AgentRun/plan/tool-call, trace-span, summary, and
+  screenshot runtime evidence are covered by backend tests.
+- Next deletion blockers: backend preservation tests still assert legacy
+  behavior, external consumers are not confirmed absent, and removal tests are
+  still needed before backend deletion.
 
 ## Workflow Compatibility Endpoint Removal Gate
 
@@ -243,14 +246,14 @@ Read-only workflow compatibility endpoint consumers:
 
 | Endpoint group | Product caller | Compatibility helper/fallback | Backend preservation test | Docs-only mention | Benchmark/demo helper | External compatibility blocker |
 | --- | --- | --- | --- | --- | --- | --- |
-| `POST /tasks/{task_id}/extract-page`, `POST /tasks/{task_id}/job-summary` | `CreateTask.jsx` and `AnalyzePage.jsx` call `api.startReadOnlyWorkflow`, which now calls governed start only. | None in product frontend fallback paths. | `backend/tests/test_task_mapping_endpoint.py` still verifies legacy endpoint runtime persistence; `backend/tests/test_section_21_validation_audit.py` still documents them as read-only compatibility facades. | README, roadmap, RFC, Section 21 audit, and this map describe these as read-only compatibility facades. | No direct caller found in `scripts` or `backend/benchmarks`; docs/demo references are narrative only. | Treat as not closed until no external consumers are confirmed; delete is also blocked by missing parity e2e. |
+| `POST /tasks/{task_id}/extract-page`, `POST /tasks/{task_id}/job-summary` | `CreateTask.jsx` and `AnalyzePage.jsx` call `api.startReadOnlyWorkflow`, which now calls governed start only. | None in product frontend fallback paths; low-level frontend helpers are removed. | `backend/tests/test_task_mapping_endpoint.py` still verifies legacy endpoint runtime persistence; `backend/tests/test_section_21_validation_audit.py` still documents them as read-only compatibility facades. | README, roadmap, RFC, Section 21 audit, and this map describe these as read-only compatibility facades. | No direct caller found in `scripts` or `backend/benchmarks`; docs/demo references are narrative only. | Treat as not closed until no external consumers are confirmed and removal tests replace preservation tests. |
 
 Remove-now decision:
 
 | Endpoint group | Decision | Why not delete in this gate |
 | --- | --- | --- |
 | Old security graph backend endpoints | remove-later | No product caller or frontend helper remains, but backend preservation tests and the external compatibility window still exist. |
-| Read-only workflow compatibility endpoints | remove-later | The frontend compatibility fallback helper is removed, but checkpoint/log/screenshot parity e2e, backend preservation test conversion, and external-consumer confirmation are still missing. |
+| Read-only workflow compatibility endpoints | remove-later | The frontend compatibility fallback helper is removed, but backend preservation test conversion, external-consumer confirmation, and removal tests are still missing. |
 
 Endpoint deletion was not executed because neither group meets remove-now
 criteria. This gate updates the compatibility map only.
@@ -392,7 +395,7 @@ Consumer classification:
 
 | Surface | Product caller | Compatibility helper/fallback | Backend preservation test | Docs-only mention | Benchmark/demo helper | External compatibility blocker |
 | --- | --- | --- | --- | --- | --- | --- |
-| B. `POST /tasks/{task_id}/extract-page`, `POST /tasks/{task_id}/job-summary` | `CreateTask.jsx` and `AnalyzePage.jsx` call `api.startReadOnlyWorkflow`, which calls governed deterministic start only. No product caller hits the legacy endpoints. | Unused low-level frontend helpers remain in `frontend/src/api.js`: `extractTaskPage` and `generateJobSummary`. They are not called by product pages or tests. | `backend/tests/test_task_mapping_endpoint.py` preserves legacy runtime persistence; `backend/tests/test_section_21_validation_audit.py` documents the read-only facade. | README, architecture/roadmap/RFC audit docs, Section 21 audit, and this map. | None found in `scripts` or `backend/benchmarks`. | Not confirmed closed. |
+| B. `POST /tasks/{task_id}/extract-page`, `POST /tasks/{task_id}/job-summary` | `CreateTask.jsx` and `AnalyzePage.jsx` call `api.startReadOnlyWorkflow`, which calls governed deterministic start only. No product caller hits the legacy endpoints. | None in frontend product paths; unused `extractTaskPage` and `generateJobSummary` helpers were removed from `frontend/src/api.js`. | `backend/tests/test_task_mapping_endpoint.py` preserves legacy runtime persistence; `backend/tests/test_section_21_validation_audit.py` documents the read-only facade. | README, architecture/roadmap/RFC audit docs, Section 21 audit, and this map. | None found in `scripts` or `backend/benchmarks`. | Not confirmed closed. |
 | C. `POST /workflows/{task_id}/start`, `GET /workflows/{task_id}`, `POST /workflows/{task_id}/review` | None found in `frontend/src`, scripts, benchmarks, or product routers beyond the route implementation. | Backend route remains in `backend/app/routers/workflows.py` as deprecated old graph compatibility fallback. Frontend old graph product helpers remain absent. | `backend/tests/test_workflow_runtime_endpoint.py` preserves old start/get/review behavior; `backend/tests/test_section_21_validation_audit.py` documents the fallback. | README, architecture/roadmap/RFC audit docs, Section 21 audit, and this map. | None found in `scripts` or `backend/benchmarks`. | Yes, external compatibility window remains open. |
 | D. `GET /tasks/{task_id}/review-items`, `POST /tasks/{task_id}/review-items/{item_id}/decision` | Review Mapping uses AgentRun review APIs when `agent_run_id` or `agent_runtime.run_id` exists. | `reviewMappingActions.js` still falls back to `listTaskReviewItems` after AgentRun read failure or no run id; no-run-id writes still use `reviewTaskItem`. Frontend API helpers remain in `frontend/src/api.js`. | `backend/tests/test_task_mapping_endpoint.py` preserves legacy read/write/backfill behavior; `backend/tests/test_section_21_validation_audit.py` documents the fallback. | README, roadmap/RFC audit docs, Section 21 audit, and this map. | None found in `scripts` or `backend/benchmarks`. | Legacy/no-run-id review paths still exist; external status not confirmed closed. |
 
@@ -400,7 +403,7 @@ Remove-now decision:
 
 | Surface | Status | Delete this gate? | Minimal blocker |
 | --- | --- | --- | --- |
-| B. Read-only backend endpoints | remove-later | No | Missing checkpoint/log/screenshot parity e2e, unused frontend helpers remain, backend preservation tests still assert legacy behavior, and external consumers are not confirmed absent. |
+| B. Read-only backend endpoints | remove-later | No | Backend preservation tests still assert legacy behavior, external consumers are not confirmed absent, and removal tests are still needed before backend deletion. |
 | C. Old security graph backend endpoints | remove-later | No | External compatibility window is still open and backend preservation tests still assert old graph behavior. |
 | D. Legacy task review endpoints | keep-for-now | No | Product review path still has no-run-id and AgentRun read failure fallback; AgentRun Review Queue parity for read/write/edit/reject/needs-more-evidence is not yet sufficient to remove the legacy task fallback/helper. |
 
@@ -415,9 +418,8 @@ Runtime/security gaps:
 
 Remaining gaps:
 
-- B needs read-only parity e2e for checkpoint/log/screenshot evidence and a
-  confirmed no-external-consumer window before backend deletion tests replace
-  preservation tests.
+- B needs backend preservation tests converted to deletion tests and a confirmed
+  no-external-consumer window before backend deletion.
 - C needs the external compatibility window closed before old graph removal
   tests replace preservation tests.
 - D needs Review Mapping to require an AgentRun id or have a migration/backfill
@@ -426,9 +428,10 @@ Remaining gaps:
 
 Next consolidated gate:
 
-1. Remove unused read-only frontend helpers only if product tests confirm no
-   caller remains.
-2. Add B parity e2e for governed read-only checkpoint/log/screenshot evidence.
+1. Convert B backend preservation tests into deletion/removal tests after
+   external consumers are confirmed absent.
+2. Confirm governed read-only parity stays covered by AgentRun/plan/tool-call,
+   trace-span, summary, and screenshot evidence.
 3. Close or explicitly extend C external compatibility window.
 4. Tighten D by requiring run ids for Review Mapping before converting legacy
    task review preservation tests to removal tests.
@@ -467,7 +470,7 @@ remove-now:
 
 - None. Old security graph frontend primary routing and no-run-id UI fallback
   have moved off the old graph and frontend product API helpers are removed,
-  but backend compatibility tests and the external compatibility window still
+  but backend compatibility tests and external compatibility windows still
   exist.
 
 removed:

@@ -117,6 +117,8 @@ test("workflow runtime API client exposes governed workflow helpers only", async
     assert.equal(api.startWorkflow, undefined);
     assert.equal(api.getWorkflowState, undefined);
     assert.equal(api.reviewWorkflow, undefined);
+    assert.equal(api.extractTaskPage, undefined);
+    assert.equal(api.generateJobSummary, undefined);
     assert.equal(calls.length, 2);
     assert.ok(calls[0].url.endsWith("/workflows/1/governed/start?planner_mode=template_guided"));
     assert.equal(calls[0].method, "POST");

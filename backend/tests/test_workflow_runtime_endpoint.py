@@ -27,6 +27,7 @@ from app.models import (
     Profile,
     Screenshot,
     Task,
+    WorkflowSpan,
     WorkflowMemoryItem,
 )
 from app.routers.workflows import router as workflows_router
@@ -157,6 +158,18 @@ def create_job_research_summary_task(session: Session, profile: Profile) -> Task
     session.add(task)
     session.commit()
     return task
+
+
+async def persist_screenshot_evidence(**kwargs) -> Screenshot:
+    db = kwargs["db"]
+    screenshot = Screenshot(
+        task_id=kwargs["task_id"],
+        file_path=f"screenshots/task-{kwargs['task_id']}-{kwargs['stage']}.png",
+        stage=kwargs["stage"],
+    )
+    db.add(screenshot)
+    db.flush()
+    return screenshot
 
 
 def create_governed_proposal(
@@ -438,7 +451,7 @@ def test_governed_start_web_data_extract_runs_read_only_page_plan() -> None:
     )
     runtime = build_default_tool_runtime(
         extract_page_handler=AsyncMock(return_value=page_result),
-        capture_screenshot_handler=AsyncMock(return_value=None),
+        capture_screenshot_handler=persist_screenshot_evidence,
     )
 
     from unittest.mock import patch
@@ -456,7 +469,17 @@ def test_governed_start_web_data_extract_runs_read_only_page_plan() -> None:
         "extract_page",
         "capture_screenshot",
     ]
+    assert [call["tool_name"] for call in payload["tool_calls"]] == [
+        "extract_page",
+        "capture_screenshot",
+    ]
+    assert {call["governance_decision"] for call in payload["tool_calls"]} == {"ALLOW"}
 
+    run = session.get(AgentRun, f"task-{task.id}")
+    assert run is not None
+    assert run.status == "COMPLETED"
+    assert run.workflow_hint == "web_data_extract"
+    assert run.target_url == task.url
     tool_names = [
         row[0]
         for row in session.execute(
@@ -472,6 +495,29 @@ def test_governed_start_web_data_extract_runs_read_only_page_plan() -> None:
         )
     ]
     assert tool_names == ["capture_screenshot", "extract_page"]
+    extraction = session.get(AgentToolResult, f"task-{task.id}:extract_page")
+    assert extraction is not None
+    assert extraction.output_json["title"] == "Research page"
+    assert extraction.output_json["heading_count"] == 1
+    screenshot_result = session.get(
+        AgentToolResult,
+        f"task-{task.id}:capture_screenshot",
+    )
+    assert screenshot_result is not None
+    assert screenshot_result.output_json["screenshot_id"]
+    screenshot = session.get(Screenshot, screenshot_result.output_json["screenshot_id"])
+    assert screenshot is not None
+    assert screenshot.stage == "extracted"
+    spans = list(
+        session.query(WorkflowSpan)
+        .filter(WorkflowSpan.task_id == task.id)
+        .order_by(WorkflowSpan.id)
+    )
+    assert [span.name for span in spans] == [
+        "agent_planner",
+        "extract_page",
+        "capture_screenshot",
+    ]
     session.close()
 
 
@@ -491,7 +537,7 @@ def test_governed_start_job_summary_runs_read_only_summary_plan() -> None:
     )
     runtime = build_default_tool_runtime(
         extract_page_handler=AsyncMock(return_value=page_result),
-        capture_screenshot_handler=AsyncMock(return_value=None),
+        capture_screenshot_handler=persist_screenshot_evidence,
     )
 
     from unittest.mock import patch
@@ -510,7 +556,18 @@ def test_governed_start_job_summary_runs_read_only_summary_plan() -> None:
         "capture_screenshot",
         "generate_job_summary",
     ]
+    assert [call["tool_name"] for call in payload["tool_calls"]] == [
+        "extract_page",
+        "capture_screenshot",
+        "generate_job_summary",
+    ]
+    assert {call["governance_decision"] for call in payload["tool_calls"]} == {"ALLOW"}
 
+    run = session.get(AgentRun, f"task-{task.id}")
+    assert run is not None
+    assert run.status == "COMPLETED"
+    assert run.goal == "Research the AI engineer role."
+    assert run.workflow_hint == "job_research_summary"
     summary = session.execute(
         text(
             """
@@ -522,6 +579,26 @@ def test_governed_start_job_summary_runs_read_only_summary_plan() -> None:
         {"tool_call_id": f"task-{task.id}:generate_job_summary"},
     ).scalar_one()
     assert "Python" in json.loads(summary)["key_requirements"]
+    screenshot_result = session.get(
+        AgentToolResult,
+        f"task-{task.id}:capture_screenshot",
+    )
+    assert screenshot_result is not None
+    assert screenshot_result.output_json["screenshot_id"]
+    screenshot = session.get(Screenshot, screenshot_result.output_json["screenshot_id"])
+    assert screenshot is not None
+    assert screenshot.stage == "extracted"
+    spans = list(
+        session.query(WorkflowSpan)
+        .filter(WorkflowSpan.task_id == task.id)
+        .order_by(WorkflowSpan.id)
+    )
+    assert [span.name for span in spans] == [
+        "agent_planner",
+        "extract_page",
+        "capture_screenshot",
+        "generate_job_summary",
+    ]
     session.close()
 
 
