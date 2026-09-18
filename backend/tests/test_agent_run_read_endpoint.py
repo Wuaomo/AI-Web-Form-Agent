@@ -152,6 +152,121 @@ def test_get_agent_run_returns_compact_persisted_state() -> None:
         session.close()
 
 
+def test_get_agent_run_returns_sanitized_page_extraction_result() -> None:
+    client, session = build_environment()
+    task = create_task(session)
+    task.workflow_type = "web_data_extract"
+    page_result = SimpleNamespace(
+        title="Research page",
+        headings=[SimpleNamespace(level=1, text="Overview")],
+        main_text_blocks=["Complete extracted page text."],
+        links=[SimpleNamespace(text="Docs", href="https://example.com/docs")],
+        tables=[SimpleNamespace(headers=["Name"], rows=[["Ada"]])],
+        forms=[SimpleNamespace(action="/apply", method="POST", field_count=2)],
+    )
+    runtime = build_default_tool_runtime(
+        extract_page_handler=AsyncMock(return_value=page_result),
+        capture_screenshot_handler=AsyncMock(return_value=None),
+    )
+    session.commit()
+
+    try:
+        with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+            start_response = client.post(
+                f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+            )
+        assert start_response.status_code == 200
+        extraction_row = session.get(AgentToolResult, f"task-{task.id}:extract_page")
+        extraction_row.output_json = {
+            **extraction_row.output_json,
+            "raw_html": "do not expose",
+            "output_json": {"debug": "do not expose"},
+        }
+        session.commit()
+
+        response = client.get(f"/agent-runs/task-{task.id}")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["workflow_result"] == {
+            "extraction": {
+                "title": "Research page",
+                "heading_count": 1,
+                "headings": [{"level": 1, "text": "Overview"}],
+                "text_block_count": 1,
+                "main_text_blocks": ["Complete extracted page text."],
+                "link_count": 1,
+                "links": [{"text": "Docs", "href": "https://example.com/docs"}],
+                "table_count": 1,
+                "tables": [{"headers": ["Name"], "row_count": 1}],
+                "form_count": 1,
+                "forms": [{"action": "/apply", "method": "POST", "field_count": 2}],
+            }
+        }
+        assert "raw_html" not in json.dumps(payload)
+        assert "output_json" not in json.dumps(payload)
+        assert "tool_results" not in json.dumps(payload)
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_get_agent_run_returns_sanitized_research_summary_result() -> None:
+    client, session = build_environment()
+    task = create_task(session)
+    task.workflow_type = "job_research_summary"
+    task.description = "Research the AI engineer role."
+    page_result = SimpleNamespace(
+        title="AI Engineer",
+        headings=[SimpleNamespace(level=1, text="Requirements")],
+        main_text_blocks=["Requirements include Python and 3 years experience."],
+        links=[],
+        tables=[],
+        forms=[],
+    )
+    runtime = build_default_tool_runtime(
+        extract_page_handler=AsyncMock(return_value=page_result),
+        capture_screenshot_handler=AsyncMock(return_value=None),
+    )
+    session.commit()
+
+    try:
+        with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+            start_response = client.post(
+                f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+            )
+        assert start_response.status_code == 200
+        summary_row = session.get(
+            AgentToolResult,
+            f"task-{task.id}:generate_job_summary",
+        )
+        summary_row.output_json = {
+            **summary_row.output_json,
+            "raw_prompt": "do not expose",
+        }
+        session.commit()
+
+        response = client.get(f"/agent-runs/task-{task.id}")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["workflow_result"]["extraction"]["title"] == "AI Engineer"
+        summary = payload["workflow_result"]["research_summary"]
+        assert "Python" in summary["key_requirements"]
+        assert set(summary) == {
+            "summary",
+            "key_requirements",
+            "action_checklist",
+            "risks",
+        }
+        assert "raw_prompt" not in json.dumps(payload)
+        assert "output_json" not in json.dumps(payload)
+        assert "tool_results" not in json.dumps(payload)
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
 def test_get_agent_run_returns_404_for_missing_run() -> None:
     client, session = build_environment()
 

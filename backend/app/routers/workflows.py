@@ -31,7 +31,13 @@ from app.services.agent_runtime import (
 from app.services.agent_runtime.review_queue import (
     apply_review_queue_decision,
 )
-from app.services.agent_runtime.schemas import ReviewDecision, RunMode
+from app.services.agent_runtime.schemas import (
+    PageExtractionResult,
+    ReadOnlyWorkflowResult,
+    ResearchSummaryResult,
+    ReviewDecision,
+    RunMode,
+)
 from app.services.agent_runtime.state_store import (
     restore_governed_runtime_state,
     save_governed_runtime_state,
@@ -223,9 +229,54 @@ def _to_governed_compact_state(raw_state: dict) -> dict:
         "governance_decision": raw_state.get("governance_decision"),
         "tool_result_count": len(raw_state.get("tool_results", [])),
         "tool_calls": _compact_governed_tool_calls(raw_state),
+        "workflow_result": _compact_readonly_workflow_result(raw_state),
         "verification_result": raw_state.get("verification_result", {}),
         "error": raw_state.get("error"),
     }
+
+
+def _compact_readonly_workflow_result(raw_state: dict) -> dict[str, object] | None:
+    extraction = _governed_tool_output(raw_state, "extract_page")
+    if extraction is None:
+        return None
+    summary = _governed_tool_output(raw_state, "generate_job_summary")
+    result = ReadOnlyWorkflowResult(
+        extraction=PageExtractionResult.model_validate(
+            {
+                key: extraction[key]
+                for key in PageExtractionResult.model_fields
+                if key in extraction
+            }
+        ),
+        research_summary=(
+            ResearchSummaryResult.model_validate(
+                {
+                    key: summary[key]
+                    for key in ResearchSummaryResult.model_fields
+                    if key in summary
+                }
+            )
+            if summary is not None
+            else None
+        ),
+    )
+    return result.model_dump(mode="json", exclude_none=True)
+
+
+def _governed_tool_output(raw_state: dict, tool_name: str) -> dict | None:
+    steps_by_id = {
+        step.get("step_id"): step
+        for step in raw_state.get("plan", {}).get("steps", [])
+        if step.get("step_id")
+    }
+    for result in reversed(raw_state.get("tool_results", [])):
+        call_id = str(result.get("tool_call_id", ""))
+        step = steps_by_id.get(_plan_step_id_from_tool_call_id(call_id, steps_by_id), {})
+        if step.get("tool_name") == tool_name and isinstance(
+            result.get("output_json"), dict
+        ):
+            return result["output_json"]
+    return None
 
 
 def _compact_governed_tool_calls(raw_state: dict) -> list[dict[str, object]]:

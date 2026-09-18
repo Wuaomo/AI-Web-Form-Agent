@@ -289,6 +289,59 @@ class ToolResult(RuntimeSchema):
         return self
 
 
+class PageHeadingResult(RuntimeSchema):
+    level: int = Field(ge=1)
+    text: str
+
+
+class PageLinkResult(RuntimeSchema):
+    text: str
+    href: str
+
+
+class PageTableResult(RuntimeSchema):
+    headers: list[str] = Field(default_factory=list)
+    row_count: int = Field(default=0, ge=0)
+
+
+class PageFormResult(RuntimeSchema):
+    action: str | None = None
+    method: str | None = None
+    field_count: int = Field(default=0, ge=0)
+
+
+class PageExtractionResult(RuntimeSchema):
+    """Whitelisted page extraction fields safe for the product UI."""
+
+    title: str = ""
+    heading_count: int = Field(default=0, ge=0)
+    headings: list[PageHeadingResult] = Field(default_factory=list)
+    text_block_count: int = Field(default=0, ge=0)
+    main_text_blocks: list[str] = Field(default_factory=list)
+    link_count: int = Field(default=0, ge=0)
+    links: list[PageLinkResult] = Field(default_factory=list)
+    table_count: int = Field(default=0, ge=0)
+    tables: list[PageTableResult] = Field(default_factory=list)
+    form_count: int = Field(default=0, ge=0)
+    forms: list[PageFormResult] = Field(default_factory=list)
+
+
+class ResearchSummaryResult(RuntimeSchema):
+    """Whitelisted deterministic research summary safe for the product UI."""
+
+    summary: str = ""
+    key_requirements: list[str] = Field(default_factory=list)
+    action_checklist: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+
+
+class ReadOnlyWorkflowResult(RuntimeSchema):
+    """Compact governed result for read-only workflow presentation."""
+
+    extraction: PageExtractionResult
+    research_summary: ResearchSummaryResult | None = None
+
+
 __all__ = [
     "AgentPlan",
     "AgentRunState",
@@ -298,12 +351,19 @@ __all__ = [
     "GovernanceDecision",
     "GovernanceDecisionValue",
     "PlanCreator",
+    "PageExtractionResult",
+    "PageFormResult",
+    "PageHeadingResult",
+    "PageLinkResult",
+    "PageTableResult",
     "PlannedToolCall",
     "Proposal",
     "ProposalStatus",
     "ProposalType",
     "ReviewDecision",
     "ReviewDecisionValue",
+    "ReadOnlyWorkflowResult",
+    "ResearchSummaryResult",
     "RiskLevel",
     "RunMode",
     "RuntimeValue",

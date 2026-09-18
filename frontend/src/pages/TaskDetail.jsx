@@ -79,6 +79,8 @@ import {
 } from "../workflowTemplatePresentation";
 import {
   pendingApprovalRequests,
+  resolveTaskExtractionResult,
+  resolveTaskResearchSummary,
   shouldShowApprovalsOnMain,
 } from "../taskDetailPresentation";
 
@@ -428,8 +430,14 @@ function TaskDetail() {
   const plannedSteps = getWorkflowPlanSteps(taskPlan);
   const pendingApprovals = pendingApprovalRequests(approvalRequests);
   const showMainApprovals = shouldShowApprovalsOnMain(approvalRequests);
-  const extractionData = getExtractionData(taskCheckpoints);
-  const summaryData = getSummaryData(taskCheckpoints);
+  const extractionData = resolveTaskExtractionResult(
+    governedRuntime,
+    getExtractionData(taskCheckpoints),
+  );
+  const summaryData = resolveTaskResearchSummary(
+    governedRuntime,
+    getSummaryData(taskCheckpoints),
+  );
   const preflightBrief = buildPageIntakeBrief(taskCheckpoints);
   const showRunCockpit = shouldShowRunCockpit(governedRuntime);
   const runCockpitSummary = buildRunCockpitSummary(governedRuntime);
@@ -1154,6 +1162,13 @@ function TaskDetail() {
                   <div>
                     <h4>Text Blocks</h4>
                     <p>{extractionData.text_block_count} blocks extracted</p>
+                    {extractionData.main_text_blocks?.length > 0 && (
+                      <ul className="extraction-list">
+                        {extractionData.main_text_blocks.map((block, index) => (
+                          <li key={index}>{block}</li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                 )}
                 <details className="technical-details">
