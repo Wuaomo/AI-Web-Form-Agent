@@ -466,16 +466,15 @@ Remaining gaps:
   no-external-consumer window. FormField sync remains intentionally limited to
   field proposals for browser-write compatibility.
 
-Next consolidated gate:
+Next gate: **Compatibility Backend Removal Closure Gate**.
 
-1. Add the smallest compact read boundary for governed B outputs and make Task
-   Detail read it; do not restore task-endpoint fallback.
-2. Move D still-needed Review Queue behavior coverage to AgentRun endpoints or
-   direct shared-helper tests, leaving only legacy transport tests behind.
-3. Close or explicitly extend the external compatibility windows for B/C/D.
-4. Only then write per-surface removal tests and delete one backend surface per
-   commit; keep FormField sync until browser write no longer depends on mapped
-   `FormField` values.
+Use one combined gate, without another phase sequence: close B's compact
+result-read parity, move D's shared Review Queue coverage off legacy task
+routes, and decide the B/C/D external compatibility windows in the same audit.
+Any surface that then reaches remove-now gets its removal test, backend route
+deletion, map update, and separate commit immediately; surfaces that still fail
+the gate stay documented and unchanged. Keep FormField sync until browser write
+no longer depends on mapped `FormField` values.
 
 ## Runtime And Security Gaps
 
@@ -556,7 +555,6 @@ This endpoint gate can close when:
 - Frontend tests pass.
 - Frontend production build passes.
 
-The next gate should close B's compact result-read parity and move D's shared
-Review Queue coverage off legacy task routes. Backend deletion can start only
-after the target surface also has no product/benchmark/demo consumer and its
-external compatibility window is explicitly closed.
+The next gate is the single Compatibility Backend Removal Closure Gate above;
+do not split its parity, test-decoupling, compatibility-window, and eligible
+route-removal work into additional numbered phases.
