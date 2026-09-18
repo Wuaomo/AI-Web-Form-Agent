@@ -32,6 +32,7 @@ from app.models import (
     WorkflowMemoryItem,
 )
 from app.routers.approvals import router as approvals_router
+from app.routers.agent_runs import router as agent_runs_router
 from app.routers.tasks import router as tasks_router
 from app.services.field_mapper import map_fields_with_llm
 from app.services.form_extractor import ExtractedFormField
@@ -58,6 +59,7 @@ def test_environment() -> Generator[tuple[TestClient, Session], None, None]:
     test_app = FastAPI()
     test_app.include_router(tasks_router)
     test_app.include_router(approvals_router)
+    test_app.include_router(agent_runs_router)
     test_app.dependency_overrides[get_db] = override_get_db
 
     with TestClient(test_app) as client:
@@ -92,6 +94,35 @@ def create_task_with_field(session: Session) -> tuple[Task, FormField]:
     session.add(field)
     session.commit()
     return task, field
+
+
+def agent_run_review_items_path(session: Session, task: Task) -> str:
+    """Return the primary Review Queue path, creating its run when needed."""
+
+    run_id = f"task-{task.id}"
+    if session.get(AgentRun, run_id) is None:
+        run = AgentRun(
+            id=run_id,
+            legacy_task_id=task.id,
+            goal="Review proposal-backed queue.",
+            target_url=task.url,
+            profile_id=task.profile_id,
+            workflow_hint=task.workflow_type,
+            status="WAITING_REVIEW",
+            mode="deterministic",
+        )
+        run.final_result = {}
+        session.add(run)
+        session.flush()
+    return f"/agent-runs/{run_id}/review-items"
+
+
+def agent_run_review_decision_path(
+    session: Session,
+    task: Task,
+    proposal_id: str,
+) -> str:
+    return f"{agent_run_review_items_path(session, task)}/{proposal_id}/decision"
 
 
 def save_two_pending_tool_created_proposals(
@@ -400,7 +431,7 @@ def test_review_items_returns_field_value_proposals(
     session.add(checkpoint)
     session.commit()
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     payload = response.json()
@@ -449,7 +480,7 @@ def test_review_items_returns_answer_proposals_with_source_evidence(
     session.add(checkpoint)
     session.commit()
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     payload = response.json()
@@ -490,7 +521,7 @@ def test_review_items_persist_proposals_and_evidence(
     session.add(checkpoint)
     session.commit()
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     proposal = session.execute(
@@ -580,7 +611,7 @@ def test_review_items_restore_persisted_proposals_before_deriving_from_fields(
     session.add_all([run, proposal, evidence])
     session.commit()
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     payload = response.json()
@@ -648,7 +679,7 @@ def test_review_items_backfill_missing_persisted_field_proposals(
     session.add_all([run, proposal, second_field])
     session.commit()
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     payload = response.json()
@@ -730,7 +761,7 @@ def test_review_items_restore_tool_created_governed_proposals(
     assert session.query(AgentEvidenceItem).count() == 1
     assert session.query(WorkflowMemoryItem).count() == 0
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     payload = response.json()
@@ -796,7 +827,7 @@ def test_review_items_restore_tool_result_evidence_for_created_proposals(
 
     save_governed_runtime_state(session, task=task, raw_state=raw_state)
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     payload = response.json()
@@ -869,7 +900,7 @@ def test_review_items_replace_stale_persisted_proposal_evidence(
         raw_state=raw_state("new-evidence", "New evidence."),
     )
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     evidence = response.json()[0]["evidence"]
@@ -936,12 +967,12 @@ def test_review_items_restore_tool_created_governed_proposal_after_decision(
     save_governed_runtime_state(session, task=task, raw_state=raw_state)
 
     response = client.post(
-        f"/tasks/{task.id}/review-items/{proposal_id}/decision",
+        agent_run_review_decision_path(session, task, proposal_id),
         json={"decision": "edited", "edited_value": "edited@example.com"},
     )
     assert response.status_code == 200
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     payload = response.json()
@@ -996,7 +1027,7 @@ def test_review_items_keep_edited_value_after_tool_proposal_replay(
     save_governed_runtime_state(session, task=task, raw_state=raw_state)
 
     response = client.post(
-        f"/tasks/{task.id}/review-items/{proposal_id}/decision",
+        agent_run_review_decision_path(session, task, proposal_id),
         json={"decision": "edited", "edited_value": "edited@example.com"},
     )
     assert response.status_code == 200
@@ -1005,7 +1036,7 @@ def test_review_items_keep_edited_value_after_tool_proposal_replay(
     proposal = session.get(AgentProposal, proposal_id)
     assert proposal is not None
     assert proposal.proposed_value == "edited@example.com"
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     payload = response.json()
@@ -1025,7 +1056,7 @@ def test_review_item_decision_decrements_pending_review_count_for_final_decision
     proposal_ids = save_two_pending_tool_created_proposals(session, task, field)
 
     response = client.post(
-        f"/tasks/{task.id}/review-items/{proposal_ids[0]}/decision",
+        agent_run_review_decision_path(session, task, proposal_ids[0]),
         json={
             "decision": decision,
             "edited_value": "edited@example.com" if decision == "edited" else None,
@@ -1048,7 +1079,7 @@ def test_review_item_decision_needs_more_evidence_decrements_pending_review_coun
     proposal_ids = save_two_pending_tool_created_proposals(session, task, field)
 
     response = client.post(
-        f"/tasks/{task.id}/review-items/{proposal_ids[0]}/decision",
+        agent_run_review_decision_path(session, task, proposal_ids[0]),
         json={"decision": "needs_more_evidence"},
     )
 
@@ -1115,7 +1146,7 @@ def test_review_items_restore_latest_persisted_decision_status(
     session.add_all([run, proposal, older, latest])
     session.commit()
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     payload = response.json()
@@ -1164,7 +1195,7 @@ def test_review_items_restore_memory_write_decision_value(
     session.add_all([run, proposal, decision])
     session.commit()
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     payload = response.json()
@@ -1185,7 +1216,7 @@ def test_review_items_include_memory_write_proposals_for_reusable_mappings(
     field.confidence = 0.99
     session.commit()
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     payload = response.json()
@@ -1212,7 +1243,7 @@ def test_review_items_include_memory_write_proposals_for_questionnaire_answers(
     field.confidence = 0.88
     session.commit()
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     payload = response.json()
@@ -1287,7 +1318,7 @@ def test_review_item_decision_uses_persisted_form_field_target_ref(
     session.commit()
 
     response = client.post(
-        f"/tasks/{task.id}/review-items/{proposal.id}/decision",
+        agent_run_review_decision_path(session, task, proposal.id),
         json={"decision": "edited", "edited_value": "ada@example.com"},
     )
 
@@ -1334,7 +1365,7 @@ def test_review_item_decision_approve_syncs_persisted_proposal_value(
     session.commit()
 
     response = client.post(
-        f"/tasks/{task.id}/review-items/{proposal.id}/decision",
+        agent_run_review_decision_path(session, task, proposal.id),
         json={"decision": "approved"},
     )
 
@@ -1478,7 +1509,7 @@ def test_review_queue_does_not_sync_non_field_proposal_with_form_field_target(
     assert target.requires_form_field_sync is False
 
     response = client.post(
-        f"/tasks/{task.id}/review-items/{proposal.id}/decision",
+        agent_run_review_decision_path(session, task, proposal.id),
         json={"decision": "edited", "edited_value": "contact_email"},
     )
 
@@ -1524,7 +1555,7 @@ def test_review_items_backfill_field_row_when_non_field_proposal_targets_form_fi
     session.add_all([run, proposal])
     session.commit()
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     assert [item["id"] for item in response.json()] == [
@@ -1798,7 +1829,7 @@ def test_review_item_decision_persists_non_field_decision_without_side_effects(
     session.commit()
 
     response = client.post(
-        f"/tasks/{task.id}/review-items/{proposal.id}/decision",
+        agent_run_review_decision_path(session, task, proposal.id),
         json={"decision": "approved"},
     )
 
@@ -1850,7 +1881,7 @@ def test_review_item_decision_edits_non_field_proposed_value_only(
     session.commit()
 
     response = client.post(
-        f"/tasks/{task.id}/review-items/{proposal.id}/decision",
+        agent_run_review_decision_path(session, task, proposal.id),
         json={"decision": "edited", "edited_value": "support_email"},
     )
 
@@ -1910,7 +1941,7 @@ def test_review_item_decision_requests_more_evidence_for_non_field_proposals(
     session.commit()
 
     response = client.post(
-        f"/tasks/{task.id}/review-items/{proposal.id}/decision",
+        agent_run_review_decision_path(session, task, proposal.id),
         json={"decision": "needs_more_evidence"},
     )
 
@@ -1962,7 +1993,7 @@ def test_review_items_show_external_write_without_raw_tool_results(
     session.add_all([run, proposal])
     session.commit()
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     item = response.json()[0]
@@ -2008,7 +2039,7 @@ def test_review_items_restore_unknown_proposal_type_without_crashing(
     session.add_all([run, proposal])
     session.commit()
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     item = response.json()[0]
@@ -2069,7 +2100,7 @@ def test_review_item_decision_keeps_memory_write_proposal_only(
     if edited_value is not None:
         payload["edited_value"] = edited_value
     response = client.post(
-        f"/tasks/{task.id}/review-items/{proposal.id}/decision",
+        agent_run_review_decision_path(session, task, proposal.id),
         json=payload,
     )
 

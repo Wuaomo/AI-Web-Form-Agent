@@ -744,7 +744,13 @@ def test_agent_run_review_items_keep_non_field_form_targets_compact() -> None:
         session.close()
 
 
-def test_agent_run_review_item_decision_persists_decision_and_syncs_field() -> None:
+@pytest.mark.parametrize(
+    "proposal_type",
+    ["field_value", "answer", "open_ended_answer"],
+)
+def test_agent_run_review_item_decision_persists_decision_and_syncs_field(
+    proposal_type: str,
+) -> None:
     client, session = build_environment()
     task = create_task(session)
     field = FormField(
@@ -769,9 +775,9 @@ def test_agent_run_review_item_decision_persists_decision_and_syncs_field() -> N
     )
     run.final_result = {}
     proposal = AgentProposal(
-        id=f"task-{task.id}-field-primary",
+        id=f"task-{task.id}-{proposal_type}-primary",
         run=run,
-        proposal_type="field_value",
+        proposal_type=proposal_type,
         target_type="form_field",
         target_ref="1",
         proposed_value="proposal@example.com",
