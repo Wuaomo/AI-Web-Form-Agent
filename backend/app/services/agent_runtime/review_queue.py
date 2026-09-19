@@ -303,12 +303,13 @@ def split_fields_by_browser_write_review(
     *,
     task: Task,
     fields: list[FormField],
+    run_id: str | None = None,
 ) -> tuple[list[FormField], list[FormField]]:
     """Separate fields allowed for browser write from proposal-blocked fields."""
 
     fields_by_id = {field.id: field for field in fields}
     blocked_field_ids = set()
-    for proposal in db.scalars(
+    query = (
         select(AgentProposal)
         .join(AgentRun)
         .where(
@@ -316,7 +317,10 @@ def split_fields_by_browser_write_review(
             AgentProposal.target_type == "form_field",
             AgentProposal.target_ref.in_([str(field_id) for field_id in fields_by_id]),
         )
-    ):
+    )
+    if run_id is not None:
+        query = query.where(AgentProposal.run_id == run_id)
+    for proposal in db.scalars(query):
         if not proposal.target_ref.isdigit():
             continue
         field = fields_by_id.get(int(proposal.target_ref))
@@ -371,6 +375,7 @@ def persist_submit_review_proposal(
     *,
     task: Task,
     approval_request: ApprovalRequest,
+    run_id: str | None = None,
 ) -> None:
     """Persist a high-risk proposal for an explicit submit approval gate."""
 
@@ -382,7 +387,7 @@ def persist_submit_review_proposal(
         proposals=[
             Proposal(
                 id=f"task-{task.id}-submit-{approval_request.id}",
-                run_id=_run_id(task.id),
+                run_id=run_id or _run_id(task.id),
                 proposal_type="form_submit",
                 target_type="approval_request",
                 target_ref=str(approval_request.id),

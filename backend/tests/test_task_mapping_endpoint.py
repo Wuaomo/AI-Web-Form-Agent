@@ -125,6 +125,11 @@ def agent_run_review_decision_path(
     return f"{agent_run_review_items_path(session, task)}/{proposal_id}/decision"
 
 
+def agent_run_continue_path(session: Session, task: Task) -> str:
+    agent_run_review_items_path(session, task)
+    return f"/agent-runs/task-{task.id}/continue"
+
+
 def save_two_pending_tool_created_proposals(
     session: Session,
     task: Task,
@@ -2589,7 +2594,7 @@ def test_manual_value_can_be_saved_to_profile_custom_value_and_reused(
     assert mapped[0].confidence == 1.0
 
 
-def test_fill_rejects_missing_required_values_before_browser_work(
+def test_agent_run_fill_rejects_missing_required_values_before_browser_work(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     client, session = test_environment
@@ -2599,13 +2604,13 @@ def test_fill_rejects_missing_required_values_before_browser_work(
     field.mapped_value = None
     session.commit()
 
-    response = client.post(f"/tasks/{task.id}/fill")
+    response = client.post(agent_run_continue_path(session, task))
 
     assert response.status_code == 409
     assert "Required fields need values" in response.json()["detail"]
 
 
-def test_fill_rejects_mapped_fields_before_user_confirms_mapping(
+def test_agent_run_fill_rejects_mapped_fields_before_user_confirms_mapping(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     client, session = test_environment
@@ -2618,7 +2623,7 @@ def test_fill_rejects_mapped_fields_before_user_confirms_mapping(
         "app.routers.tasks.fill_form_and_capture_screenshot",
         new_callable=AsyncMock,
     ) as fill_form:
-        response = client.post(f"/tasks/{task.id}/fill")
+        response = client.post(agent_run_continue_path(session, task))
 
     assert response.status_code == 409
     assert response.json() == {"detail": "Review and confirm mapping before filling"}
@@ -3227,7 +3232,7 @@ def test_confirm_mapping_policy_blocks_sensitive_memory_write(
     ]
 
 
-def test_fill_returns_409_when_required_field_needs_policy_approval(
+def test_agent_run_fill_returns_409_when_required_field_needs_policy_approval(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     """Verify required review-required fields block fill until approved."""
@@ -3244,13 +3249,13 @@ def test_fill_returns_409_when_required_field_needs_policy_approval(
     task.workflow_status = "READY_TO_FILL"
     session.commit()
 
-    response = client.post(f"/tasks/{task.id}/fill")
+    response = client.post(agent_run_continue_path(session, task))
 
     assert response.status_code == 409
     assert response.json()["detail"] == "Required fields require approval before filling: Agree to terms"
 
 
-def test_fill_returns_409_when_required_proposal_is_not_approved(
+def test_agent_run_fill_returns_409_when_required_proposal_is_not_approved(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     """Verify pending runtime proposals cannot reach browser fill."""
@@ -3292,7 +3297,7 @@ def test_fill_returns_409_when_required_proposal_is_not_approved(
         "app.routers.tasks.fill_form_and_capture_screenshot",
         new_callable=AsyncMock,
     ) as fill_form:
-        response = client.post(f"/tasks/{task.id}/fill")
+        response = client.post(agent_run_continue_path(session, task))
 
     assert response.status_code == 409
     assert response.json()["detail"] == (
@@ -3301,7 +3306,7 @@ def test_fill_returns_409_when_required_proposal_is_not_approved(
     fill_form.assert_not_awaited()
 
 
-def test_fill_returns_409_when_approved_proposal_value_is_stale(
+def test_agent_run_fill_returns_409_when_approved_proposal_value_is_stale(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     """Verify stale field proposal approvals cannot unlock changed browser writes."""
@@ -3344,7 +3349,7 @@ def test_fill_returns_409_when_approved_proposal_value_is_stale(
         new_callable=AsyncMock,
     ) as fill_form:
         fill_form.return_value = (SimpleNamespace(id=5), [])
-        response = client.post(f"/tasks/{task.id}/fill")
+        response = client.post(agent_run_continue_path(session, task))
 
     assert response.status_code == 409
     assert response.json()["detail"] == (
@@ -3353,7 +3358,7 @@ def test_fill_returns_409_when_approved_proposal_value_is_stale(
     fill_form.assert_not_awaited()
 
 
-def test_fill_returns_409_when_approved_proposal_selector_is_stale(
+def test_agent_run_fill_returns_409_when_approved_proposal_selector_is_stale(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     """Verify approved runtime proposals cannot unlock changed selectors."""
@@ -3422,7 +3427,7 @@ def test_fill_returns_409_when_approved_proposal_selector_is_stale(
         new_callable=AsyncMock,
     ) as fill_form:
         fill_form.return_value = (SimpleNamespace(id=5), [])
-        response = client.post(f"/tasks/{task.id}/fill")
+        response = client.post(agent_run_continue_path(session, task))
 
     assert response.status_code == 409
     assert response.json()["detail"] == (
@@ -3431,7 +3436,7 @@ def test_fill_returns_409_when_approved_proposal_selector_is_stale(
     fill_form.assert_not_awaited()
 
 
-def test_fill_can_retry_after_required_field_approval(
+def test_agent_run_fill_can_retry_after_required_field_approval(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     """Verify fill stays retryable after approving a required field gate."""
@@ -3448,7 +3453,7 @@ def test_fill_can_retry_after_required_field_approval(
     task.workflow_status = "READY_TO_FILL"
     session.commit()
 
-    first_response = client.post(f"/tasks/{task.id}/fill")
+    first_response = client.post(agent_run_continue_path(session, task))
 
     assert first_response.status_code == 409
     session.refresh(task)
@@ -3469,16 +3474,16 @@ def test_fill_can_retry_after_required_field_approval(
         new_callable=AsyncMock,
     ) as fill_form:
         fill_form.return_value = (SimpleNamespace(id=1), [])
-        retry_response = client.post(f"/tasks/{task.id}/fill")
+        retry_response = client.post(agent_run_continue_path(session, task))
 
     assert retry_response.status_code == 200
     fill_form.assert_awaited_once()
 
 
-def test_fill_persists_runtime_tool_call_result(
+def test_agent_run_fill_persists_runtime_tool_call_result(
     test_environment: tuple[TestClient, Session],
 ) -> None:
-    """Verify legacy fill records the browser write as a runtime tool call."""
+    """Verify AgentRun fill records the browser write as a runtime tool call."""
 
     client, session = test_environment
     task, field = create_task_with_field(session)
@@ -3494,7 +3499,7 @@ def test_fill_persists_runtime_tool_call_result(
         new_callable=AsyncMock,
     ) as fill_form:
         fill_form.return_value = (SimpleNamespace(id=5), [])
-        response = client.post(f"/tasks/{task.id}/fill")
+        response = client.post(agent_run_continue_path(session, task))
 
     assert response.status_code == 200
     call = session.get(AgentToolCall, f"task-{task.id}:fill_form")

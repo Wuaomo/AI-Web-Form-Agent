@@ -447,6 +447,8 @@ def filter_fillable_fields_by_policy(
     task: Task,
     fields: list[FormField],
     db: Session,
+    *,
+    run_id: str | None = None,
 ) -> tuple[list[FormField], list[FormField], list[FormField]]:
     """Return allowed fields plus blocked and approval-pending required fields."""
 
@@ -457,6 +459,7 @@ def filter_fillable_fields_by_policy(
         db,
         task=task,
         fields=fields,
+        run_id=run_id,
     )
 
     for field in review_ready_fields:
@@ -2244,6 +2247,7 @@ async def _fill_task_form(
         task,
         mapped_fields,
         db,
+        run_id=agent_run_id,
     )
     missing_required_fields = get_missing_required_fields(fields)
     if missing_required_fields:
@@ -2309,6 +2313,7 @@ async def _fill_task_form(
             db=db,
             task=task,
             fields=filtered_fields,
+            run_id=agent_run_id,
             fill_form_handler=fill_form_and_capture_screenshot
         )
 
@@ -2341,6 +2346,7 @@ async def _fill_task_form(
                 task=task,
                 tool_result=tool_result,
                 verification_data=verification_data,
+                run_id=agent_run_id,
             )
             failure_details = ", ".join(f"field {v.field_id}" for v in required_failures)
             write_checkpoint(
@@ -2372,6 +2378,7 @@ async def _fill_task_form(
                 task=task,
                 tool_result=tool_result,
                 verification_data=verification_data,
+                run_id=agent_run_id,
             )
             write_checkpoint(
                 task_id=task.id,
@@ -2571,13 +2578,15 @@ async def resume_governed_submit_if_waiting(
     db: Session,
     task: Task,
     approved_action: dict[str, object],
+    run_id: str | None = None,
 ) -> dict[str, Any] | None:
     """Resume a governed submit pause only from the explicit submit endpoint."""
 
-    run_id = f"task-{task.id}"
-    raw_state = get_governed_runtime_state(run_id) or restore_governed_runtime_state(
+    runtime_run_id = run_id or f"task-{task.id}"
+    raw_state = get_governed_runtime_state(runtime_run_id) or restore_governed_runtime_state(
         db,
         task=task,
+        run_id=runtime_run_id,
     )
     current_tool = (raw_state or {}).get("current_tool_call") or {}
     if (
@@ -2595,7 +2604,7 @@ async def resume_governed_submit_if_waiting(
         return None
 
     resumed = await resume_governed_runtime_from_approval(
-        run_id,
+        runtime_run_id,
         runtime=build_default_tool_runtime(
             submit_form_handler=submit_form_and_capture_screenshot,
         ),
@@ -2669,6 +2678,8 @@ def _current_submit_tool_field_snapshot(
 async def submit_reviewed_task_form(
     task_id: int,
     db: Session,
+    *,
+    agent_run_id: str | None = None,
 ) -> SubmissionConfirmationResponse:
     """Submit the reviewed browser form after explicit user approval."""
 
@@ -2749,6 +2760,7 @@ async def submit_reviewed_task_form(
             db,
             task=task,
             approval_request=pending_submit_request,
+            run_id=agent_run_id,
         )
         db.commit()
         raise HTTPException(
@@ -2784,12 +2796,14 @@ async def submit_reviewed_task_form(
             db=db,
             task=task,
             approved_action=submit_proposed_action,
+            run_id=agent_run_id,
         )
         if governed_state is None:
             legacy_tool_result, screenshot = await execute_submit_form_runtime_tool(
                 db=db,
                 task=task,
                 fields=mapped_fields,
+                run_id=agent_run_id,
                 submit_form_handler=submit_form_and_capture_screenshot,
             )
             screenshot_id = screenshot.id
@@ -2815,6 +2829,7 @@ async def submit_reviewed_task_form(
                 db,
                 task=task,
                 tool_result=legacy_tool_result,
+                run_id=agent_run_id,
             )
         safe_finish_span(
             submit_span_id,

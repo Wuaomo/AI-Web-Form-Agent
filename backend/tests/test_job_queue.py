@@ -9,6 +9,7 @@ from app.database import Base
 from app.models import Profile, Task, utc_now
 from app.job_constants import (
     JOB_TYPE_ANALYZE_FORM,
+    JOB_TYPE_FILL_FORM,
     JOB_TYPE_MAP_FIELDS,
     JOB_STATUS_PENDING,
     JOB_STATUS_RUNNING,
@@ -177,6 +178,33 @@ def test_mark_job_failed_with_retry_schedules_retry(db_session):
     assert job.next_run_at is not None
     assert job.locked_by is None
     assert job.locked_at is None
+
+
+def test_fill_job_retry_preserves_agent_run_id(db_session):
+    from app.services.job_queue import enqueue_job, claim_next_job, mark_job_failed
+
+    db, task_id = db_session
+    job = enqueue_job(
+        db=db,
+        job_type=JOB_TYPE_FILL_FORM,
+        task_id=task_id,
+        payload={"agent_run_id": "run-7"},
+    )
+    db.commit()
+
+    claimed = claim_next_job(db=db, worker_id="worker-1")
+    mark_job_failed(
+        db=db,
+        job=claimed,
+        error_reason="TEMPORARY_BROWSER_FAILURE",
+        error_message="retry",
+        retry=True,
+    )
+    db.commit()
+
+    db.refresh(job)
+    assert job.status == JOB_STATUS_RETRY_SCHEDULED
+    assert job.payload == {"agent_run_id": "run-7"}
 
 
 def test_mark_job_failed_retry_exhausts_after_max_attempts(db_session):

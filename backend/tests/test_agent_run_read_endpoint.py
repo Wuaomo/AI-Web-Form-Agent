@@ -335,7 +335,7 @@ def test_continue_agent_run_delegates_reviewed_fill_to_shared_task_path() -> Non
         required=True,
     )
     run = AgentRun(
-        id=f"task-{task.id}",
+        id=f"run-{task.id}",
         legacy_task_id=task.id,
         goal="Fill reviewed fields.",
         target_url=task.url,
@@ -354,17 +354,18 @@ def test_continue_agent_run_delegates_reviewed_fill_to_shared_task_path() -> Non
             new_callable=AsyncMock,
         ) as browser_fill:
             browser_fill.return_value = (SimpleNamespace(id=7), [])
-            response = client.post(f"/agent-runs/task-{task.id}/continue")
+            response = client.post(f"/agent-runs/{run.id}/continue")
 
         assert response.status_code == 200
         payload = response.json()
         assert payload["id"] == task.id
         assert payload["status"] == "WAITING_APPROVAL"
         browser_fill.assert_awaited_once()
-        call = session.get(AgentToolCall, f"task-{task.id}:fill_form")
+        call = session.get(AgentToolCall, f"{run.id}:fill_form")
         assert call is not None
+        assert call.run_id == run.id
         assert call.governance_decision["decision"] == "VERIFY_REQUIRED"
-        result = session.get(AgentToolResult, f"task-{task.id}:fill_form")
+        result = session.get(AgentToolResult, f"{run.id}:fill_form")
         assert result is not None
         assert result.output_json == {
             "filled_count": 1,
@@ -392,7 +393,7 @@ def test_continue_agent_run_enqueues_async_fill_with_run_id() -> None:
         required=True,
     )
     run = AgentRun(
-        id=f"task-{task.id}",
+        id=f"run-{task.id}",
         legacy_task_id=task.id,
         goal="Fill reviewed fields.",
         target_url=task.url,
@@ -408,14 +409,14 @@ def test_continue_agent_run_enqueues_async_fill_with_run_id() -> None:
     config.ASYNC_JOBS_ENABLED = True
 
     try:
-        response = client.post(f"/agent-runs/task-{task.id}/continue")
+        response = client.post(f"/agent-runs/{run.id}/continue")
 
         assert response.status_code == 200
         payload = response.json()
         assert payload["job_type"] == JOB_TYPE_FILL_FORM
         job = session.get(Job, payload["id"])
         assert job is not None
-        assert job.payload == {"agent_run_id": f"task-{task.id}"}
+        assert job.payload == {"agent_run_id": run.id}
     finally:
         config.ASYNC_JOBS_ENABLED = original_async
         app.dependency_overrides.clear()
@@ -438,7 +439,7 @@ def test_continue_agent_run_delegates_submit_to_shared_task_path() -> None:
         required=True,
     )
     run = AgentRun(
-        id=f"task-{task.id}",
+        id=f"run-{task.id}",
         legacy_task_id=task.id,
         goal="Submit reviewed form.",
         target_url=task.url,
@@ -457,7 +458,7 @@ def test_continue_agent_run_delegates_submit_to_shared_task_path() -> None:
             new_callable=AsyncMock,
         ) as submit_form:
             first_response = client.post(
-                f"/agent-runs/task-{task.id}/continue",
+                f"/agent-runs/{run.id}/continue",
                 json={"action": "submit_form"},
             )
 
@@ -475,7 +476,7 @@ def test_continue_agent_run_delegates_submit_to_shared_task_path() -> None:
         ) as submit_form:
             submit_form.return_value = SimpleNamespace(id=8)
             response = client.post(
-                f"/agent-runs/task-{task.id}/continue",
+                f"/agent-runs/{run.id}/continue",
                 json={"action": "submit_form"},
             )
 
@@ -486,10 +487,11 @@ def test_continue_agent_run_delegates_submit_to_shared_task_path() -> None:
             "approval_id": approval_id,
         }
         submit_form.assert_awaited_once()
-        call = session.get(AgentToolCall, f"task-{task.id}:submit_form")
+        call = session.get(AgentToolCall, f"{run.id}:submit_form")
         assert call is not None
+        assert call.run_id == run.id
         assert call.governance_decision["decision"] == "VERIFY_REQUIRED"
-        result = session.get(AgentToolResult, f"task-{task.id}:submit_form")
+        result = session.get(AgentToolResult, f"{run.id}:submit_form")
         assert result is not None
         assert result.output_json == {
             "submitted": True,

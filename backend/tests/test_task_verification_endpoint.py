@@ -13,12 +13,14 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.models import (
+    AgentRun,
     AgentVerificationResult,
     FormField,
     Profile,
     Task,
     FieldVerificationResult,
 )
+from app.routers.agent_runs import router as agent_runs_router
 from app.routers.tasks import router as tasks_router
 
 
@@ -39,6 +41,7 @@ def test_environment() -> Generator[tuple[TestClient, Session], None, None]:
 
     test_app = FastAPI()
     test_app.include_router(tasks_router)
+    test_app.include_router(agent_runs_router)
     test_app.dependency_overrides[get_db] = override_get_db
 
     with TestClient(test_app) as client:
@@ -139,7 +142,24 @@ def create_task_with_sensitive_field(session: Session) -> tuple[Task, list[FormF
     return task, fields
 
 
-def test_fill_creates_verified_results(
+def agent_run_continue_path(session: Session, task: Task) -> str:
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Fill reviewed fields.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="READY_TO_FILL",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    session.add(run)
+    session.commit()
+    return f"/agent-runs/{run.id}/continue"
+
+
+def test_agent_run_fill_creates_verified_results(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     """Verify successful fill creates VERIFIED verification results."""
@@ -172,7 +192,7 @@ def test_fill_creates_verified_results(
         new_callable=AsyncMock,
     ) as mock_fill:
         mock_fill.return_value = (AsyncMock(), mock_verification_data)
-        response = client.post(f"/tasks/{task.id}/fill")
+        response = client.post(agent_run_continue_path(session, task))
 
     assert response.status_code == 200, response.text
     data = response.json()
@@ -212,7 +232,7 @@ def test_fill_creates_verified_results(
     assert runtime_results[0].actual == "test@example.com"
 
 
-def test_fill_creates_failed_result_for_missing_selector(
+def test_agent_run_fill_creates_failed_result_for_missing_selector(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     """Verify fill creates FAILED result when field cannot be read."""
@@ -250,7 +270,7 @@ def test_fill_creates_failed_result_for_missing_selector(
         new_callable=AsyncMock,
     ) as mock_fill:
         mock_fill.return_value = (SimpleNamespace(id=5), mock_verification_data)
-        response = client.post(f"/tasks/{task.id}/fill")
+        response = client.post(agent_run_continue_path(session, task))
 
     assert response.status_code == 500
 
@@ -283,7 +303,7 @@ def test_fill_creates_failed_result_for_missing_selector(
     assert runtime_results[0].reason == VERIFICATION_REASON_SELECTOR_NOT_FOUND
 
 
-def test_fill_skips_sensitive_password_field(
+def test_agent_run_fill_skips_sensitive_password_field(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     """Verify sensitive password fields are blocked before fill execution."""
@@ -295,7 +315,7 @@ def test_fill_skips_sensitive_password_field(
         "app.routers.tasks.fill_form_and_capture_screenshot",
         new_callable=AsyncMock,
     ) as mock_fill:
-        response = client.post(f"/tasks/{task.id}/fill")
+        response = client.post(agent_run_continue_path(session, task))
 
     assert response.status_code == 409
     assert response.json()["detail"] == "Required fields were blocked by policy: Password"
@@ -311,7 +331,7 @@ def test_fill_skips_sensitive_password_field(
     assert verification_results == []
 
 
-def test_fill_deletes_previous_verification_results(
+def test_agent_run_fill_deletes_previous_verification_results(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     """Verify previous verification results are cleared before new fill attempt."""
@@ -348,7 +368,7 @@ def test_fill_deletes_previous_verification_results(
         new_callable=AsyncMock,
     ) as mock_fill:
         mock_fill.return_value = (AsyncMock(), mock_verification_data)
-        response = client.post(f"/tasks/{task.id}/fill")
+        response = client.post(agent_run_continue_path(session, task))
 
     assert response.status_code == 200
 

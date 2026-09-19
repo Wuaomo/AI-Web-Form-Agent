@@ -75,7 +75,11 @@ async def continue_agent_run(
             detail=f"No agent run state found for {run_id}.",
         )
     if (request or AgentRunContinueRequest()).action == "submit_form":
-        return await submit_reviewed_task_form(run.legacy_task_id, db)
+        return await submit_reviewed_task_form(
+            run.legacy_task_id,
+            db,
+            agent_run_id=run.id,
+        )
     return await fill_agent_run_task_form(
         task_id=run.legacy_task_id,
         agent_run_id=run.id,

@@ -504,7 +504,7 @@ def test_execute_fill_stage_delegates_agent_run_backed_job(db_session):
         confidence=0.99,
     )
     run = AgentRun(
-        id=f"task-{task_id}",
+        id=f"run-{task_id}",
         legacy_task_id=task_id,
         goal="Fill reviewed fields.",
         target_url=task.url,
@@ -533,6 +533,9 @@ def test_execute_fill_stage_delegates_agent_run_backed_job(db_session):
         _execute_fill_stage(db, job)
 
     fill_form.assert_awaited_once()
+    call = db.get(AgentToolCall, f"{run.id}:fill_form")
+    assert call is not None
+    assert call.run_id == run.id
     db.refresh(task)
     assert task.status == "WAITING_APPROVAL"
 

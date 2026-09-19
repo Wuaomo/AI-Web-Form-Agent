@@ -27,6 +27,7 @@ from app.models import (
     Task,
 )
 from app.routers.approvals import router as approvals_router
+from app.routers.agent_runs import router as agent_runs_router
 from app.routers.tasks import router as tasks_router
 from app.services.agent_runtime.schemas import GovernanceDecision, ToolResult
 from app.services.agent_runtime.governed_agent_graph import (
@@ -58,6 +59,7 @@ def test_environment() -> Generator[tuple[TestClient, Session], None, None]:
     test_app = FastAPI()
     test_app.include_router(tasks_router)
     test_app.include_router(approvals_router)
+    test_app.include_router(agent_runs_router)
     test_app.dependency_overrides[get_db] = override_get_db
 
     with TestClient(test_app) as client:
@@ -92,12 +94,30 @@ def create_task(session: Session, task_status: str) -> Task:
         mapped_value="user@example.com",
         confidence=1.0,
     )
-    session.add(field)
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Submit reviewed form.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status=task_status,
+        mode="deterministic",
+    )
+    run.final_result = {}
+    session.add_all([field, run])
     session.commit()
     return task
 
 
-def test_confirm_submit_first_request_creates_approval_and_returns_409(
+def continue_submit(client: TestClient, task: Task):
+    return client.post(
+        f"/agent-runs/task-{task.id}/continue",
+        json={"action": "submit_form"},
+    )
+
+
+def test_agent_run_submit_first_request_creates_approval_and_returns_409(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     client, session = test_environment
@@ -107,7 +127,7 @@ def test_confirm_submit_first_request_creates_approval_and_returns_409(
         "app.routers.tasks.submit_form_and_capture_screenshot",
         new_callable=AsyncMock,
     ) as submit_form:
-        response = client.post(f"/tasks/{task.id}/confirm-submit")
+        response = continue_submit(client, task)
 
     assert response.status_code == 409
     assert response.json()["detail"]["message"] == "Final submission requires approval"
@@ -119,13 +139,13 @@ def test_confirm_submit_first_request_creates_approval_and_returns_409(
     assert approval.status == "PENDING"
 
 
-def test_confirm_submit_first_request_persists_submit_proposal(
+def test_agent_run_submit_first_request_persists_submit_proposal(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     client, session = test_environment
     task = create_task(session, "WAITING_APPROVAL")
 
-    response = client.post(f"/tasks/{task.id}/confirm-submit")
+    response = continue_submit(client, task)
 
     assert response.status_code == 409
     approval_id = response.json()["detail"]["approval_id"]
@@ -141,7 +161,7 @@ def test_confirm_submit_first_request_persists_submit_proposal(
     assert session.get(AgentRun, f"task-{task.id}") is not None
 
 
-def test_confirm_submit_existing_pending_approval_persists_submit_proposal(
+def test_agent_run_submit_existing_pending_approval_persists_submit_proposal(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     client, session = test_environment
@@ -163,7 +183,7 @@ def test_confirm_submit_existing_pending_approval_persists_submit_proposal(
     session.add(approval)
     session.commit()
 
-    response = client.post(f"/tasks/{task.id}/confirm-submit")
+    response = continue_submit(client, task)
 
     assert response.status_code == 409
     assert response.json()["detail"]["approval_id"] == approval.id
@@ -178,7 +198,7 @@ def test_approve_submit_approval_syncs_submit_proposal(
 ) -> None:
     client, session = test_environment
     task = create_task(session, "WAITING_APPROVAL")
-    first_response = client.post(f"/tasks/{task.id}/confirm-submit")
+    first_response = continue_submit(client, task)
     approval_id = first_response.json()["detail"]["approval_id"]
     proposal_id = f"task-{task.id}-submit-{approval_id}"
 
@@ -198,7 +218,7 @@ def test_reject_submit_approval_syncs_submit_proposal(
 ) -> None:
     client, session = test_environment
     task = create_task(session, "WAITING_APPROVAL")
-    first_response = client.post(f"/tasks/{task.id}/confirm-submit")
+    first_response = continue_submit(client, task)
     approval_id = first_response.json()["detail"]["approval_id"]
     proposal_id = f"task-{task.id}-submit-{approval_id}"
 
@@ -213,13 +233,13 @@ def test_reject_submit_approval_syncs_submit_proposal(
     assert decision.decision == "rejected"
 
 
-def test_confirm_submit_second_request_submits_after_approval(
+def test_agent_run_submit_second_request_submits_after_approval(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     client, session = test_environment
     task = create_task(session, "WAITING_APPROVAL")
 
-    first_response = client.post(f"/tasks/{task.id}/confirm-submit")
+    first_response = continue_submit(client, task)
     approval_id = first_response.json()["detail"]["approval_id"]
     approve_response = client.post(f"/approvals/{approval_id}/approve")
     assert approve_response.status_code == 200
@@ -228,7 +248,7 @@ def test_confirm_submit_second_request_submits_after_approval(
         "app.routers.tasks.submit_form_and_capture_screenshot",
         new_callable=AsyncMock,
     ) as submit_form:
-        response = client.post(f"/tasks/{task.id}/confirm-submit")
+        response = continue_submit(client, task)
 
     assert response.status_code == 200
     assert response.json() == {"task_id": task.id, "status": "COMPLETED", "approval_id": approval_id}
@@ -255,13 +275,13 @@ def test_confirm_submit_second_request_submits_after_approval(
     assert logs[1].status == "SUCCESS"
 
 
-def test_confirm_submit_records_submit_runtime_tool_call(
+def test_agent_run_submit_records_submit_runtime_tool_call(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     client, session = test_environment
     task = create_task(session, "WAITING_APPROVAL")
 
-    first_response = client.post(f"/tasks/{task.id}/confirm-submit")
+    first_response = continue_submit(client, task)
     approval_id = first_response.json()["detail"]["approval_id"]
     approve_response = client.post(f"/approvals/{approval_id}/approve")
     assert approve_response.status_code == 200
@@ -271,7 +291,7 @@ def test_confirm_submit_records_submit_runtime_tool_call(
         new_callable=AsyncMock,
     ) as submit_form:
         submit_form.return_value = type("Screenshot", (), {"id": 5})()
-        response = client.post(f"/tasks/{task.id}/confirm-submit")
+        response = continue_submit(client, task)
 
     assert response.status_code == 200
 
@@ -304,7 +324,7 @@ def test_confirm_submit_records_submit_runtime_tool_call(
     assert verification.actual == {"screenshot_id": 5, "submitted": True}
 
 
-def test_confirm_submit_resumes_persisted_governed_submit_approval_without_plan_overwrite(
+def test_agent_run_submit_resumes_persisted_governed_submit_approval_without_plan_overwrite(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     client, session = test_environment
@@ -319,7 +339,7 @@ def test_confirm_submit_resumes_persisted_governed_submit_approval_without_plan_
         }
     ]
 
-    first_response = client.post(f"/tasks/{task.id}/confirm-submit")
+    first_response = continue_submit(client, task)
     approval_id = first_response.json()["detail"]["approval_id"]
 
     paused_state = asyncio.run(
@@ -362,7 +382,7 @@ def test_confirm_submit_resumes_persisted_governed_submit_approval_without_plan_
         new_callable=AsyncMock,
     ) as submit_form:
         submit_form.return_value = type("Screenshot", (), {"id": 9})()
-        response = client.post(f"/tasks/{task.id}/confirm-submit")
+        response = continue_submit(client, task)
 
     assert response.status_code == 200
     submit_form.assert_awaited_once()
@@ -373,7 +393,7 @@ def test_confirm_submit_resumes_persisted_governed_submit_approval_without_plan_
     assert run.current_plan_id == f"task-{task.id}:plan:1"
 
 
-def test_confirm_submit_skips_persisted_governed_submit_when_snapshot_differs(
+def test_agent_run_submit_skips_persisted_governed_submit_when_snapshot_differs(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     client, session = test_environment
@@ -381,7 +401,7 @@ def test_confirm_submit_skips_persisted_governed_submit_when_snapshot_differs(
     task = create_task(session, "WAITING_APPROVAL")
     field = session.scalar(select(FormField).where(FormField.task_id == task.id))
 
-    first_response = client.post(f"/tasks/{task.id}/confirm-submit")
+    first_response = continue_submit(client, task)
     approval_id = first_response.json()["detail"]["approval_id"]
     approve_response = client.post(f"/approvals/{approval_id}/approve")
     assert approve_response.status_code == 200
@@ -454,14 +474,14 @@ def test_confirm_submit_skips_persisted_governed_submit_when_snapshot_differs(
         new_callable=AsyncMock,
     ) as submit_form:
         submit_form.return_value = type("Screenshot", (), {"id": 9})()
-        response = client.post(f"/tasks/{task.id}/confirm-submit")
+        response = continue_submit(client, task)
 
     assert response.status_code == 200
     submitted_fields = submit_form.await_args.kwargs["fields"]
     assert submitted_fields[0].mapped_value == "user@example.com"
 
 
-def test_confirm_submit_skips_persisted_governed_submit_when_selector_differs(
+def test_agent_run_submit_skips_persisted_governed_submit_when_selector_differs(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     client, session = test_environment
@@ -469,7 +489,7 @@ def test_confirm_submit_skips_persisted_governed_submit_when_selector_differs(
     task = create_task(session, "WAITING_APPROVAL")
     field = session.scalar(select(FormField).where(FormField.task_id == task.id))
 
-    first_response = client.post(f"/tasks/{task.id}/confirm-submit")
+    first_response = continue_submit(client, task)
     approval_id = first_response.json()["detail"]["approval_id"]
     approve_response = client.post(f"/approvals/{approval_id}/approve")
     assert approve_response.status_code == 200
@@ -544,14 +564,14 @@ def test_confirm_submit_skips_persisted_governed_submit_when_selector_differs(
         new_callable=AsyncMock,
     ) as submit_form:
         submit_form.return_value = type("Screenshot", (), {"id": 9})()
-        response = client.post(f"/tasks/{task.id}/confirm-submit")
+        response = continue_submit(client, task)
 
     assert response.status_code == 200
     submitted_fields = submit_form.await_args.kwargs["fields"]
     assert submitted_fields[0].selector == "#email"
 
 
-def test_confirm_submit_keeps_fill_and_submit_runtime_plan_steps(
+def test_agent_run_submit_keeps_fill_and_submit_runtime_plan_steps(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     client, session = test_environment
@@ -575,7 +595,7 @@ def test_confirm_submit_keeps_fill_and_submit_runtime_plan_steps(
         ),
     )
 
-    first_response = client.post(f"/tasks/{task.id}/confirm-submit")
+    first_response = continue_submit(client, task)
     approval_id = first_response.json()["detail"]["approval_id"]
     approve_response = client.post(f"/approvals/{approval_id}/approve")
     assert approve_response.status_code == 200
@@ -585,7 +605,7 @@ def test_confirm_submit_keeps_fill_and_submit_runtime_plan_steps(
         new_callable=AsyncMock,
     ) as submit_form:
         submit_form.return_value = type("Screenshot", (), {"id": 5})()
-        response = client.post(f"/tasks/{task.id}/confirm-submit")
+        response = continue_submit(client, task)
 
     assert response.status_code == 200
     plan = session.get(AgentPlan, f"task-{task.id}:browser-write-plan:1")
@@ -593,7 +613,7 @@ def test_confirm_submit_keeps_fill_and_submit_runtime_plan_steps(
     assert [step["step_id"] for step in plan.steps] == ["fill_form", "submit_form"]
 
 
-def test_confirm_submit_rejects_task_not_waiting_for_approval(
+def test_agent_run_submit_rejects_task_not_waiting_for_approval(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     client, session = test_environment
@@ -603,7 +623,7 @@ def test_confirm_submit_rejects_task_not_waiting_for_approval(
         "app.routers.tasks.submit_form_and_capture_screenshot",
         new_callable=AsyncMock,
     ) as submit_form:
-        response = client.post(f"/tasks/{task.id}/confirm-submit")
+        response = continue_submit(client, task)
 
     assert response.status_code == 409
     assert response.json() == {"detail": "Task is not waiting for approval"}
@@ -616,13 +636,13 @@ def test_confirm_submit_rejects_task_not_waiting_for_approval(
     ) is None
 
 
-def test_confirm_submit_rejected_approval_blocks_submission(
+def test_agent_run_submit_rejected_approval_blocks_submission(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     client, session = test_environment
     task = create_task(session, "WAITING_APPROVAL")
 
-    first_response = client.post(f"/tasks/{task.id}/confirm-submit")
+    first_response = continue_submit(client, task)
     approval_id = first_response.json()["detail"]["approval_id"]
     approval = session.get(ApprovalRequest, approval_id)
     approval.status = "REJECTED"
@@ -632,7 +652,7 @@ def test_confirm_submit_rejected_approval_blocks_submission(
         "app.routers.tasks.submit_form_and_capture_screenshot",
         new_callable=AsyncMock,
     ) as submit_form:
-        response = client.post(f"/tasks/{task.id}/confirm-submit")
+        response = continue_submit(client, task)
 
     assert response.status_code == 409
     assert response.json()["detail"]["message"] == "Final submission approval was rejected"
@@ -640,7 +660,7 @@ def test_confirm_submit_rejected_approval_blocks_submission(
     submit_form.assert_not_awaited()
 
 
-def test_confirm_submit_requires_new_approval_after_field_snapshot_changes(
+def test_agent_run_submit_requires_new_approval_after_field_snapshot_changes(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     """Verify an approved submit gate becomes stale after mapped values change."""
@@ -648,7 +668,7 @@ def test_confirm_submit_requires_new_approval_after_field_snapshot_changes(
     client, session = test_environment
     task = create_task(session, "WAITING_APPROVAL")
 
-    first_response = client.post(f"/tasks/{task.id}/confirm-submit")
+    first_response = continue_submit(client, task)
     first_approval_id = first_response.json()["detail"]["approval_id"]
     approve_response = client.post(f"/approvals/{first_approval_id}/approve")
     assert approve_response.status_code == 200
@@ -661,7 +681,7 @@ def test_confirm_submit_requires_new_approval_after_field_snapshot_changes(
         "app.routers.tasks.submit_form_and_capture_screenshot",
         new_callable=AsyncMock,
     ) as submit_form:
-        response = client.post(f"/tasks/{task.id}/confirm-submit")
+        response = continue_submit(client, task)
 
     assert response.status_code == 409
     assert response.json()["detail"]["message"] == "Final submission requires approval"

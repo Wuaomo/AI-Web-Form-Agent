@@ -471,11 +471,13 @@ async def execute_fill_form_runtime_tool(
     db: Any,
     task: Any,
     fields: list[Any],
+    run_id: str | None = None,
     fill_form_handler=fill_form_and_capture_screenshot,
 ) -> tuple[Any, Any, list[Any]]:
-    """Run the approved fill_form browser-write tool for a legacy task."""
+    """Run the approved fill_form browser-write tool."""
 
-    tool_call_id = f"task-{task.id}:fill_form"
+    runtime_run_id = run_id or f"task-{task.id}"
+    tool_call_id = f"{runtime_run_id}:fill_form"
     fill_result: dict[str, Any] = {}
     tool_result = await build_default_tool_runtime(
         fill_form_handler=fill_form_handler
@@ -489,6 +491,8 @@ async def execute_fill_form_runtime_tool(
             "fields": fields,
         },
         context=ToolExecutionContext(
+            run_id=runtime_run_id,
+            plan_step_id="fill_form",
             metadata={
                 "db": db,
                 "task_id": task.id,
@@ -548,11 +552,13 @@ async def execute_submit_form_runtime_tool(
     db: Any,
     task: Any,
     fields: list[Any],
+    run_id: str | None = None,
     submit_form_handler=submit_form_and_capture_screenshot,
 ) -> tuple[Any, Any]:
-    """Run the approved submit_form browser-write tool for a legacy task."""
+    """Run the approved submit_form browser-write tool."""
 
-    tool_call_id = f"task-{task.id}:submit_form"
+    runtime_run_id = run_id or f"task-{task.id}"
+    tool_call_id = f"{runtime_run_id}:submit_form"
     submit_result: dict[str, Any] = {}
     tool_result = await build_default_tool_runtime(
         submit_form_handler=submit_form_handler
@@ -566,6 +572,8 @@ async def execute_submit_form_runtime_tool(
             "fields": fields,
         },
         context=ToolExecutionContext(
+            run_id=runtime_run_id,
+            plan_step_id="submit_form",
             metadata={
                 "db": db,
                 "task_id": task.id,
