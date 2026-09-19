@@ -36,14 +36,18 @@ export async function startRunCockpitRuntime({
   return resolveRunCockpitRuntime(refreshed?.task || task, startRuntime);
 }
 
-export async function continueRunCockpitRuntime({ apiClient, taskId, task }) {
+export async function continueRunCockpitRuntime({ apiClient, task }) {
   const runId = getRunCockpitRunId(task);
-  return runId ? apiClient.continueAgentRun(runId) : apiClient.fillTask(taskId);
+  if (!runId) {
+    throw new Error("AgentRun id is required before browser-write actions. Restart the governed runtime and try again.");
+  }
+  return apiClient.continueAgentRun(runId);
 }
 
-export async function submitRunCockpitRuntime({ apiClient, taskId, task }) {
+export async function submitRunCockpitRuntime({ apiClient, task }) {
   const runId = getRunCockpitRunId(task);
-  return runId
-    ? apiClient.continueAgentRun(runId, { action: "submit_form" })
-    : apiClient.confirmSubmit(taskId);
+  if (!runId) {
+    throw new Error("AgentRun id is required before browser-write actions. Restart the governed runtime and try again.");
+  }
+  return apiClient.continueAgentRun(runId, { action: "submit_form" });
 }

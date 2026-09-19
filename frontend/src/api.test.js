@@ -119,6 +119,8 @@ test("workflow runtime API client exposes governed workflow helpers only", async
     assert.equal(api.reviewWorkflow, undefined);
     assert.equal(api.extractTaskPage, undefined);
     assert.equal(api.generateJobSummary, undefined);
+    assert.equal(api.fillTask, undefined);
+    assert.equal(api.confirmSubmit, undefined);
     assert.equal(calls.length, 2);
     assert.ok(calls[0].url.endsWith("/workflows/1/governed/start?planner_mode=template_guided"));
     assert.equal(calls[0].method, "POST");
@@ -316,7 +318,7 @@ test("structured API errors preserve detail payload", async () => {
 
   try {
     await assert.rejects(
-      () => api.confirmSubmit(12),
+      () => api.continueAgentRun("task-12", { action: "submit_form" }),
       (error) =>
         error.message === "Final submission requires approval" &&
         error.detail.approval_id === 12 &&

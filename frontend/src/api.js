@@ -193,9 +193,6 @@ export const api = {
     }),
   confirmMapping: (taskId) =>
     request(`/tasks/${taskId}/confirm-mapping`, { method: "POST" }),
-  fillTask: (taskId) => request(`/tasks/${taskId}/fill`, { method: "POST" }),
-  confirmSubmit: (taskId) =>
-    request(`/tasks/${taskId}/confirm-submit`, { method: "POST" }),
   getTaskLlmUsage: (taskId) => request(`/tasks/${taskId}/llm-usage`),
   listTaskCheckpoints: (taskId) => request(`/tasks/${taskId}/checkpoints`),
   getTaskVerificationResults: (taskId) => request(`/tasks/${taskId}/verification-results`),

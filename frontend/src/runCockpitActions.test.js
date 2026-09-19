@@ -28,14 +28,6 @@ function fakeApi(overrides = {}) {
       calls.push({ name: "continueAgentRun", runId, options });
       return { status: "WAITING_APPROVAL" };
     },
-    fillTask: async (taskId) => {
-      calls.push({ name: "fillTask", taskId });
-      return { status: "WAITING_APPROVAL" };
-    },
-    confirmSubmit: async (taskId) => {
-      calls.push({ name: "confirmSubmit", taskId });
-      return { status: "COMPLETED" };
-    },
     ...overrides,
   };
 }
@@ -165,17 +157,19 @@ test("continue run cockpit uses AgentRun boundary when run id exists", async () 
   ]);
 });
 
-test("continue run cockpit falls back to legacy fill without run id", async () => {
+test("continue run cockpit requires an AgentRun id without legacy fill fallback", async () => {
   const apiClient = fakeApi();
 
-  const result = await continueRunCockpitRuntime({
-    apiClient,
-    taskId: 7,
-    task: { status: "READY_TO_FILL" },
-  });
+  await assert.rejects(
+    continueRunCockpitRuntime({
+      apiClient,
+      taskId: 7,
+      task: { status: "READY_TO_FILL" },
+    }),
+    /AgentRun id is required before browser-write actions/,
+  );
 
-  assert.deepEqual(result, { status: "WAITING_APPROVAL" });
-  assert.deepEqual(apiClient.calls, [{ name: "fillTask", taskId: 7 }]);
+  assert.deepEqual(apiClient.calls, []);
 });
 
 test("submit run cockpit uses AgentRun continue boundary when run id exists", async () => {
@@ -193,15 +187,17 @@ test("submit run cockpit uses AgentRun continue boundary when run id exists", as
   ]);
 });
 
-test("submit run cockpit falls back to legacy confirm submit without run id", async () => {
+test("submit run cockpit requires an AgentRun id without legacy submit fallback", async () => {
   const apiClient = fakeApi();
 
-  const result = await submitRunCockpitRuntime({
-    apiClient,
-    taskId: 7,
-    task: { status: "WAITING_APPROVAL" },
-  });
+  await assert.rejects(
+    submitRunCockpitRuntime({
+      apiClient,
+      taskId: 7,
+      task: { status: "WAITING_APPROVAL" },
+    }),
+    /AgentRun id is required before browser-write actions/,
+  );
 
-  assert.deepEqual(result, { status: "COMPLETED" });
-  assert.deepEqual(apiClient.calls, [{ name: "confirmSubmit", taskId: 7 }]);
+  assert.deepEqual(apiClient.calls, []);
 });
