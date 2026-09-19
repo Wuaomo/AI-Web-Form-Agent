@@ -16,8 +16,13 @@ read boundary, and Task Detail prefers those results. D shared Review Queue
 coverage now uses AgentRun endpoints or direct shared helpers; only legacy-only
 transport/scoping/fallback candidates remain on the task routes. No backend
 compatibility API is deleted because no B/C/D external compatibility window is
-explicitly confirmed closed. This does not claim the overall runtime refactor
-is complete.
+explicitly confirmed closed. The Browser-Write Compatibility Boundary
+Retirement Gate also removed frontend fill/submit fallbacks, bound sync/async
+fill and submit evidence to the requested AgentRun id, and moved still-needed
+browser-write behavior tests to AgentRun continue. The backend wrappers remain
+because their external and rollback windows are unconfirmed; persisted
+empty-payload fill jobs remain a separate historical compatibility concern.
+This does not claim the overall runtime refactor is complete.
 
 ## Primary Boundaries
 
@@ -42,12 +47,12 @@ is complete.
 | `FormField` sync compatibility | keep-for-now | `AgentProposal` + `AgentReviewDecision`; browser write should eventually consume approved proposals directly | Review Queue sync helper, legacy fill/submit helpers, Review Mapping field edits, benchmarks, tests | Not only no-run-id; `FormField` remains extraction storage plus legacy mapped value storage | Proposal-only fill/submit path, extraction-vs-mapping storage split, benchmark parity, migration script or compatibility read model |
 | `POST /tasks/{task_id}/extract-page` | remove-later | Governed start for execution plus compact `GET /agent-runs/{run_id}` result read | Backend compatibility tests and docs-only mentions; frontend product fallback and helper removed | Workflow-specific read compatibility facade, not browser-write | Explicitly close the external compatibility window, then add a removal test |
 | `POST /tasks/{task_id}/job-summary` | remove-later | Governed start for execution plus compact `GET /agent-runs/{run_id}` result read | Backend compatibility tests and docs-only mentions; frontend product fallback and helper removed | Workflow-specific read compatibility facade, not browser-write | Explicitly close the external compatibility window, then add a removal test |
-| `POST /tasks/{task_id}/fill` | remove-later | `POST /agent-runs/{run_id}/continue` | Task Detail no-run-id fallback, legacy async jobs, backend/frontend tests | Yes | All fill-capable paths must expose run id before fill; sync/async continue e2e; legacy empty-payload job retirement plan |
-| `POST /tasks/{task_id}/confirm-submit` | remove-later | `POST /agent-runs/{run_id}/continue` with `{"action":"submit_form"}` | Task Detail no-run-id fallback, approval flow tests | Yes | Submit e2e through AgentRun continue, approval center/task refresh parity, stale approval regression coverage after fallback removal |
+| `POST /tasks/{task_id}/fill` | remove-later | `POST /agent-runs/{run_id}/continue` | Legacy-only backend transport tests and possible persisted empty-payload fill jobs; no frontend/internal product consumer found | No frontend fallback | Explicitly close the external and rollback windows; decide how historical empty-payload queued jobs are drained or retired; then add a failing removal test |
+| `POST /tasks/{task_id}/confirm-submit` | remove-later | `POST /agent-runs/{run_id}/continue` with `{"action":"submit_form"}` | Legacy-only backend transport test; no frontend/internal product consumer found | No frontend fallback | Explicitly close the external and rollback windows, then add a failing removal test |
 | `POST /workflows/{task_id}/start` | remove-later | `POST /workflows/{task_id}/governed/start` | Backend old-graph behavior tests; no frontend product helper or primary caller found | Old security graph external compatibility only | External compatibility window closes and old graph behavior tests convert to deletion/parity tests |
 | `GET /workflows/{task_id}` | remove-later | `GET /agent-runs/{run_id}` or `GET /workflows/{task_id}/governed` | Backend old-graph behavior tests; no frontend product helper or page caller found | Old security graph external compatibility only | Backend behavior tests convert to deletion/parity tests and external compatibility window closes |
 | `POST /workflows/{task_id}/review` | remove-later | AgentRun Review Queue decision endpoint | Backend old-graph behavior tests; no frontend product helper or page caller found | Old security graph external compatibility only | Backend behavior tests convert to deletion/parity tests and external compatibility window closes |
-| Frontend Task Detail fallbacks | remove-later | Run Cockpit helpers using AgentRun first | `loadRunCockpitRuntime`, fill/submit action helpers | Mixed: AgentRun read failure, no-run-id task facade, no-run-id browser-write compatibility; old graph UI removed | Require run id for fill/submit-capable task detail paths before task wrapper deletion |
+| Frontend Task Detail browser-write fallbacks | removed | Run Cockpit action helpers require AgentRun continue | `continueRunCockpitRuntime`, `submitRunCockpitRuntime` | None; missing run id surfaces a recoverable error | Keep the missing-run-id regression tests; Run Cockpit read fallbacks remain separate |
 | Frontend Run Cockpit fallback order | keep-for-now | `getAgentRun` -> governed state -> task facade | `runCockpitActions.js`, tests | AgentRun read failure and no-run-id | Keep until task facade read removal has a replacement route |
 | Frontend Review Mapping fallbacks | removed | AgentRun review read/write | `reviewMappingActions.js`; old graph UI removed from `ReviewMapping.jsx` | None for task review endpoints | Keep AgentRun failure surfacing covered; backend routes remain until deletion criteria pass |
 | Frontend Create Task/Page Intake workflow-specific starts | removed | Governed start for all enabled demo workflows | `CreateTask.jsx`, `AnalyzePage.jsx`, `api.startReadOnlyWorkflow` | No legacy endpoint fallback; governed start failure surfaces to existing page error handling | Keep frontend on governed deterministic start |
@@ -62,9 +67,9 @@ Task Detail:
    `GET /agent-runs/{run_id}`.
 3. If AgentRun read fails, it falls back to `GET /workflows/{task_id}/governed`.
 4. If governed state is missing, it falls back to compact task facade state.
-5. Fill/submit use `POST /agent-runs/{run_id}/continue` when a run id exists;
-   otherwise they use `/tasks/{task_id}/fill` and
-   `/tasks/{task_id}/confirm-submit`.
+5. Fill/submit require `agent_run_id` or `agent_runtime.run_id` and use
+   `POST /agent-runs/{run_id}/continue`. Missing run id surfaces a recoverable
+   error and never calls the legacy task write routes.
 
 Review Mapping:
 
@@ -82,9 +87,8 @@ Create Task and Page Intake:
   `api.startReadOnlyWorkflow`, which calls governed deterministic start and
   surfaces governed failures through existing page error handling.
 
-Conclusion: browser-write still has intentional no-run-id compatibility
-fallbacks, but Review Mapping no longer uses legacy task review read/write
-fallbacks.
+Conclusion: frontend browser-write no longer has a no-run-id task-route
+fallback. Run Cockpit read fallback and the task facade remain unchanged.
 
 ## Phase 26 Browser-Write Wrapper Retirement Planning
 
@@ -93,9 +97,10 @@ fallbacks.
 Current wrapper safety:
 
 - AgentRun fill delegates to the shared reviewed fill helper with
-  `agent_run_id`.
+  `agent_run_id`; sync execution, async enqueue, worker resume, retries,
+  tool calls, results, and verification retain that id.
 - AgentRun submit delegates to the shared submit helper with explicit
-  `submit_form` action.
+  `submit_form` action and persists submit evidence on the requested run.
 - Legacy fill and submit wrappers still pass through review, approval, stale
   value, stale selector, policy, Tool Runtime, and verification gates.
 - Legacy async fill jobs with `agent_run_id` delegate back through AgentRun
@@ -106,11 +111,9 @@ No runtime/security gap found in this audit.
 
 Deletion blockers:
 
-- e2e proving every UI fill action has a run id after prepare.
-- e2e proving every UI final-submit action has a run id and still requires
-  explicit final-submit approval.
-- async job parity for AgentRun continue in worker mode.
-- rollback plan that can re-enable legacy wrappers if run creation regresses.
+- explicit external compatibility-window closure for each route;
+- explicit rollback-window closure for each route;
+- fill-only: a decision for already-persisted empty-payload queued jobs.
 
 ## Phase 27 Workflow-Specific Endpoint Readiness
 
@@ -508,6 +511,46 @@ Already covered by existing evidence:
 - Final submit still requires explicit approval.
 - Old security graph fallback does not execute dangerous browser writes and is
   not trusted for verification.
+
+## Browser-Write Compatibility Boundary Retirement Gate
+
+Consumer audit:
+
+| Area | Fill consumer result | Submit consumer result |
+| --- | --- | --- |
+| `frontend/src` | Task Detail calls AgentRun continue only; missing run id errors; `api.fillTask` is absent | Task Detail sends `{"action":"submit_form"}` to AgentRun continue only; missing run id errors; `api.confirmSubmit` is absent |
+| backend routers | AgentRun continue is primary; the task route is a compatibility wrapper over the shared helper | AgentRun continue is primary; the task route is a compatibility wrapper over the shared helper |
+| workers/job queue | The only product enqueue source is the shared fill helper; AgentRun enqueue writes `agent_run_id`; legacy route enqueue can still create empty payloads | No async submit producer exists |
+| `agent_runtime` services | Tool call/result/verification persistence accepts and retains the requested run id | Tool call/result/verification persistence and governed resume accept and retain the requested run id |
+| tests | Still-needed review, policy, sensitive, stale value/selector, sync/async, retry, and verification coverage uses AgentRun continue or shared helpers | Still-needed approval, stale snapshot/selector, governed resume, Tool Runtime, and verification coverage uses AgentRun continue/shared helpers |
+| README/docs | Mentions are architecture/history/compatibility documentation, not callers | Mentions are architecture/history/compatibility documentation, not callers |
+| scripts/benchmarks | No route consumer found | No route consumer found |
+
+Legacy-only removal candidates remain intentionally separate:
+
+- fill task-route transport, empty-payload async enqueue, not-ready/missing-value
+  validation through the legacy transport, and the no-prior-AgentRun legacy
+  field flow;
+- confirm-submit task-route synchronous response behavior under async mode.
+
+Primary parity now covers reviewed sync fill, AgentRun-backed async enqueue,
+worker resume on the same run id, retry payload retention, proposal review,
+policy approval, sensitive blocking, stale mapped value and selector rejection,
+verification persistence, required readback mismatch failure, explicit submit
+approval, stale submit value/selector snapshots, and submit verification
+evidence. Rejected and needs-more-evidence proposals still cannot resume a
+browser write; browser click/navigation and external writes remain disabled.
+
+Independent removal decision:
+
+| Surface | Decision | Blocker |
+| --- | --- | --- |
+| `POST /tasks/{task_id}/fill` | remove-later; not deleted | External and rollback windows are unconfirmed. Historical databases may contain queued empty-payload fill jobs; repository producer absence cannot close that persisted compatibility concern. |
+| `POST /tasks/{task_id}/confirm-submit` | remove-later; not deleted | External and rollback windows are unconfirmed. Repository consumer absence is internal evidence only. |
+
+No migration framework is introduced. If historical queued jobs require data
+migration, that remains a blocker to resolve before fill-route removal. No
+runtime or security gate was relaxed, and FormField sync remains unchanged.
 
 ## Surface Buckets
 
