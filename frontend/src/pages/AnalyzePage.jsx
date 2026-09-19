@@ -8,7 +8,10 @@ import {
   riskLabel,
   workflowLabel,
 } from "../pageIntakePresentation";
-import { mappingModeForWorkflow } from "../workflowTemplatePresentation";
+import {
+  mappingModeForWorkflow,
+  usesGovernedDemoPath,
+} from "../workflowTemplatePresentation";
 
 function AnalyzePage() {
   const navigate = useNavigate();
@@ -87,15 +90,24 @@ function AnalyzePage() {
 
       const workflowType = persistedIntake.recommended_workflow;
 
-      if (workflowType === "web_data_extract") {
-        await api.extractTaskPage(task.id);
+      if (
+        workflowType === "web_data_extract" ||
+        workflowType === "job_research_summary"
+      ) {
+        await api.startReadOnlyWorkflow(task.id, workflowType);
         navigate(`/tasks/${task.id}`);
         return;
       }
 
-      if (workflowType === "job_research_summary") {
-        await api.generateJobSummary(task.id);
-        navigate(`/tasks/${task.id}`);
+      if (usesGovernedDemoPath(workflowType)) {
+        const runtimeState = await api.startGovernedWorkflow(task.id, {
+          plannerMode: "deterministic",
+        });
+        navigate(
+          runtimeState.status === "WAITING_REVIEW"
+            ? `/tasks/${task.id}/review-mapping`
+            : `/tasks/${task.id}`,
+        );
         return;
       }
 

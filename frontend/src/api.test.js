@@ -101,7 +101,7 @@ test("knowledge source API client uses correct paths", async () => {
   }
 });
 
-test("workflow runtime API client uses correct paths", async () => {
+test("workflow runtime API client exposes governed workflow helpers only", async () => {
   clearApiCache();
   const originalFetch = globalThis.fetch;
   const calls = [];
@@ -111,46 +111,101 @@ test("workflow runtime API client uses correct paths", async () => {
   };
 
   try {
-    await api.startWorkflow(1);
     await api.startGovernedWorkflow(1, { plannerMode: "template_guided" });
     await api.getGovernedWorkflowState(1);
-    await api.getWorkflowState(1);
-    await api.reviewWorkflow(1, { decision: "approve_all", approvals: [] });
 
-    assert.equal(calls.length, 5);
-    assert.ok(calls[0].url.endsWith("/workflows/1/start"));
+    assert.equal(api.startWorkflow, undefined);
+    assert.equal(api.getWorkflowState, undefined);
+    assert.equal(api.reviewWorkflow, undefined);
+    assert.equal(api.extractTaskPage, undefined);
+    assert.equal(api.generateJobSummary, undefined);
+    assert.equal(api.fillTask, undefined);
+    assert.equal(api.confirmSubmit, undefined);
+    assert.equal(calls.length, 2);
+    assert.ok(calls[0].url.endsWith("/workflows/1/governed/start?planner_mode=template_guided"));
     assert.equal(calls[0].method, "POST");
-    assert.ok(calls[1].url.endsWith("/workflows/1/governed/start?planner_mode=template_guided"));
-    assert.equal(calls[1].method, "POST");
-    assert.ok(calls[2].url.endsWith("/workflows/1/governed"));
-    assert.equal(calls[2].method, "GET");
-    assert.ok(calls[3].url.endsWith("/workflows/1"));
-    assert.equal(calls[3].method, "GET");
-    assert.ok(calls[4].url.endsWith("/workflows/1/review"));
-    assert.equal(calls[4].method, "POST");
-    const reviewBody = JSON.parse(calls[4].body);
-    assert.equal(reviewBody.decision, "approve_all");
+    assert.ok(calls[1].url.endsWith("/workflows/1/governed"));
+    assert.equal(calls[1].method, "GET");
   } finally {
     clearApiCache();
     globalThis.fetch = originalFetch;
   }
 });
 
-test("proposal review API client uses task review item path", async () => {
+test("read-only workflow start uses governed deterministic path first", async () => {
   clearApiCache();
   const originalFetch = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url, options = {}) => {
     calls.push({ url, method: options.method || "GET" });
-    return jsonResponse([{ id: "task-7-field-1" }]);
+    return jsonResponse({ run_id: "task-7", status: "COMPLETED" });
   };
 
   try {
-    const items = await api.listTaskReviewItems(7);
+    await api.startReadOnlyWorkflow(7, "web_data_extract");
+    await api.startReadOnlyWorkflow(8, "job_research_summary");
 
-    assert.deepEqual(items, [{ id: "task-7-field-1" }]);
+    assert.deepEqual(
+      calls.map((call) => call.url.replace(/^.*?:\/\/[^/]+/, "")),
+      [
+        "/workflows/7/governed/start?planner_mode=deterministic",
+        "/workflows/8/governed/start?planner_mode=deterministic",
+      ],
+    );
+    assert.deepEqual(calls.map((call) => call.method), ["POST", "POST"]);
+  } finally {
+    clearApiCache();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("read-only workflow start surfaces governed failure without legacy fallback", async () => {
+  clearApiCache();
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, method: options.method || "GET" });
+    if (url.endsWith("/workflows/7/governed/start?planner_mode=deterministic")) {
+      return new Response(JSON.stringify({ detail: "governed start unavailable" }), {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return jsonResponse({ status: "EXTRACTED" });
+  };
+
+  try {
+    await assert.rejects(
+      () => api.startReadOnlyWorkflow(7, "web_data_extract"),
+      /governed start unavailable/,
+    );
+
+    assert.deepEqual(
+      calls.map((call) => call.url.replace(/^.*?:\/\/[^/]+/, "")),
+      ["/workflows/7/governed/start?planner_mode=deterministic"],
+    );
+    assert.deepEqual(calls.map((call) => call.method), ["POST"]);
+  } finally {
+    clearApiCache();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("agent run API client uses primary read boundary", async () => {
+  clearApiCache();
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, method: options.method || "GET" });
+    return jsonResponse({ run_id: "task-7", status: "COMPLETED" });
+  };
+
+  try {
+    const result = await api.getAgentRun("task-7");
+
+    assert.deepEqual(result, { run_id: "task-7", status: "COMPLETED" });
     assert.equal(calls.length, 1);
-    assert.ok(calls[0].url.endsWith("/tasks/7/review-items"));
+    assert.ok(calls[0].url.endsWith("/agent-runs/task-7"));
     assert.equal(calls[0].method, "GET");
   } finally {
     clearApiCache();
@@ -158,30 +213,88 @@ test("proposal review API client uses task review item path", async () => {
   }
 });
 
-test("proposal review API client posts review decisions", async () => {
+test("agent run API client uses primary continue boundary", async () => {
+  clearApiCache();
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, method: options.method || "GET" });
+    return jsonResponse({ status: "WAITING_APPROVAL" });
+  };
+
+  try {
+    const result = await api.continueAgentRun("task-7");
+
+    assert.deepEqual(result, { status: "WAITING_APPROVAL" });
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0].url.endsWith("/agent-runs/task-7/continue"));
+    assert.equal(calls[0].method, "POST");
+  } finally {
+    clearApiCache();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("agent run API client sends submit continue action payload", async () => {
   clearApiCache();
   const originalFetch = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url, options = {}) => {
     calls.push({ url, method: options.method || "GET", body: options.body });
-    return jsonResponse({ id: "decision-task-7-field-1" });
+    return jsonResponse({ status: "COMPLETED" });
   };
 
   try {
-    const result = await api.reviewTaskItem(7, "task-7-field-1", {
-      decision: "edited",
-      edited_value: "Ada",
-    });
+    const result = await api.continueAgentRun("task-7", { action: "submit_form" });
 
-    assert.deepEqual(result, { id: "decision-task-7-field-1" });
+    assert.deepEqual(result, { status: "COMPLETED" });
     assert.equal(calls.length, 1);
-    assert.ok(calls[0].url.endsWith("/tasks/7/review-items/task-7-field-1/decision"));
+    assert.ok(calls[0].url.endsWith("/agent-runs/task-7/continue"));
     assert.equal(calls[0].method, "POST");
-    assert.equal(JSON.parse(calls[0].body).edited_value, "Ada");
+    assert.equal(calls[0].body, JSON.stringify({ action: "submit_form" }));
   } finally {
     clearApiCache();
     globalThis.fetch = originalFetch;
   }
+});
+
+test("agent run proposal review API client uses primary review queue boundary", async () => {
+  clearApiCache();
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, method: options.method || "GET", body: options.body });
+    if (options.method === "POST") {
+      return jsonResponse({ id: "decision-run-item" });
+    }
+    return jsonResponse([{ id: "run-item" }]);
+  };
+
+  try {
+    const items = await api.listAgentRunReviewItems("task-7");
+    const decision = await api.reviewAgentRunItem("task-7", "run-item", {
+      decision: "approved",
+    });
+
+    assert.deepEqual(items, [{ id: "run-item" }]);
+    assert.deepEqual(decision, { id: "decision-run-item" });
+    assert.equal(calls.length, 2);
+    assert.ok(calls[0].url.endsWith("/agent-runs/task-7/review-items"));
+    assert.equal(calls[0].method, "GET");
+    assert.ok(
+      calls[1].url.endsWith("/agent-runs/task-7/review-items/run-item/decision"),
+    );
+    assert.equal(calls[1].method, "POST");
+    assert.equal(JSON.parse(calls[1].body).decision, "approved");
+  } finally {
+    clearApiCache();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("proposal review API client does not expose legacy task review helpers", () => {
+  assert.equal(api.listTaskReviewItems, undefined);
+  assert.equal(api.reviewTaskItem, undefined);
 });
 
 test("structured API errors preserve detail payload", async () => {
@@ -205,7 +318,7 @@ test("structured API errors preserve detail payload", async () => {
 
   try {
     await assert.rejects(
-      () => api.confirmSubmit(12),
+      () => api.continueAgentRun("task-12", { action: "submit_form" }),
       (error) =>
         error.message === "Final submission requires approval" &&
         error.detail.approval_id === 12 &&

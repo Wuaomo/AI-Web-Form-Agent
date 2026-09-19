@@ -13,6 +13,14 @@ function getTaskStatus(task) {
   return task?.workflow_status || task?.status;
 }
 
+function hasRuntimeReview(runtime) {
+  return (
+    runtime?.status === "WAITING_REVIEW" ||
+    runtime?.interrupt_at === "review" ||
+    Number(runtime?.pending_review_count || 0) > 0
+  );
+}
+
 function isWindowsFileUrl(url = "") {
   return /^file:\/\/\/[a-z]:/i.test(url);
 }
@@ -195,7 +203,11 @@ function getFailedStage(checkpoints) {
   return failedCheckpoints[failedCheckpoints.length - 1].stage;
 }
 
-export function getTaskRunState(task, checkpoints = []) {
+export function getTaskRunState(task, checkpoints = [], runtime = null) {
+  if (hasRuntimeReview(runtime)) {
+    return stateByStatus.MAPPING_READY;
+  }
+
   const taskStatus = getTaskStatus(task);
   const baseState = stateByStatus[taskStatus];
   if (!baseState) {

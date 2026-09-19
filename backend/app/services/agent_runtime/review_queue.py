@@ -14,6 +14,8 @@ from app.models import (
     AgentProposal,
     AgentReviewDecision,
     AgentRun,
+    AgentToolCall,
+    AgentToolResult,
     ApprovalRequest,
     FormField,
     Task,
@@ -29,6 +31,8 @@ from app.services.workflow_memory import (
 from app.workflow_constants import WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE
 
 ACTION_FIELD_TYPES = {"button", "file", "submit", "reset", "image"}
+FORM_FIELD_SYNC_PROPOSAL_TYPES = {"field_value", "answer", "open_ended_answer"}
+RAW_PROPOSAL_VALUE_KEYS = {"tool_results", "output_json", "raw_output_json"}
 
 
 @dataclass(frozen=True)
@@ -40,24 +44,43 @@ class ReviewItemTarget:
     requires_form_field_sync: bool
 
 
+@dataclass(frozen=True)
+class ReviewDecisionApplication:
+    """Applied review decision plus its resolved compatibility target."""
+
+    decision: ReviewDecision
+    target: ReviewItemTarget
+
+
 def build_task_review_proposals(
     *,
     task: Task,
     fields: list[FormField],
     checkpoints: list[TaskCheckpoint],
+    run_id: str | None = None,
 ) -> list[Proposal]:
     """Project existing mapping review rows into generic runtime proposals."""
 
-    evidence_by_field_id = _evidence_by_field_id(task.id, checkpoints)
+    runtime_run_id = run_id or _run_id(task.id)
+    evidence_by_field_id = _evidence_by_field_id(
+        task.id,
+        checkpoints,
+        run_id=runtime_run_id,
+    )
     field_proposals = [
-        _field_proposal(task, field, evidence_by_field_id.get(field.id, []))
+        _field_proposal(
+            task,
+            field,
+            evidence_by_field_id.get(field.id, []),
+            run_id=runtime_run_id,
+        )
         for field in fields
         if _is_reviewable_field(field)
     ]
     memory_proposals = [
         proposal
         for field in fields
-        for proposal in _memory_write_proposals(task, field)
+        for proposal in _memory_write_proposals(task, field, run_id=runtime_run_id)
     ]
     return field_proposals + memory_proposals
 
@@ -66,14 +89,16 @@ def load_persisted_task_review_proposals(
     db: Session,
     *,
     task: Task,
+    run_id: str | None = None,
 ) -> list[Proposal]:
     """Restore review proposals already persisted for the task runtime run."""
 
-    run = db.execute(
-        select(AgentRun)
-        .where(AgentRun.legacy_task_id == task.id)
-        .order_by(AgentRun.updated_at.desc(), AgentRun.created_at.desc())
-    ).scalars().first()
+    run = db.scalar(
+        select(AgentRun).where(
+            AgentRun.id == (run_id or _run_id(task.id)),
+            AgentRun.legacy_task_id == task.id,
+        )
+    )
     if run is None:
         return []
 
@@ -93,20 +118,23 @@ def load_or_create_task_review_proposals(
     task: Task,
     fields: list[FormField],
     checkpoints: list[TaskCheckpoint],
+    run_id: str | None = None,
 ) -> list[Proposal]:
     """Return persisted review proposals, backfilling only missing legacy rows."""
 
-    persisted = load_persisted_task_review_proposals(db, task=task)
+    persisted = load_persisted_task_review_proposals(db, task=task, run_id=run_id)
     persisted_ids = {proposal.id for proposal in persisted}
     persisted_field_refs = {
         proposal.target_ref
         for proposal in persisted
         if proposal.target_type == "form_field"
+        and proposal.proposal_type in FORM_FIELD_SYNC_PROPOSAL_TYPES
     }
     derived = build_task_review_proposals(
         task=task,
         fields=fields,
         checkpoints=checkpoints,
+        run_id=run_id,
     )
     missing = [
         proposal
@@ -146,19 +174,25 @@ def resolve_task_review_item_target(
     *,
     task: Task,
     proposal_id: str,
+    run_id: str | None = None,
 ) -> ReviewItemTarget | None:
     """Resolve persisted and legacy task review item ids to their sync target."""
 
+    conditions = [
+        AgentProposal.id == proposal_id,
+        AgentRun.legacy_task_id == task.id,
+        AgentProposal.run_id == (run_id or _run_id(task.id)),
+    ]
     proposal = db.scalar(
         select(AgentProposal)
         .join(AgentRun)
-        .where(
-            AgentProposal.id == proposal_id,
-            AgentRun.legacy_task_id == task.id,
-        )
+        .where(*conditions)
     )
     if proposal is not None:
-        if proposal.target_type != "form_field":
+        if (
+            proposal.proposal_type not in FORM_FIELD_SYNC_PROPOSAL_TYPES
+            or proposal.target_type != "form_field"
+        ):
             return ReviewItemTarget(proposal, None, False)
         if not proposal.target_ref.isdigit():
             return ReviewItemTarget(proposal, None, False)
@@ -172,6 +206,73 @@ def resolve_task_review_item_target(
     return ReviewItemTarget(None, field, True) if field else None
 
 
+def apply_review_queue_decision(
+    db: Session,
+    *,
+    task: Task,
+    proposal_id: str,
+    decision: str,
+    edited_value: Any = None,
+    reviewer_note: str | None = None,
+    run_id: str | None = None,
+    require_proposal: bool = False,
+    backfill_legacy_field: bool = False,
+) -> ReviewDecisionApplication | None:
+    """Apply a Review Queue decision through the shared persistence path."""
+
+    target = resolve_task_review_item_target(
+        db,
+        task=task,
+        proposal_id=proposal_id,
+        run_id=run_id,
+    )
+    if target is None or (require_proposal and target.proposal is None):
+        return None
+    if decision == "edited" and edited_value is None:
+        raise ValueError("edited_value is required for edited decisions")
+
+    apply_review_decision_to_field_target(
+        target,
+        decision=decision,
+        edited_value=edited_value,
+    )
+    if target.field is not None and target.proposal is None and backfill_legacy_field:
+        checkpoints = list(
+            db.scalars(
+                select(TaskCheckpoint)
+                .where(TaskCheckpoint.task_id == task.id)
+                .order_by(TaskCheckpoint.created_at)
+            )
+        )
+        fields = list(
+            db.scalars(
+                select(FormField)
+                .where(FormField.task_id == task.id)
+                .order_by(FormField.id)
+            )
+        )
+        persist_task_review_proposals(
+            db,
+            task=task,
+            proposals=build_task_review_proposals(
+                task=task,
+                fields=fields,
+                checkpoints=checkpoints,
+            ),
+        )
+
+    review_decision = ReviewDecision(
+        id=f"decision-{proposal_id}",
+        proposal_id=proposal_id,
+        decision=decision,
+        edited_value=edited_value,
+        reviewer_note=reviewer_note,
+    )
+    persist_review_decision(db, decision=review_decision)
+    db.flush()
+    return ReviewDecisionApplication(review_decision, target)
+
+
 def apply_review_decision_to_field_target(
     target: ReviewItemTarget,
     *,
@@ -181,7 +282,7 @@ def apply_review_decision_to_field_target(
     """Sync a proposal review decision back to the legacy FormField row."""
 
     field = target.field
-    if field is None:
+    if field is None or not target.requires_form_field_sync:
         return
     if decision == "edited":
         field.mapped_value = str(edited_value)
@@ -202,26 +303,35 @@ def split_fields_by_browser_write_review(
     *,
     task: Task,
     fields: list[FormField],
+    run_id: str | None = None,
 ) -> tuple[list[FormField], list[FormField]]:
     """Separate fields allowed for browser write from proposal-blocked fields."""
 
     fields_by_id = {field.id: field for field in fields}
-    blocked_field_ids = {
-        int(proposal.target_ref)
-        for proposal in db.scalars(
-            select(AgentProposal)
-            .join(AgentRun)
-            .where(
-                AgentRun.legacy_task_id == task.id,
-                AgentProposal.target_type == "form_field",
-                AgentProposal.target_ref.in_(
-                    [str(field_id) for field_id in fields_by_id]
-                ),
-                AgentProposal.status.notin_(["APPROVED", "EDITED"]),
-            )
+    blocked_field_ids = set()
+    query = (
+        select(AgentProposal)
+        .join(AgentRun)
+        .where(
+            AgentRun.legacy_task_id == task.id,
+            AgentProposal.target_type == "form_field",
+            AgentProposal.target_ref.in_([str(field_id) for field_id in fields_by_id]),
         )
-        if proposal.target_ref.isdigit()
-    }
+    )
+    if run_id is not None:
+        query = query.where(AgentProposal.run_id == run_id)
+    for proposal in db.scalars(query):
+        if not proposal.target_ref.isdigit():
+            continue
+        field = fields_by_id.get(int(proposal.target_ref))
+        if field is None:
+            continue
+        if (
+            proposal.status not in {"APPROVED", "EDITED"}
+            or str(proposal.proposed_value) != str(field.mapped_value)
+            or not _field_selector_matches_runtime_snapshot(db, proposal, field)
+        ):
+            blocked_field_ids.add(field.id)
     blocked_fields = [
         field
         for field in fields
@@ -235,11 +345,37 @@ def split_fields_by_browser_write_review(
     return allowed_fields, blocked_fields
 
 
+def _field_selector_matches_runtime_snapshot(
+    db: Session,
+    proposal: AgentProposal,
+    field: FormField,
+) -> bool:
+    """Return whether the current field still matches its runtime map snapshot."""
+
+    results = db.scalars(
+        select(AgentToolResult)
+        .join(AgentToolResult.tool_call)
+        .where(
+            AgentToolCall.run_id == proposal.run_id,
+            AgentToolCall.tool_name.in_(("map_fields", "generate_field_mappings")),
+        )
+        .order_by(AgentToolResult.created_at.desc())
+    )
+    for result in results:
+        for item in _dict_items(result.output_json.get("fields")):
+            field_id = item.get("id") or item.get("field_id")
+            if field_id == field.id:
+                selector = item.get("selector")
+                return not isinstance(selector, str) or selector == field.selector
+    return True
+
+
 def persist_submit_review_proposal(
     db: Session,
     *,
     task: Task,
     approval_request: ApprovalRequest,
+    run_id: str | None = None,
 ) -> None:
     """Persist a high-risk proposal for an explicit submit approval gate."""
 
@@ -251,7 +387,7 @@ def persist_submit_review_proposal(
         proposals=[
             Proposal(
                 id=f"task-{task.id}-submit-{approval_request.id}",
-                run_id=_run_id(task.id),
+                run_id=run_id or _run_id(task.id),
                 proposal_type="form_submit",
                 target_type="approval_request",
                 target_ref=str(approval_request.id),
@@ -305,8 +441,10 @@ def persist_task_review_proposals(
 ) -> None:
     """Double-write Review Mapping proposals into runtime persistence tables."""
 
-    run = _ensure_agent_run(db, task)
+    run_ids: set[str] = set()
     for proposal in proposals:
+        _ensure_agent_run(db, task, run_id=proposal.run_id)
+        run_ids.add(proposal.run_id)
         row = db.get(AgentProposal, proposal.id)
         if row is None:
             row = AgentProposal(
@@ -340,7 +478,8 @@ def persist_task_review_proposals(
                 db.delete(evidence_row)
         for evidence in proposal.evidence:
             _upsert_evidence_item(db, evidence)
-    refresh_pending_review_count(db, run_id=run.id)
+    for run_id in run_ids:
+        refresh_pending_review_count(db, run_id=run_id)
 
 
 def persist_review_decision(
@@ -395,6 +534,7 @@ def _proposal_from_row(row: AgentProposal) -> Proposal:
     proposed_value = row.proposed_value
     if latest_decision is not None and latest_decision.decision == "edited":
         proposed_value = latest_decision.edited_value
+    proposed_value = _compact_proposed_value(proposed_value)
 
     return Proposal(
         id=row.id,
@@ -432,6 +572,18 @@ def _proposal_from_row(row: AgentProposal) -> Proposal:
     )
 
 
+def _compact_proposed_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _compact_proposed_value(item)
+            for key, item in value.items()
+            if key not in RAW_PROPOSAL_VALUE_KEYS
+        }
+    if isinstance(value, list):
+        return [_compact_proposed_value(item) for item in value]
+    return value
+
+
 def _latest_decision(
     decisions: list[AgentReviewDecision],
 ) -> AgentReviewDecision | None:
@@ -444,6 +596,8 @@ def _field_proposal(
     task: Task,
     field: FormField,
     evidence: list[EvidenceItem],
+    *,
+    run_id: str,
 ) -> Proposal:
     proposal_type = (
         "answer"
@@ -463,7 +617,7 @@ def _field_proposal(
         )
     return Proposal(
         id=_proposal_id(task.id, field.id),
-        run_id=_run_id(task.id),
+        run_id=run_id,
         proposal_type=proposal_type,
         target_type="form_field",
         target_ref=str(field.id),
@@ -475,8 +629,8 @@ def _field_proposal(
     )
 
 
-def _ensure_agent_run(db: Session, task: Task) -> AgentRun:
-    run_id = _run_id(task.id)
+def _ensure_agent_run(db: Session, task: Task, *, run_id: str | None = None) -> AgentRun:
+    run_id = run_id or _run_id(task.id)
     run = db.get(AgentRun, run_id)
     if run is None:
         run = AgentRun(
@@ -525,7 +679,12 @@ def _proposal_status_for_decision(decision: str) -> str:
     }[decision]
 
 
-def _memory_write_proposals(task: Task, field: FormField) -> list[Proposal]:
+def _memory_write_proposals(
+    task: Task,
+    field: FormField,
+    *,
+    run_id: str,
+) -> list[Proposal]:
     proposals: list[Proposal] = []
     if should_save_mapping_memory(field):
         proposals.append(
@@ -535,6 +694,7 @@ def _memory_write_proposals(task: Task, field: FormField) -> list[Proposal]:
                 kind="mapping",
                 proposed_value=field.mapped_profile_key,
                 rationale="Save this reviewed mapping for future retrieval.",
+                run_id=run_id,
             )
         )
     if should_save_answer_memory(task, field):
@@ -545,6 +705,7 @@ def _memory_write_proposals(task: Task, field: FormField) -> list[Proposal]:
                 kind="answer",
                 proposed_value="reviewed_answer",
                 rationale="Save this reviewed answer for future retrieval.",
+                run_id=run_id,
             )
         )
     return proposals
@@ -557,10 +718,11 @@ def _memory_write_proposal(
     kind: str,
     proposed_value: str | None,
     rationale: str,
+    run_id: str,
 ) -> Proposal:
     return Proposal(
         id=f"{_proposal_id(task.id, field.id)}-memory-{kind}",
-        run_id=_run_id(task.id),
+        run_id=run_id,
         proposal_type="memory_write",
         target_type="workflow_memory",
         target_ref=str(field.id),
@@ -574,6 +736,8 @@ def _memory_write_proposal(
 def _evidence_by_field_id(
     task_id: int,
     checkpoints: list[TaskCheckpoint],
+    *,
+    run_id: str,
 ) -> dict[int, list[EvidenceItem]]:
     evidence_by_field: dict[int, list[EvidenceItem]] = {}
     for checkpoint in checkpoints:
@@ -583,10 +747,10 @@ def _evidence_by_field_id(
         for suggestion in _dict_items(output.get("retrieval_suggestions")):
             _append_evidence(
                 evidence_by_field,
-                _retrieval_evidence(task_id, suggestion),
+                _retrieval_evidence(task_id, suggestion, run_id=run_id),
             )
         for suggestion in _dict_items(output.get("source_suggestions")):
-            for item in _source_evidence(task_id, suggestion):
+            for item in _source_evidence(task_id, suggestion, run_id=run_id):
                 _append_evidence(evidence_by_field, item)
     return evidence_by_field
 
@@ -594,6 +758,8 @@ def _evidence_by_field_id(
 def _retrieval_evidence(
     task_id: int,
     suggestion: dict[str, Any],
+    *,
+    run_id: str,
 ) -> tuple[int, EvidenceItem] | None:
     field_id = _field_id(suggestion)
     if field_id is None:
@@ -605,7 +771,7 @@ def _retrieval_evidence(
         field_id,
         EvidenceItem(
             id=_evidence_id(task_id, field_id, "memory", len(str(source_id or ""))),
-            run_id=_run_id(task_id),
+            run_id=run_id,
             proposal_id=_proposal_id(task_id, field_id),
             source_type="memory",
             source_id=str(source_id) if source_id is not None else None,
@@ -620,6 +786,8 @@ def _retrieval_evidence(
 def _source_evidence(
     task_id: int,
     suggestion: dict[str, Any],
+    *,
+    run_id: str,
 ) -> list[tuple[int, EvidenceItem]]:
     field_id = _field_id(suggestion)
     if field_id is None:
@@ -632,7 +800,7 @@ def _source_evidence(
             field_id,
             EvidenceItem(
                 id=_evidence_id(task_id, field_id, "source", index),
-                run_id=_run_id(task_id),
+                run_id=run_id,
                 proposal_id=_proposal_id(task_id, field_id),
                 source_type=_source_type(item.get("source_type")),
                 source_id=_optional_str(item.get("source_id") or suggestion.get("source_id")),
@@ -743,6 +911,7 @@ def _evidence_id(task_id: int, field_id: int, kind: str, index: int) -> str:
 
 
 __all__ = [
+    "apply_review_queue_decision",
     "apply_review_decision_to_field_target",
     "build_task_review_proposals",
     "load_or_create_task_review_proposals",

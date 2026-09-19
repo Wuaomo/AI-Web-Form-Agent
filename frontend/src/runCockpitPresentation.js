@@ -77,11 +77,24 @@ export function shouldShowRunCockpit(runtime) {
   );
 }
 
-export function shouldShowLegacyWorkflowRuntimePanel(task, runtime) {
-  return task?.workflow_type === "security_questionnaire" && !shouldShowRunCockpit(runtime);
+export function shouldLoadLegacyWorkflowRuntimeFallback(task) {
+  return false;
 }
 
-export function resolveRunCockpitRuntime(task, endpointRuntime = null) {
+export function shouldShowLegacyWorkflowRuntimePanel(task, runtime) {
+  return shouldLoadLegacyWorkflowRuntimeFallback(task) && !shouldShowRunCockpit(runtime);
+}
+
+export function getRunCockpitRunId(task) {
+  return task?.agent_run_id || task?.agent_runtime?.run_id || null;
+}
+
+export function resolveRunCockpitRuntime(
+  task,
+  endpointRuntime = null,
+  agentRunRuntime = null,
+) {
+  if (agentRunRuntime) return agentRunRuntime;
   if (endpointRuntime) return endpointRuntime;
   if (!task?.agent_runtime) return null;
   return {

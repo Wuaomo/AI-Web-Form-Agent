@@ -58,6 +58,7 @@ export function dockerDemoUrlForWorkflow(workflowType) {
 
 export function requiresLlmProviderForCreate(workflowType) {
   return ![
+    "form_fill",
     "web_data_extract",
     "job_research_summary",
     "security_questionnaire",
@@ -67,6 +68,14 @@ export function requiresLlmProviderForCreate(workflowType) {
 
 export function mappingModeForWorkflow(workflowType) {
   return requiresLlmProviderForCreate(workflowType) ? "llm" : "rules";
+}
+
+export function usesGovernedDemoPath(workflowType) {
+  return [
+    "form_fill",
+    "vendor_onboarding",
+    "security_questionnaire",
+  ].includes(workflowType);
 }
 
 export function resolveWorkflowTypeSelection(

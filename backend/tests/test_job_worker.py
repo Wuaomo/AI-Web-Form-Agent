@@ -1,5 +1,6 @@
 """Tests for job worker service to ensure proper job execution and retry behavior."""
 
+from types import SimpleNamespace
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from sqlalchemy import create_engine
@@ -7,6 +8,8 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
 from app.models import (
+    AgentRun,
+    AgentVerificationResult,
     AgentToolCall,
     AgentToolResult,
     FormField,
@@ -181,8 +184,62 @@ def test_execute_job_rules_mapping_persists_runtime_call(db_session):
     call = db.get(AgentToolCall, f"task-{task.id}:map_fields")
     assert call is not None
     assert call.tool_name == "map_fields"
+    assert call.governance_decision["decision"] == "RECORD_ONLY"
     result = db.get(AgentToolResult, f"task-{task.id}:map_fields")
     assert result is not None
+    assert result.output_json["mapped_count"] == 1
+
+
+def test_execute_job_llm_mapping_persists_runtime_call(db_session):
+    """Verify async LLM mapping records the runtime tool call/result."""
+
+    from app.models import Job
+    from app.services.job_worker import execute_job
+
+    db, task_id = db_session
+    task = db.get(Task, task_id)
+    task.status = "ANALYZING"
+    task.workflow_status = "ANALYZING"
+    field = FormField(
+        task_id=task_id,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        required=True,
+        mapped_profile_key="email",
+        mapped_value="ada@example.com",
+        confidence=0.91,
+    )
+    db.add(field)
+    job = Job(
+        task_id=task_id,
+        job_type=JOB_TYPE_MAP_FIELDS,
+        status=JOB_STATUS_RUNNING,
+        attempts=1,
+        max_attempts=3,
+        payload={"mode": "llm", "provider": "deepseek"},
+    )
+    db.add(job)
+    db.commit()
+
+    with (
+        patch("app.services.llm_provider_config.resolve_llm_provider", return_value="deepseek"),
+        patch("app.services.llm_provider_config.is_provider_configured", return_value=True),
+        patch("app.services.field_mapper.map_fields_with_llm", return_value=[field]),
+        patch(
+            "app.services.field_mapper.map_fields_with_llm_result",
+            return_value=SimpleNamespace(fields=[field], retrieval_suggestions=[]),
+        ),
+    ):
+        execute_job(db=db, job=job)
+
+    call = db.get(AgentToolCall, f"task-{task.id}:map_fields")
+    assert call is not None
+    assert call.tool_name == "map_fields"
+    assert call.governance_decision["decision"] == "RECORD_ONLY"
+    result = db.get(AgentToolResult, f"task-{task.id}:map_fields")
+    assert result is not None
+    assert result.output_json["mode"] == "llm"
     assert result.output_json["mapped_count"] == 1
 
 
@@ -425,6 +482,129 @@ def test_execute_fill_stage_persists_runtime_tool_call(db_session):
         "screenshot_id": 9,
         "verification_count": 0,
     }
+
+
+def test_execute_fill_stage_delegates_agent_run_backed_job(db_session):
+    """Verify AgentRun-backed async fill jobs use the shared continue boundary."""
+
+    from app.services.job_worker import _execute_fill_stage
+
+    db, task_id = db_session
+    task = db.get(Task, task_id)
+    task.status = "READY_TO_FILL"
+    task.workflow_status = "READY_TO_FILL"
+    field = FormField(
+        task_id=task_id,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        required=True,
+        mapped_profile_key="email",
+        mapped_value="ada@example.com",
+        confidence=0.99,
+    )
+    run = AgentRun(
+        id=f"run-{task_id}",
+        legacy_task_id=task_id,
+        goal="Fill reviewed fields.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="READY_TO_FILL",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    job = Job(
+        task_id=task_id,
+        job_type=JOB_TYPE_FILL_FORM,
+        status=JOB_STATUS_RUNNING,
+        attempts=1,
+        max_attempts=3,
+    )
+    job.payload = {"agent_run_id": run.id}
+    db.add_all([field, run, job])
+    db.commit()
+
+    with patch(
+        "app.routers.tasks.fill_form_and_capture_screenshot",
+        new_callable=AsyncMock,
+    ) as fill_form:
+        fill_form.return_value = (SimpleNamespace(id=9), [])
+        _execute_fill_stage(db, job)
+
+    fill_form.assert_awaited_once()
+    call = db.get(AgentToolCall, f"{run.id}:fill_form")
+    assert call is not None
+    assert call.run_id == run.id
+    db.refresh(task)
+    assert task.status == "WAITING_APPROVAL"
+
+
+def test_execute_fill_stage_blocks_required_verification_failure(db_session):
+    """Verify worker fill does not report success after required readback failure."""
+
+    from app.models import (
+        VERIFICATION_REASON_VALUE_MISMATCH,
+        VERIFICATION_STATUS_FAILED,
+    )
+    from app.services.browser_executor import FieldVerificationData
+    from app.services.job_worker import _execute_fill_stage
+
+    db, task_id = db_session
+    task = db.get(Task, task_id)
+    task.status = "READY_TO_FILL"
+    task.workflow_status = "READY_TO_FILL"
+    field = FormField(
+        task_id=task_id,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        required=True,
+        mapped_profile_key="email",
+        mapped_value="ada@example.com",
+        confidence=0.99,
+    )
+    job = Job(
+        task_id=task_id,
+        job_type=JOB_TYPE_FILL_FORM,
+        status=JOB_STATUS_RUNNING,
+        attempts=1,
+        max_attempts=3,
+    )
+    db.add_all([field, job])
+    db.commit()
+
+    verification_data = [
+        FieldVerificationData(
+            field_id=field.id,
+            selector="#email",
+            expected_value="ada@example.com",
+            actual_value="wrong@example.com",
+            status=VERIFICATION_STATUS_FAILED,
+            reason=VERIFICATION_REASON_VALUE_MISMATCH,
+        )
+    ]
+    with patch(
+        "app.services.browser_executor.fill_form_and_capture_screenshot",
+        new_callable=AsyncMock,
+    ) as fill_form:
+        fill_form.return_value = (SimpleNamespace(id=9), verification_data)
+        with pytest.raises(
+            RuntimeError,
+            match="Verification failed for required fields",
+        ):
+            _execute_fill_stage(db, job)
+
+    db.refresh(task)
+    assert task.status == "FAILED"
+    verification = db.get(
+        AgentVerificationResult,
+        f"task-{task_id}:fill_form:verification:0",
+    )
+    assert verification is not None
+    assert verification.status == VERIFICATION_STATUS_FAILED
+    assert verification.target_ref == str(field.id)
+    assert verification.reason == VERIFICATION_REASON_VALUE_MISMATCH
 
 
 def test_execute_benchmark_stage_passes_runtime_mode_and_db(db_session):

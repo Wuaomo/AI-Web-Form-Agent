@@ -29,19 +29,25 @@ from app.services.agent_runtime import (
     start_runtime,
 )
 from app.services.agent_runtime.review_queue import (
-    apply_review_decision_to_field_target,
-    persist_review_decision,
-    resolve_task_review_item_target,
+    apply_review_queue_decision,
 )
-from app.services.agent_runtime.schemas import ReviewDecision, RunMode
+from app.services.agent_runtime.schemas import (
+    PageExtractionResult,
+    ReadOnlyWorkflowResult,
+    ResearchSummaryResult,
+    ReviewDecision,
+    RunMode,
+)
 from app.services.agent_runtime.state_store import (
     restore_governed_runtime_state,
     save_governed_runtime_state,
 )
 from app.workflow_constants import (
     WORKFLOW_TYPE_FORM_FILL,
+    WORKFLOW_TYPE_JOB_RESEARCH_SUMMARY,
     WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
     WORKFLOW_TYPE_VENDOR_ONBOARDING,
+    WORKFLOW_TYPE_WEB_DATA_EXTRACT,
 )
 from app.workflow_templates import list_workflow_templates
 
@@ -62,7 +68,7 @@ def list_templates() -> list[dict[str, object]]:
 
 
 # ---------------------------------------------------------------------------
-# Runtime endpoints (security_questionnaire only)
+# Runtime endpoints
 # ---------------------------------------------------------------------------
 
 
@@ -104,8 +110,10 @@ def _ensure_governed_workflow(task: Task) -> None:
 def _governed_workflow_types() -> set[str]:
     return {
         WORKFLOW_TYPE_FORM_FILL,
+        WORKFLOW_TYPE_JOB_RESEARCH_SUMMARY,
         WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE,
         WORKFLOW_TYPE_VENDOR_ONBOARDING,
+        WORKFLOW_TYPE_WEB_DATA_EXTRACT,
     }
 
 
@@ -221,9 +229,54 @@ def _to_governed_compact_state(raw_state: dict) -> dict:
         "governance_decision": raw_state.get("governance_decision"),
         "tool_result_count": len(raw_state.get("tool_results", [])),
         "tool_calls": _compact_governed_tool_calls(raw_state),
+        "workflow_result": _compact_readonly_workflow_result(raw_state),
         "verification_result": raw_state.get("verification_result", {}),
         "error": raw_state.get("error"),
     }
+
+
+def _compact_readonly_workflow_result(raw_state: dict) -> dict[str, object] | None:
+    extraction = _governed_tool_output(raw_state, "extract_page")
+    if extraction is None:
+        return None
+    summary = _governed_tool_output(raw_state, "generate_job_summary")
+    result = ReadOnlyWorkflowResult(
+        extraction=PageExtractionResult.model_validate(
+            {
+                key: extraction[key]
+                for key in PageExtractionResult.model_fields
+                if key in extraction
+            }
+        ),
+        research_summary=(
+            ResearchSummaryResult.model_validate(
+                {
+                    key: summary[key]
+                    for key in ResearchSummaryResult.model_fields
+                    if key in summary
+                }
+            )
+            if summary is not None
+            else None
+        ),
+    )
+    return result.model_dump(mode="json", exclude_none=True)
+
+
+def _governed_tool_output(raw_state: dict, tool_name: str) -> dict | None:
+    steps_by_id = {
+        step.get("step_id"): step
+        for step in raw_state.get("plan", {}).get("steps", [])
+        if step.get("step_id")
+    }
+    for result in reversed(raw_state.get("tool_results", [])):
+        call_id = str(result.get("tool_call_id", ""))
+        step = steps_by_id.get(_plan_step_id_from_tool_call_id(call_id, steps_by_id), {})
+        if step.get("tool_name") == tool_name and isinstance(
+            result.get("output_json"), dict
+        ):
+            return result["output_json"]
+    return None
 
 
 def _compact_governed_tool_calls(raw_state: dict) -> list[dict[str, object]]:
@@ -314,9 +367,10 @@ def start_workflow(
     task_id: int,
     db: Session = Depends(get_db),
 ) -> dict:
-    """Start the graph runtime for a task and run to the first interrupt.
+    """Start the deprecated compatibility graph and run to first interrupt.
 
-    Only ``security_questionnaire`` workflows are supported.
+    Only ``security_questionnaire`` workflows are supported. New product paths
+    should use ``/workflows/{task_id}/governed/start`` and AgentRun APIs.
     """
 
     task = _get_task_or_404(db, task_id)
@@ -432,37 +486,34 @@ async def apply_governed_review_item_decision(
 
     task = _get_task_or_404(db, task_id)
     _ensure_governed_workflow(task)
-    target = resolve_task_review_item_target(db, task=task, proposal_id=proposal_id)
-    if target is None or target.proposal is None:
+    try:
+        result = apply_review_queue_decision(
+            db,
+            task=task,
+            proposal_id=proposal_id,
+            decision=request.decision,
+            edited_value=request.edited_value,
+            reviewer_note=request.reviewer_note,
+            run_id=f"task-{task.id}",
+            require_proposal=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Review item not found",
         )
-    if request.decision == "edited" and request.edited_value is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="edited_value is required for edited decisions",
-        )
-
-    decision = ReviewDecision(
-        id=f"decision-{proposal_id}",
-        proposal_id=proposal_id,
-        decision=request.decision,
-        edited_value=request.edited_value,
-        reviewer_note=request.reviewer_note,
-    )
-    apply_review_decision_to_field_target(
-        target,
-        decision=request.decision,
-        edited_value=request.edited_value,
-    )
-    persist_review_decision(db, decision=decision)
-    db.flush()
+    decision = result.decision
+    target = result.target
     raw_state = get_governed_runtime_state(
         f"task-{task.id}"
     ) or restore_governed_runtime_state(db, task=task)
     if (
-        request.decision in {"approved", "edited", "rejected"}
+        request.decision in {"approved", "edited"}
         and target.proposal is not None
         and target.proposal.run.pending_review_count == 0
         and raw_state is not None
@@ -488,9 +539,9 @@ def get_workflow_state(
     task_id: int,
     db: Session = Depends(get_db),
 ) -> dict:
-    """Get the current compact runtime state for a task.
+    """Get deprecated compatibility graph state for a task.
 
-    Returns 404 if no runtime has been started for the task.
+    Returns 404 if no compatibility runtime has been started for the task.
     """
 
     task = _get_task_or_404(db, task_id)
@@ -518,11 +569,12 @@ def review_workflow(
     body: WorkflowReviewRequest,
     db: Session = Depends(get_db),
 ) -> dict:
-    """Submit a review decision and resume the graph.
+    """Submit review to the deprecated compatibility graph.
 
     Only works when the runtime is paused at the review gate.
-    Does not expose a generic resume endpoint — review is the
-    only way to advance past the review gate.
+    Does not expose a generic resume endpoint — review is the only way to
+    advance past the review gate. This fallback is not a browser-write or
+    verification trust path; primary review uses AgentRun Review Queue APIs.
     """
 
     task = _get_task_or_404(db, task_id)

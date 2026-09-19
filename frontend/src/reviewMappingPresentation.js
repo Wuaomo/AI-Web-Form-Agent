@@ -1,4 +1,9 @@
 const actionFieldTypes = new Set(["button", "file", "submit", "reset", "image"]);
+const formFieldProposalTypes = new Set([
+  "field_value",
+  "answer",
+  "open_ended_answer",
+]);
 export const customProfileKeyPrefix = "custom:";
 
 export const profileKeys = [
@@ -191,6 +196,79 @@ export function buildReviewQueueSummary(items = []) {
   };
 }
 
+export function buildReviewQueueCompactItems(items = []) {
+  return items
+    .filter((item) => !isFormFieldProposal(item))
+    .map((item) => ({
+      id: item.id,
+      label: formatProposalTypeLabel(item.proposal_type),
+      proposalType: item.proposal_type || "unknown",
+      target: `${item.target_type || "target"}:${item.target_ref || ""}`,
+      value: formatProposalValue(item.proposed_value),
+      status: item.status || "PENDING",
+      riskLevel: reviewItemRiskLevel(item),
+      ...(isBrowserActionProposal(item) ? { action: item.proposed_value?.action } : {}),
+      ...(canRequestMoreEvidence(item) ? { canRequestEvidence: true } : {}),
+      ...(item.proposal_type === "external_api_write" ? { reviewMode: "blocked" } : {}),
+      ...(item.proposal_type === "form_submit" ? { reviewMode: "approval" } : {}),
+      evidenceCount: Array.isArray(item.evidence) ? item.evidence.length : 0,
+    }));
+}
+
+function isFormFieldProposal(item) {
+  return (
+    item?.target_type === "form_field" &&
+    formFieldProposalTypes.has(item?.proposal_type)
+  );
+}
+
+function reviewItemRiskLevel(item) {
+  if (item?.proposal_type === "external_api_write") {
+    return item.risk_level === "blocked" ? "blocked" : "high";
+  }
+  return item?.risk_level || "low";
+}
+
+function canRequestMoreEvidence(item) {
+  return (
+    item?.status === "PENDING" &&
+    item?.proposal_type !== "form_submit" &&
+    item?.proposal_type !== "external_api_write"
+  );
+}
+
+function isBrowserActionProposal(item) {
+  return (
+    (item?.proposal_type === "browser_click" ||
+      item?.proposal_type === "browser_navigation") &&
+    typeof item?.proposed_value?.action === "string"
+  );
+}
+
+function formatProposalValue(value) {
+  if (value === null || value === undefined || value === "") {
+    return "No value";
+  }
+  if (typeof value === "object") {
+    if (value.action === "submit_form") {
+      const approval = value.approval_id ? ` approval #${value.approval_id}` : "";
+      const fieldCount = Number(value.field_count || 0);
+      return `submit_form${approval} (${fieldCount} fields)`;
+    }
+    if (value.action === "click" || value.action === "navigate") {
+      const target = value.label || value.selector || value.url || "";
+      return target ? `${value.action} ${target}` : value.action;
+    }
+    if (typeof value.action === "string") {
+      const target = value.service || value.operation || value.target || "";
+      return target ? `${value.action} ${target}` : value.action;
+    }
+    const { tool_results, ...compactValue } = value;
+    return JSON.stringify(compactValue);
+  }
+  return String(value);
+}
+
 export function formatMappingSummary(field) {
   if (!field.mapped_profile_key && !field.mapped_value) {
     return "Not chosen yet";
@@ -233,7 +311,7 @@ export function getSourceSuggestionsByFieldId(checkpoints = []) {
 export function getProposalReviewItemsByFieldId(items = []) {
   const itemsByFieldId = new Map();
   items.forEach((item) => {
-    if (item?.target_type !== "form_field") {
+    if (!isFormFieldProposal(item)) {
       return;
     }
     const fieldId = Number(item.target_ref);
@@ -243,6 +321,41 @@ export function getProposalReviewItemsByFieldId(items = []) {
     itemsByFieldId.set(fieldId, item);
   });
   return itemsByFieldId;
+}
+
+export function buildProposalBackedReviewFields(fields = [], reviewItemsByFieldId = new Map()) {
+  return fields.map((field) => {
+    const item = reviewItemsByFieldId.get(field.id);
+    if (!item) {
+      return field;
+    }
+    const hasProposedValue = Object.hasOwn(item, "proposed_value");
+    return {
+      ...field,
+      mapped_value:
+        hasProposedValue && item.status !== "REJECTED"
+          ? item.proposed_value
+          : field.mapped_value,
+      confidence: item.confidence ?? field.confidence,
+      proposal_type: item.proposal_type,
+      proposal_evidence: Array.isArray(item.evidence) ? item.evidence : [],
+      review_item_id: item.id,
+      review_status: item.status || "PENDING",
+    };
+  });
+}
+
+export function getFieldSourceEvidence(
+  fieldId,
+  proposalItemsByFieldId = new Map(),
+  sourceSuggestionsByFieldId = new Map(),
+) {
+  const proposalEvidence = proposalItemsByFieldId.get(fieldId)?.evidence;
+  if (Array.isArray(proposalEvidence) && proposalEvidence.length > 0) {
+    return { type: "proposal", items: proposalEvidence };
+  }
+  const suggestion = sourceSuggestionsByFieldId.get(fieldId);
+  return suggestion ? { type: "suggestion", suggestion } : null;
 }
 
 export function formatProposalEvidence(evidence) {

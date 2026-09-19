@@ -32,6 +32,7 @@ from app.models import (
     WorkflowMemoryItem,
 )
 from app.routers.approvals import router as approvals_router
+from app.routers.agent_runs import router as agent_runs_router
 from app.routers.tasks import router as tasks_router
 from app.services.field_mapper import map_fields_with_llm
 from app.services.form_extractor import ExtractedFormField
@@ -58,6 +59,7 @@ def test_environment() -> Generator[tuple[TestClient, Session], None, None]:
     test_app = FastAPI()
     test_app.include_router(tasks_router)
     test_app.include_router(approvals_router)
+    test_app.include_router(agent_runs_router)
     test_app.dependency_overrides[get_db] = override_get_db
 
     with TestClient(test_app) as client:
@@ -94,6 +96,40 @@ def create_task_with_field(session: Session) -> tuple[Task, FormField]:
     return task, field
 
 
+def agent_run_review_items_path(session: Session, task: Task) -> str:
+    """Return the primary Review Queue path, creating its run when needed."""
+
+    run_id = f"task-{task.id}"
+    if session.get(AgentRun, run_id) is None:
+        run = AgentRun(
+            id=run_id,
+            legacy_task_id=task.id,
+            goal="Review proposal-backed queue.",
+            target_url=task.url,
+            profile_id=task.profile_id,
+            workflow_hint=task.workflow_type,
+            status="WAITING_REVIEW",
+            mode="deterministic",
+        )
+        run.final_result = {}
+        session.add(run)
+        session.flush()
+    return f"/agent-runs/{run_id}/review-items"
+
+
+def agent_run_review_decision_path(
+    session: Session,
+    task: Task,
+    proposal_id: str,
+) -> str:
+    return f"{agent_run_review_items_path(session, task)}/{proposal_id}/decision"
+
+
+def agent_run_continue_path(session: Session, task: Task) -> str:
+    agent_run_review_items_path(session, task)
+    return f"/agent-runs/task-{task.id}/continue"
+
+
 def save_two_pending_tool_created_proposals(
     session: Session,
     task: Task,
@@ -119,6 +155,7 @@ def save_two_pending_tool_created_proposals(
             {
                 "tool_call_id": f"task-{task.id}:map_fields",
                 "status": "SUCCEEDED",
+                "output_json": {"raw_output_json": "do not expose"},
                 "created_proposals": [
                     {
                         "id": proposal_id,
@@ -257,6 +294,8 @@ def test_get_task_includes_compact_agent_runtime_state(
     assert payload["agent_runtime"]["pending_review_count"] == 2
     assert payload["agent_runtime"]["tool_result_count"] == 1
     assert "tool_results" not in payload["agent_runtime"]
+    assert "output_json" not in json.dumps(payload)
+    assert "raw_output_json" not in json.dumps(payload)
 
 
 def test_list_tasks_includes_compact_agent_runtime_state(
@@ -278,6 +317,8 @@ def test_list_tasks_includes_compact_agent_runtime_state(
     assert payload["agent_runtime"]["pending_review_count"] == 2
     assert payload["agent_runtime"]["tool_result_count"] == 1
     assert "tool_results" not in payload["agent_runtime"]
+    assert "output_json" not in json.dumps(payload)
+    assert "raw_output_json" not in json.dumps(payload)
 
 
 def test_extract_page_persists_runtime_call_without_raw_task_facade_output(
@@ -309,13 +350,18 @@ def test_extract_page_persists_runtime_call_without_raw_task_facade_output(
     call = session.get(AgentToolCall, f"task-{task.id}:extract_page")
     assert call is not None
     assert call.tool_name == "extract_page"
+    assert call.governance_decision["decision"] == "ALLOW"
     result = session.get(AgentToolResult, f"task-{task.id}:extract_page")
     assert result is not None
     assert result.output_json["heading_count"] == 1
+    screenshot_call = session.get(AgentToolCall, f"task-{task.id}:capture_screenshot")
+    assert screenshot_call is not None
+    assert screenshot_call.tool_name == "capture_screenshot"
+    assert screenshot_call.governance_decision["decision"] == "ALLOW"
 
     task_response = client.get(f"/tasks/{task.id}")
     payload = task_response.json()
-    assert payload["agent_runtime"]["tool_result_count"] == 1
+    assert payload["agent_runtime"]["tool_result_count"] == 2
     assert "tool_results" not in payload["agent_runtime"]
     assert "main_text_blocks" not in payload["agent_runtime"]
 
@@ -349,9 +395,14 @@ def test_job_summary_page_extraction_persists_runtime_call(
     call = session.get(AgentToolCall, f"task-{task.id}:extract_page")
     assert call is not None
     assert call.tool_name == "extract_page"
+    assert call.governance_decision["decision"] == "ALLOW"
     result = session.get(AgentToolResult, f"task-{task.id}:extract_page")
     assert result is not None
     assert result.output_json["text_block_count"] == 1
+    screenshot_call = session.get(AgentToolCall, f"task-{task.id}:capture_screenshot")
+    assert screenshot_call is not None
+    assert screenshot_call.tool_name == "capture_screenshot"
+    assert screenshot_call.governance_decision["decision"] == "ALLOW"
 
 
 def test_review_items_returns_field_value_proposals(
@@ -385,7 +436,7 @@ def test_review_items_returns_field_value_proposals(
     session.add(checkpoint)
     session.commit()
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     payload = response.json()
@@ -434,7 +485,7 @@ def test_review_items_returns_answer_proposals_with_source_evidence(
     session.add(checkpoint)
     session.commit()
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     payload = response.json()
@@ -475,7 +526,7 @@ def test_review_items_persist_proposals_and_evidence(
     session.add(checkpoint)
     session.commit()
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     proposal = session.execute(
@@ -565,7 +616,7 @@ def test_review_items_restore_persisted_proposals_before_deriving_from_fields(
     session.add_all([run, proposal, evidence])
     session.commit()
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     payload = response.json()
@@ -633,7 +684,7 @@ def test_review_items_backfill_missing_persisted_field_proposals(
     session.add_all([run, proposal, second_field])
     session.commit()
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     payload = response.json()
@@ -715,7 +766,7 @@ def test_review_items_restore_tool_created_governed_proposals(
     assert session.query(AgentEvidenceItem).count() == 1
     assert session.query(WorkflowMemoryItem).count() == 0
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     payload = response.json()
@@ -781,7 +832,7 @@ def test_review_items_restore_tool_result_evidence_for_created_proposals(
 
     save_governed_runtime_state(session, task=task, raw_state=raw_state)
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     payload = response.json()
@@ -854,7 +905,7 @@ def test_review_items_replace_stale_persisted_proposal_evidence(
         raw_state=raw_state("new-evidence", "New evidence."),
     )
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     evidence = response.json()[0]["evidence"]
@@ -921,12 +972,12 @@ def test_review_items_restore_tool_created_governed_proposal_after_decision(
     save_governed_runtime_state(session, task=task, raw_state=raw_state)
 
     response = client.post(
-        f"/tasks/{task.id}/review-items/{proposal_id}/decision",
+        agent_run_review_decision_path(session, task, proposal_id),
         json={"decision": "edited", "edited_value": "edited@example.com"},
     )
     assert response.status_code == 200
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     payload = response.json()
@@ -981,7 +1032,7 @@ def test_review_items_keep_edited_value_after_tool_proposal_replay(
     save_governed_runtime_state(session, task=task, raw_state=raw_state)
 
     response = client.post(
-        f"/tasks/{task.id}/review-items/{proposal_id}/decision",
+        agent_run_review_decision_path(session, task, proposal_id),
         json={"decision": "edited", "edited_value": "edited@example.com"},
     )
     assert response.status_code == 200
@@ -990,7 +1041,7 @@ def test_review_items_keep_edited_value_after_tool_proposal_replay(
     proposal = session.get(AgentProposal, proposal_id)
     assert proposal is not None
     assert proposal.proposed_value == "edited@example.com"
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     payload = response.json()
@@ -1010,7 +1061,7 @@ def test_review_item_decision_decrements_pending_review_count_for_final_decision
     proposal_ids = save_two_pending_tool_created_proposals(session, task, field)
 
     response = client.post(
-        f"/tasks/{task.id}/review-items/{proposal_ids[0]}/decision",
+        agent_run_review_decision_path(session, task, proposal_ids[0]),
         json={
             "decision": decision,
             "edited_value": "edited@example.com" if decision == "edited" else None,
@@ -1033,7 +1084,7 @@ def test_review_item_decision_needs_more_evidence_decrements_pending_review_coun
     proposal_ids = save_two_pending_tool_created_proposals(session, task, field)
 
     response = client.post(
-        f"/tasks/{task.id}/review-items/{proposal_ids[0]}/decision",
+        agent_run_review_decision_path(session, task, proposal_ids[0]),
         json={"decision": "needs_more_evidence"},
     )
 
@@ -1100,7 +1151,7 @@ def test_review_items_restore_latest_persisted_decision_status(
     session.add_all([run, proposal, older, latest])
     session.commit()
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     payload = response.json()
@@ -1149,7 +1200,7 @@ def test_review_items_restore_memory_write_decision_value(
     session.add_all([run, proposal, decision])
     session.commit()
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     payload = response.json()
@@ -1170,7 +1221,7 @@ def test_review_items_include_memory_write_proposals_for_reusable_mappings(
     field.confidence = 0.99
     session.commit()
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     payload = response.json()
@@ -1197,7 +1248,7 @@ def test_review_items_include_memory_write_proposals_for_questionnaire_answers(
     field.confidence = 0.88
     session.commit()
 
-    response = client.get(f"/tasks/{task.id}/review-items")
+    response = client.get(agent_run_review_items_path(session, task))
 
     assert response.status_code == 200
     payload = response.json()
@@ -1246,7 +1297,7 @@ def test_review_item_decision_uses_persisted_form_field_target_ref(
     field.mapped_value = "old@example.com"
     field.confidence = 0.5
     run = AgentRun(
-        id=f"persisted-run-{task.id}",
+        id=f"task-{task.id}",
         legacy_task_id=task.id,
         goal="Review persisted proposal ids.",
         target_url=task.url,
@@ -1272,7 +1323,7 @@ def test_review_item_decision_uses_persisted_form_field_target_ref(
     session.commit()
 
     response = client.post(
-        f"/tasks/{task.id}/review-items/{proposal.id}/decision",
+        agent_run_review_decision_path(session, task, proposal.id),
         json={"decision": "edited", "edited_value": "ada@example.com"},
     )
 
@@ -1293,7 +1344,7 @@ def test_review_item_decision_approve_syncs_persisted_proposal_value(
     field.mapped_value = "stale-field@example.com"
     field.confidence = 0.5
     run = AgentRun(
-        id=f"persisted-approve-run-{task.id}",
+        id=f"task-{task.id}",
         legacy_task_id=task.id,
         goal="Approve persisted proposal value.",
         target_url=task.url,
@@ -1319,7 +1370,7 @@ def test_review_item_decision_approve_syncs_persisted_proposal_value(
     session.commit()
 
     response = client.post(
-        f"/tasks/{task.id}/review-items/{proposal.id}/decision",
+        agent_run_review_decision_path(session, task, proposal.id),
         json={"decision": "approved"},
     )
 
@@ -1337,7 +1388,7 @@ def test_review_queue_resolves_persisted_form_field_target(
     _, session = test_environment
     task, field = create_task_with_field(session)
     run = AgentRun(
-        id=f"helper-run-{task.id}",
+        id=f"task-{task.id}",
         legacy_task_id=task.id,
         goal="Resolve persisted field proposal.",
         target_url=task.url,
@@ -1381,7 +1432,7 @@ def test_review_queue_resolves_non_field_target_without_form_field_sync(
     _, session = test_environment
     task, field = create_task_with_field(session)
     run = AgentRun(
-        id=f"helper-memory-run-{task.id}",
+        id=f"task-{task.id}",
         legacy_task_id=task.id,
         goal="Resolve persisted memory proposal.",
         target_url=task.url,
@@ -1415,6 +1466,205 @@ def test_review_queue_resolves_non_field_target_without_form_field_sync(
     assert target.proposal == proposal
     assert target.field is None
     assert target.requires_form_field_sync is False
+
+
+def test_review_queue_does_not_sync_non_field_proposal_with_form_field_target(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify proposal type, not just target_type, controls FormField sync."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_value = "old@example.com"
+    field.confidence = 0.5
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review non-field proposal shape.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"non-field-form-target-{task.id}",
+        run=run,
+        proposal_type="memory_write",
+        target_type="form_field",
+        target_ref=str(field.id),
+        proposed_value="email",
+        rationale="Review malformed memory proposal.",
+        confidence=0.8,
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+
+    target = review_queue.resolve_task_review_item_target(
+        session,
+        task=task,
+        proposal_id=proposal.id,
+    )
+
+    assert target is not None
+    assert target.field is None
+    assert target.requires_form_field_sync is False
+
+    response = client.post(
+        agent_run_review_decision_path(session, task, proposal.id),
+        json={"decision": "edited", "edited_value": "contact_email"},
+    )
+
+    assert response.status_code == 200
+    session.refresh(proposal)
+    session.refresh(field)
+    assert proposal.status == "EDITED"
+    assert proposal.proposed_value == "contact_email"
+    assert field.mapped_value == "old@example.com"
+    assert field.confidence == 0.5
+
+
+def test_review_items_backfill_field_row_when_non_field_proposal_targets_form_field(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify non-field proposals do not suppress legacy field-row fallback."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review non-field proposal shape.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"non-field-form-target-{task.id}",
+        run=run,
+        proposal_type="memory_write",
+        target_type="form_field",
+        target_ref=str(field.id),
+        proposed_value="email",
+        rationale="Review malformed memory proposal.",
+        confidence=0.8,
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+
+    response = client.get(agent_run_review_items_path(session, task))
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()] == [
+        proposal.id,
+        f"task-{task.id}-field-{field.id}",
+    ]
+
+
+def test_legacy_review_items_do_not_borrow_agent_run_bound_proposals(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify the legacy task review fallback stays on compatibility rows."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_value = "legacy@example.com"
+    canonical_run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Legacy compatibility run.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    canonical_run.final_result = {}
+    agent_run = AgentRun(
+        id=f"agent-run-{task.id}",
+        legacy_task_id=task.id,
+        goal="Primary AgentRun proposal.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    agent_run.final_result = {}
+    proposal = AgentProposal(
+        id=f"agent-run-proposal-{task.id}",
+        run=agent_run,
+        proposal_type="browser_click",
+        target_type="browser_action",
+        target_ref="#continue",
+        proposed_value={"selector": "#continue"},
+        rationale="Primary AgentRun proposal.",
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([canonical_run, agent_run, proposal])
+    session.commit()
+
+    response = client.get(f"/tasks/{task.id}/review-items")
+
+    assert response.status_code == 200
+    ids = [item["id"] for item in response.json()]
+    assert proposal.id not in ids
+    assert ids == [f"task-{task.id}-field-{field.id}"]
+
+
+def test_legacy_review_decision_rejects_agent_run_bound_proposals(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify AgentRun-owned proposals must be decided through AgentRun API."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_value = "old@example.com"
+    run = AgentRun(
+        id=f"agent-run-{task.id}",
+        legacy_task_id=task.id,
+        goal="Primary AgentRun proposal.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"agent-run-proposal-{task.id}",
+        run=run,
+        proposal_type="field_value",
+        target_type="form_field",
+        target_ref=str(field.id),
+        proposed_value="primary@example.com",
+        rationale="Primary AgentRun proposal.",
+        risk_level="low",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+
+    response = client.post(
+        f"/tasks/{task.id}/review-items/{proposal.id}/decision",
+        json={"decision": "approved"},
+    )
+
+    assert response.status_code == 404
+    assert session.get(AgentReviewDecision, f"decision-{proposal.id}") is None
+    session.refresh(proposal)
+    session.refresh(field)
+    assert proposal.status == "PENDING"
+    assert field.mapped_value == "old@example.com"
 
 
 def test_review_queue_keeps_legacy_field_id_fallback(
@@ -1456,6 +1706,31 @@ def test_review_item_decision_keeps_legacy_field_id_fallback(
     assert response.json()["proposal_id"] == f"task-{task.id}-field-{field.id}"
     session.refresh(field)
     assert field.mapped_value == "old@example.com"
+    assert field.confidence == 1.0
+
+
+def test_legacy_form_field_review_confirm_without_prior_agent_proposal(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify old FormField review and confirm still work before proposals exist."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_value = "old@example.com"
+    field.confidence = 0.5
+    session.commit()
+    assert session.query(AgentProposal).count() == 0
+
+    review_response = client.post(
+        f"/tasks/{task.id}/review-items/task-{task.id}-field-{field.id}/decision",
+        json={"decision": "edited", "edited_value": "ada@example.com"},
+    )
+    confirm_response = client.post(f"/tasks/{task.id}/confirm-mapping")
+
+    assert review_response.status_code == 200
+    assert confirm_response.status_code == 200
+    session.refresh(field)
+    assert field.mapped_value == "ada@example.com"
     assert field.confidence == 1.0
 
 
@@ -1523,7 +1798,7 @@ def test_review_item_decision_persists_non_field_decision_without_side_effects(
     field.mapped_value = "old@example.com"
     field.confidence = 0.5
     run = AgentRun(
-        id=f"memory-run-{task.id}",
+        id=f"task-{task.id}",
         legacy_task_id=task.id,
         goal="Review memory proposal.",
         target_url=task.url,
@@ -1549,7 +1824,7 @@ def test_review_item_decision_persists_non_field_decision_without_side_effects(
     session.commit()
 
     response = client.post(
-        f"/tasks/{task.id}/review-items/{proposal.id}/decision",
+        agent_run_review_decision_path(session, task, proposal.id),
         json={"decision": "approved"},
     )
 
@@ -1575,7 +1850,7 @@ def test_review_item_decision_edits_non_field_proposed_value_only(
     field.mapped_value = "old@example.com"
     field.confidence = 0.5
     run = AgentRun(
-        id=f"edited-memory-run-{task.id}",
+        id=f"task-{task.id}",
         legacy_task_id=task.id,
         goal="Review edited memory proposal.",
         target_url=task.url,
@@ -1601,7 +1876,7 @@ def test_review_item_decision_edits_non_field_proposed_value_only(
     session.commit()
 
     response = client.post(
-        f"/tasks/{task.id}/review-items/{proposal.id}/decision",
+        agent_run_review_decision_path(session, task, proposal.id),
         json={"decision": "edited", "edited_value": "support_email"},
     )
 
@@ -1609,6 +1884,228 @@ def test_review_item_decision_edits_non_field_proposed_value_only(
     session.refresh(proposal)
     assert proposal.status == "EDITED"
     assert proposal.proposed_value == "support_email"
+    session.refresh(field)
+    assert field.mapped_value == "old@example.com"
+    assert field.confidence == 0.5
+    assert session.query(WorkflowMemoryItem).count() == 0
+
+
+@pytest.mark.parametrize(
+    ("proposal_type", "target_type"),
+    [
+        ("memory_write", "workflow_memory"),
+        ("browser_click", "browser_element"),
+        ("custom_followup", "runtime_action"),
+    ],
+)
+def test_review_item_decision_requests_more_evidence_for_non_field_proposals(
+    test_environment: tuple[TestClient, Session],
+    proposal_type: str,
+    target_type: str,
+) -> None:
+    """Verify non-field proposals can request evidence without legacy side effects."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_value = "old@example.com"
+    field.confidence = 0.5
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review non-field proposal.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"evidence-{proposal_type}-{task.id}",
+        run=run,
+        proposal_type=proposal_type,
+        target_type=target_type,
+        target_ref="target",
+        proposed_value="review this",
+        rationale="Review non-field proposal.",
+        confidence=0.8,
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+
+    response = client.post(
+        agent_run_review_decision_path(session, task, proposal.id),
+        json={"decision": "needs_more_evidence"},
+    )
+
+    assert response.status_code == 200
+    decision = session.get(AgentReviewDecision, f"decision-{proposal.id}")
+    assert decision is not None
+    assert decision.decision == "needs_more_evidence"
+    session.refresh(proposal)
+    assert proposal.status == "NEEDS_MORE_EVIDENCE"
+    session.refresh(field)
+    assert field.mapped_value == "old@example.com"
+    assert field.confidence == 0.5
+    assert session.query(WorkflowMemoryItem).count() == 0
+
+
+def test_review_items_show_external_write_without_raw_tool_results(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify external write proposals stay compact and display-only."""
+
+    client, session = test_environment
+    task, _ = create_task_with_field(session)
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review external write proposal.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"external-write-{task.id}",
+        run=run,
+        proposal_type="external_api_write",
+        target_type="external_api",
+        target_ref="vendor_system",
+        proposed_value={
+            "action": "write_record",
+            "service": "vendor_system",
+            "tool_results": [{"raw": "do not expose"}],
+        },
+        rationale="External writes remain blocked for display only.",
+        risk_level="high",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+
+    response = client.get(agent_run_review_items_path(session, task))
+
+    assert response.status_code == 200
+    item = response.json()[0]
+    assert item["proposal_type"] == "external_api_write"
+    assert item["risk_level"] == "high"
+    assert item["target_type"] == "external_api"
+    assert item["target_ref"] == "vendor_system"
+    assert item["proposed_value"] == {
+        "action": "write_record",
+        "service": "vendor_system",
+    }
+
+
+def test_review_items_restore_unknown_proposal_type_without_crashing(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify unknown proposal types stay reviewable through compatibility UI."""
+
+    client, session = test_environment
+    task, _ = create_task_with_field(session)
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review unknown proposal.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"unknown-proposal-{task.id}",
+        run=run,
+        proposal_type="unexpected_runtime_action",
+        target_type="runtime_action",
+        target_ref="next-step",
+        proposed_value="Review this compactly.",
+        rationale="Unknown proposal types should not break review.",
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+
+    response = client.get(agent_run_review_items_path(session, task))
+
+    assert response.status_code == 200
+    item = response.json()[0]
+    assert item["proposal_type"] == "unexpected_runtime_action"
+    assert item["target_type"] == "runtime_action"
+    assert item["target_ref"] == "next-step"
+    assert item["risk_level"] == "medium"
+    assert item["status"] == "PENDING"
+
+
+@pytest.mark.parametrize(
+    ("decision_value", "edited_value", "expected_status"),
+    [
+        ("approved", None, "APPROVED"),
+        ("edited", "support_email", "EDITED"),
+        ("rejected", None, "REJECTED"),
+    ],
+)
+def test_review_item_decision_keeps_memory_write_proposal_only(
+    test_environment: tuple[TestClient, Session],
+    decision_value: str,
+    edited_value: str | None,
+    expected_status: str,
+) -> None:
+    """Verify memory-write decisions persist without saving memory or fields."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_value = "old@example.com"
+    field.confidence = 0.5
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review memory proposal.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"proposal-only-memory-write-{task.id}",
+        run=run,
+        proposal_type="memory_write",
+        target_type="workflow_memory",
+        target_ref=str(field.id),
+        proposed_value="email",
+        rationale="Review memory write.",
+        confidence=0.8,
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+
+    payload = {"decision": decision_value}
+    if edited_value is not None:
+        payload["edited_value"] = edited_value
+    response = client.post(
+        agent_run_review_decision_path(session, task, proposal.id),
+        json=payload,
+    )
+
+    assert response.status_code == 200
+    decision = session.get(AgentReviewDecision, f"decision-{proposal.id}")
+    assert decision is not None
+    assert decision.decision == decision_value
+    assert decision.edited_value == edited_value
+    session.refresh(proposal)
+    assert proposal.status == expected_status
     session.refresh(field)
     assert field.mapped_value == "old@example.com"
     assert field.confidence == 0.5
@@ -1777,10 +2274,46 @@ def test_rules_mapping_persists_map_fields_runtime_call(
     assert call is not None
     assert call.tool_name == "map_fields"
     assert call.status == "SUCCEEDED"
+    assert call.governance_decision["decision"] == "RECORD_ONLY"
     result = session.get(AgentToolResult, f"task-{task.id}:map_fields")
     assert result is not None
     assert result.output_json["field_count"] == 1
     assert result.output_json["mapped_count"] == 1
+
+
+def test_llm_mapping_persists_map_fields_runtime_call(
+    test_environment: tuple[TestClient, Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify legacy LLM mapping also goes through the runtime tool."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_profile_key = "email"
+    field.mapped_value = "ada@example.com"
+    field.confidence = 0.8
+    session.commit()
+    monkeypatch.setattr(config, "DEEPSEEK_API_KEY", "test-deepseek-key")
+    suggestion = {"field_id": field.id, "source_type": "reviewed_memory"}
+
+    with patch(
+        "app.routers.tasks.map_fields_with_llm_result",
+        return_value=SimpleNamespace(fields=[field], retrieval_suggestions=[suggestion]),
+    ):
+        response = client.post(f"/tasks/{task.id}/map-fields?provider=deepseek")
+
+    assert response.status_code == 200
+    call = session.get(AgentToolCall, f"task-{task.id}:map_fields")
+    assert call is not None
+    assert call.tool_name == "map_fields"
+    assert call.status == "SUCCEEDED"
+    assert call.governance_decision["decision"] == "RECORD_ONLY"
+    result = session.get(AgentToolResult, f"task-{task.id}:map_fields")
+    assert result is not None
+    assert result.output_json["mode"] == "llm"
+    assert result.output_json["field_count"] == 1
+    assert result.output_json["mapped_count"] == 1
+    assert result.output_json["retrieval_suggestions"] == [suggestion]
 
 
 def test_confirm_mapping_rejects_missing_required_values(
@@ -2051,7 +2584,7 @@ def test_manual_value_can_be_saved_to_profile_custom_value_and_reused(
     assert mapped[0].confidence == 1.0
 
 
-def test_fill_rejects_missing_required_values_before_browser_work(
+def test_agent_run_fill_rejects_missing_required_values_before_browser_work(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     client, session = test_environment
@@ -2061,13 +2594,13 @@ def test_fill_rejects_missing_required_values_before_browser_work(
     field.mapped_value = None
     session.commit()
 
-    response = client.post(f"/tasks/{task.id}/fill")
+    response = client.post(agent_run_continue_path(session, task))
 
     assert response.status_code == 409
     assert "Required fields need values" in response.json()["detail"]
 
 
-def test_fill_rejects_mapped_fields_before_user_confirms_mapping(
+def test_agent_run_fill_rejects_mapped_fields_before_user_confirms_mapping(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     client, session = test_environment
@@ -2080,7 +2613,7 @@ def test_fill_rejects_mapped_fields_before_user_confirms_mapping(
         "app.routers.tasks.fill_form_and_capture_screenshot",
         new_callable=AsyncMock,
     ) as fill_form:
-        response = client.post(f"/tasks/{task.id}/fill")
+        response = client.post(agent_run_continue_path(session, task))
 
     assert response.status_code == 409
     assert response.json() == {"detail": "Review and confirm mapping before filling"}
@@ -2457,6 +2990,7 @@ def test_login_and_analyze_persists_extract_form_runtime_call(
     assert call is not None
     assert call.tool_name == "extract_form"
     assert call.status == "SUCCEEDED"
+    assert call.governance_decision["decision"] == "ALLOW"
     result = session.get(AgentToolResult, f"task-{task.id}:extract_form")
     assert result is not None
     assert result.output_json["field_count"] == 1
@@ -2544,6 +3078,50 @@ def test_list_screenshots_omits_missing_files(
 
     assert response.status_code == 200
     assert [item["stage"] for item in response.json()] == ["existing"]
+
+
+def test_capture_screenshot_persists_runtime_call(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify legacy screenshot capture records a runtime tool call."""
+
+    client, session = test_environment
+    task = create_task_without_fields(session)
+
+    async def fake_capture(
+        *,
+        task_id: int,
+        url: str,
+        profile_id: int,
+        stage: str,
+        db: Session,
+    ) -> Screenshot:
+        screenshot = Screenshot(
+            task_id=task_id,
+            file_path="screenshots/page.png",
+            stage=stage,
+        )
+        db.add(screenshot)
+        db.flush()
+        return screenshot
+
+    with patch(
+        "app.routers.tasks.open_url_and_capture_screenshot",
+        side_effect=fake_capture,
+    ):
+        response = client.post(f"/tasks/{task.id}/screenshots")
+
+    assert response.status_code == 201
+    call = session.get(AgentToolCall, f"task-{task.id}:capture_screenshot")
+    assert call is not None
+    assert call.tool_name == "capture_screenshot"
+    assert call.governance_decision["decision"] == "ALLOW"
+    result = session.get(AgentToolResult, f"task-{task.id}:capture_screenshot")
+    assert result is not None
+    assert result.output_json == {
+        "screenshot_id": response.json()["id"],
+        "stage": "page_opened",
+    }
 
 
 def test_confirm_mapping_respects_do_not_save_policy(
@@ -2644,7 +3222,7 @@ def test_confirm_mapping_policy_blocks_sensitive_memory_write(
     ]
 
 
-def test_fill_returns_409_when_required_field_needs_policy_approval(
+def test_agent_run_fill_returns_409_when_required_field_needs_policy_approval(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     """Verify required review-required fields block fill until approved."""
@@ -2661,13 +3239,13 @@ def test_fill_returns_409_when_required_field_needs_policy_approval(
     task.workflow_status = "READY_TO_FILL"
     session.commit()
 
-    response = client.post(f"/tasks/{task.id}/fill")
+    response = client.post(agent_run_continue_path(session, task))
 
     assert response.status_code == 409
     assert response.json()["detail"] == "Required fields require approval before filling: Agree to terms"
 
 
-def test_fill_returns_409_when_required_proposal_is_not_approved(
+def test_agent_run_fill_returns_409_when_required_proposal_is_not_approved(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     """Verify pending runtime proposals cannot reach browser fill."""
@@ -2709,7 +3287,7 @@ def test_fill_returns_409_when_required_proposal_is_not_approved(
         "app.routers.tasks.fill_form_and_capture_screenshot",
         new_callable=AsyncMock,
     ) as fill_form:
-        response = client.post(f"/tasks/{task.id}/fill")
+        response = client.post(agent_run_continue_path(session, task))
 
     assert response.status_code == 409
     assert response.json()["detail"] == (
@@ -2718,7 +3296,137 @@ def test_fill_returns_409_when_required_proposal_is_not_approved(
     fill_form.assert_not_awaited()
 
 
-def test_fill_can_retry_after_required_field_approval(
+def test_agent_run_fill_returns_409_when_approved_proposal_value_is_stale(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify stale field proposal approvals cannot unlock changed browser writes."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_profile_key = "email"
+    field.mapped_value = "changed@example.com"
+    field.confidence = 0.99
+    task.status = "READY_TO_FILL"
+    task.workflow_status = "READY_TO_FILL"
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review before fill.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"task-{task.id}-field-{field.id}",
+        run=run,
+        proposal_type="field_value",
+        target_type="form_field",
+        target_ref=str(field.id),
+        proposed_value="approved@example.com",
+        rationale="Review before fill.",
+        confidence=0.99,
+        risk_level="low",
+        status="APPROVED",
+    )
+    session.add_all([run, proposal])
+    session.commit()
+
+    with patch(
+        "app.routers.tasks.fill_form_and_capture_screenshot",
+        new_callable=AsyncMock,
+    ) as fill_form:
+        fill_form.return_value = (SimpleNamespace(id=5), [])
+        response = client.post(agent_run_continue_path(session, task))
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Required fields require approval before filling: Where can we reach you?"
+    )
+    fill_form.assert_not_awaited()
+
+
+def test_agent_run_fill_returns_409_when_approved_proposal_selector_is_stale(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify approved runtime proposals cannot unlock changed selectors."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.selector = "#changed-contact"
+    field.mapped_profile_key = "email"
+    field.mapped_value = "approved@example.com"
+    field.confidence = 0.99
+    task.status = "READY_TO_FILL"
+    task.workflow_status = "READY_TO_FILL"
+    run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review before fill.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    run.final_result = {}
+    proposal = AgentProposal(
+        id=f"task-{task.id}-field-{field.id}",
+        run=run,
+        proposal_type="field_value",
+        target_type="form_field",
+        target_ref=str(field.id),
+        proposed_value="approved@example.com",
+        rationale="Review before fill.",
+        confidence=0.99,
+        risk_level="low",
+        status="APPROVED",
+    )
+    tool_call = AgentToolCall(
+        id=f"task-{task.id}:map_fields",
+        run=run,
+        tool_name="map_fields",
+        status="SUCCEEDED",
+        risk_level="medium",
+    )
+    tool_call.input_json = {}
+    tool_call.governance_decision = {"decision": "RECORD_ONLY"}
+    tool_result = AgentToolResult(
+        tool_call=tool_call,
+        status="SUCCEEDED",
+    )
+    tool_result.output_json = {
+        "fields": [
+            {
+                "id": field.id,
+                "selector": "#contact",
+                "mapped_value": "approved@example.com",
+            }
+        ]
+    }
+    tool_result.evidence_items = []
+    tool_result.created_proposals = []
+    tool_result.verification_candidates = []
+    session.add_all([run, proposal, tool_call, tool_result])
+    session.commit()
+
+    with patch(
+        "app.routers.tasks.fill_form_and_capture_screenshot",
+        new_callable=AsyncMock,
+    ) as fill_form:
+        fill_form.return_value = (SimpleNamespace(id=5), [])
+        response = client.post(agent_run_continue_path(session, task))
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Required fields require approval before filling: Where can we reach you?"
+    )
+    fill_form.assert_not_awaited()
+
+
+def test_agent_run_fill_can_retry_after_required_field_approval(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     """Verify fill stays retryable after approving a required field gate."""
@@ -2735,7 +3443,7 @@ def test_fill_can_retry_after_required_field_approval(
     task.workflow_status = "READY_TO_FILL"
     session.commit()
 
-    first_response = client.post(f"/tasks/{task.id}/fill")
+    first_response = client.post(agent_run_continue_path(session, task))
 
     assert first_response.status_code == 409
     session.refresh(task)
@@ -2756,16 +3464,16 @@ def test_fill_can_retry_after_required_field_approval(
         new_callable=AsyncMock,
     ) as fill_form:
         fill_form.return_value = (SimpleNamespace(id=1), [])
-        retry_response = client.post(f"/tasks/{task.id}/fill")
+        retry_response = client.post(agent_run_continue_path(session, task))
 
     assert retry_response.status_code == 200
     fill_form.assert_awaited_once()
 
 
-def test_fill_persists_runtime_tool_call_result(
+def test_agent_run_fill_persists_runtime_tool_call_result(
     test_environment: tuple[TestClient, Session],
 ) -> None:
-    """Verify legacy fill records the browser write as a runtime tool call."""
+    """Verify AgentRun fill records the browser write as a runtime tool call."""
 
     client, session = test_environment
     task, field = create_task_with_field(session)
@@ -2781,7 +3489,7 @@ def test_fill_persists_runtime_tool_call_result(
         new_callable=AsyncMock,
     ) as fill_form:
         fill_form.return_value = (SimpleNamespace(id=5), [])
-        response = client.post(f"/tasks/{task.id}/fill")
+        response = client.post(agent_run_continue_path(session, task))
 
     assert response.status_code == 200
     call = session.get(AgentToolCall, f"task-{task.id}:fill_form")

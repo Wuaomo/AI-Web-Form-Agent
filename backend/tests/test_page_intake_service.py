@@ -4,9 +4,13 @@ Tests construct ExtractedFormAnalysis and PageExtractionResult directly
 and pass them to pure functions. No Playwright, no LLM, no database.
 """
 
+import pytest
+
+from app.services.agent_runtime.schemas import ToolResult
 from app.services.form_extractor import ExtractedFormAnalysis, ExtractedFormField
 from app.services.page_extractor import ExtractedHeading, PageExtractionResult
 from app.services.page_intake_service import (
+    analyze_page_intake,
     build_page_intake_result,
     classify_page_intake,
 )
@@ -249,3 +253,74 @@ def test_postal_code_field_is_not_otp():
     )
 
     assert "otp" not in result.risk_flags
+
+
+@pytest.mark.anyio
+async def test_analyze_page_intake_uses_tool_runtime_for_browser_reads():
+    """Verify page intake extraction runs through Tool Runtime."""
+
+    class FakeRuntime:
+        def __init__(self):
+            self.calls = []
+
+        async def execute(self, *, tool_call_id, tool_name, tool_input, context=None):
+            self.calls.append((tool_call_id, tool_name, tool_input))
+            if tool_name == "extract_form":
+                return ToolResult(
+                    tool_call_id=tool_call_id,
+                    status="SUCCEEDED",
+                    output_json={
+                        "fields": [
+                            {
+                                "element_ref": "field_1",
+                                "form_title": None,
+                                "section_title": None,
+                                "label": "Security question?",
+                                "selector": "#q1",
+                                "field_type": "text",
+                                "placeholder": None,
+                                "name": None,
+                                "html_id": None,
+                                "current_value": None,
+                                "required": True,
+                                "options": [],
+                            }
+                        ],
+                        "field_count": 1,
+                        "login_required": False,
+                    },
+                )
+            return ToolResult(
+                tool_call_id=tool_call_id,
+                status="SUCCEEDED",
+                output_json={
+                    "title": "Security Questionnaire",
+                    "headings": [{"level": 1, "text": "Security"}],
+                    "main_text_blocks": [],
+                    "links": [],
+                    "tables": [],
+                    "forms": [{"action": None, "method": "GET", "field_count": 1}],
+                },
+            )
+
+    runtime = FakeRuntime()
+
+    result = await analyze_page_intake(
+        url="https://example.com/security",
+        profile_id=7,
+        runtime=runtime,
+    )
+
+    assert result.recommended_workflow == WORKFLOW_TYPE_SECURITY_QUESTIONNAIRE
+    assert runtime.calls == [
+        (
+            "page-intake:extract_form",
+            "extract_form",
+            {"url": "https://example.com/security", "profile_id": 7},
+        ),
+        (
+            "page-intake:extract_page",
+            "extract_page",
+            {"url": "https://example.com/security", "profile_id": 7},
+        ),
+    ]

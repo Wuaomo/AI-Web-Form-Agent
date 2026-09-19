@@ -4,12 +4,15 @@ import assert from "node:assert/strict";
 import {
   buildReviewGroups,
   buildReviewQueueSummary,
+  buildReviewQueueCompactItems,
+  buildProposalBackedReviewFields,
   computeAttentionSummary,
   formatProposalTypeLabel,
   formatConfidence,
   formatMappingSummary,
   formatSourceSuggestion,
   getProposalReviewItemsByFieldId,
+  getFieldSourceEvidence,
   getFieldChoiceOptions,
   getSourceSuggestionsByFieldId,
   hasFieldChoiceOptions,
@@ -200,6 +203,100 @@ test("proposal review helpers expose generic evidence by field id", () => {
   assert.equal(byFieldId.has(11), false);
 });
 
+test("proposal review helpers do not treat non-field proposals as field rows", () => {
+  const items = [
+    {
+      id: "task-1-field-10-memory-mapping",
+      proposal_type: "memory_write",
+      target_type: "form_field",
+      target_ref: "10",
+      proposed_value: "email",
+      status: "PENDING",
+    },
+  ];
+
+  assert.equal(getProposalReviewItemsByFieldId(items).has(10), false);
+  assert.equal(buildReviewQueueCompactItems(items)[0].proposalType, "memory_write");
+});
+
+test("proposal-backed review fields prefer proposal value status and evidence", () => {
+  const fields = [
+    {
+      id: 10,
+      field_type: "text",
+      mapped_value: "stale@example.com",
+      confidence: 0.4,
+    },
+    {
+      id: 11,
+      field_type: "text",
+      mapped_value: "legacy@example.com",
+      confidence: 0.9,
+    },
+  ];
+  const evidence = [{ id: "e-1", quote_or_summary: "Mapped from runtime." }];
+  const reviewItemsByFieldId = new Map([
+    [
+      10,
+      {
+        id: "proposal-10",
+        proposal_type: "field_value",
+        status: "PENDING",
+        proposed_value: "proposal@example.com",
+        confidence: 0.88,
+        evidence,
+      },
+    ],
+  ]);
+
+  const rows = buildProposalBackedReviewFields(fields, reviewItemsByFieldId);
+
+  assert.equal(rows[0].mapped_value, "proposal@example.com");
+  assert.equal(rows[0].confidence, 0.88);
+  assert.equal(rows[0].review_status, "PENDING");
+  assert.equal(rows[0].proposal_type, "field_value");
+  assert.deepEqual(rows[0].proposal_evidence, evidence);
+  assert.equal(rows[1].mapped_value, "legacy@example.com");
+  assert.equal(rows[1].review_status, undefined);
+});
+
+test("field source evidence prefers compact proposal evidence before checkpoint fallback", () => {
+  const proposalEvidence = [
+    {
+      id: "proposal-evidence",
+      source_type: "policy_doc",
+      quote_or_summary: "Compact proposal evidence.",
+    },
+  ];
+  const proposalItemsByFieldId = new Map([
+    [10, { evidence: proposalEvidence }],
+  ]);
+  const sourceSuggestionsByFieldId = new Map([
+    [10, { source: "checkpoint.md", matched_section: "Fallback" }],
+    [11, { source: "checkpoint.md", matched_section: "Fallback" }],
+  ]);
+
+  assert.deepEqual(
+    getFieldSourceEvidence(
+      10,
+      proposalItemsByFieldId,
+      sourceSuggestionsByFieldId,
+    ),
+    { type: "proposal", items: proposalEvidence },
+  );
+  assert.deepEqual(
+    getFieldSourceEvidence(
+      11,
+      proposalItemsByFieldId,
+      sourceSuggestionsByFieldId,
+    ),
+    {
+      type: "suggestion",
+      suggestion: { source: "checkpoint.md", matched_section: "Fallback" },
+    },
+  );
+});
+
 test("buildReviewQueueSummary counts generic proposal review states and evidence", () => {
   const summary = buildReviewQueueSummary([
     {
@@ -238,6 +335,211 @@ test("buildReviewQueueSummary counts generic proposal review states and evidence
       { type: "memory_write", label: "Memory write", count: 1 },
     ],
   });
+});
+
+test("buildReviewQueueCompactItems includes non-field proposals", () => {
+  const items = buildReviewQueueCompactItems([
+    {
+      id: "task-1-field-10",
+      proposal_type: "field_value",
+      target_type: "form_field",
+      target_ref: "10",
+      proposed_value: "Ada",
+      status: "PENDING",
+    },
+    {
+      id: "task-1-field-10-memory-mapping",
+      proposal_type: "memory_write",
+      target_type: "workflow_memory",
+      target_ref: "10",
+      proposed_value: "email",
+      status: "PENDING",
+      risk_level: "medium",
+      evidence: [{ id: "e-1" }],
+    },
+  ]);
+
+  assert.deepEqual(items, [
+    {
+      id: "task-1-field-10-memory-mapping",
+      label: "Memory write",
+      proposalType: "memory_write",
+      target: "workflow_memory:10",
+      value: "email",
+      status: "PENDING",
+      riskLevel: "medium",
+      canRequestEvidence: true,
+      evidenceCount: 1,
+    },
+  ]);
+});
+
+test("buildReviewQueueCompactItems marks submit proposals as approval-owned", () => {
+  const items = buildReviewQueueCompactItems([
+    {
+      id: "task-1-submit-12",
+      proposal_type: "form_submit",
+      target_type: "approval_request",
+      target_ref: "12",
+      proposed_value: {
+        action: "submit_form",
+        approval_id: 12,
+        field_count: 3,
+      },
+      status: "PENDING",
+      risk_level: "high",
+    },
+  ]);
+
+  assert.deepEqual(items, [
+    {
+      id: "task-1-submit-12",
+      label: "Form submit",
+      proposalType: "form_submit",
+      target: "approval_request:12",
+      value: "submit_form approval #12 (3 fields)",
+      status: "PENDING",
+      riskLevel: "high",
+      reviewMode: "approval",
+      evidenceCount: 0,
+    },
+  ]);
+});
+
+test("buildReviewQueueCompactItems shows browser action proposals compactly", () => {
+  const items = buildReviewQueueCompactItems([
+    {
+      id: "task-1-click-save",
+      proposal_type: "browser_click",
+      target_type: "browser_element",
+      target_ref: "#save-draft",
+      proposed_value: {
+        action: "click",
+        selector: "#save-draft",
+        label: "Save draft",
+        tool_results: [{ raw: "do not show" }],
+      },
+      status: "PENDING",
+      risk_level: "medium",
+      evidence: [{ id: "e-1" }, { id: "e-2" }],
+    },
+    {
+      id: "task-1-nav-confirm",
+      proposal_type: "browser_navigation",
+      target_type: "url",
+      target_ref: "https://example.com/confirm",
+      proposed_value: {
+        action: "navigate",
+        url: "https://example.com/confirm",
+      },
+      status: "APPROVED",
+      risk_level: "low",
+      evidence: [],
+    },
+  ]);
+
+  assert.equal(items[0].label, "Browser click");
+  assert.equal(items[0].target, "browser_element:#save-draft");
+  assert.equal(items[0].action, "click");
+  assert.equal(items[0].status, "PENDING");
+  assert.equal(items[0].riskLevel, "medium");
+  assert.equal(items[0].evidenceCount, 2);
+  assert.doesNotMatch(items[0].value, /tool_results|do not show/);
+  assert.equal(items[1].label, "Browser navigation");
+  assert.equal(items[1].target, "url:https://example.com/confirm");
+  assert.equal(items[1].action, "navigate");
+});
+
+test("buildReviewQueueCompactItems allows non-field evidence requests", () => {
+  const items = buildReviewQueueCompactItems([
+    {
+      id: "task-1-memory",
+      proposal_type: "memory_write",
+      target_type: "workflow_memory",
+      target_ref: "10",
+      proposed_value: "email",
+      status: "PENDING",
+    },
+    {
+      id: "task-1-click",
+      proposal_type: "browser_click",
+      target_type: "browser_element",
+      target_ref: "#save",
+      proposed_value: { action: "click", selector: "#save" },
+      status: "PENDING",
+    },
+    {
+      id: "task-1-custom",
+      proposal_type: "custom_followup",
+      target_type: "runtime_action",
+      target_ref: "next",
+      proposed_value: "Collect more page context",
+      status: "PENDING",
+    },
+    {
+      id: "task-1-submit",
+      proposal_type: "form_submit",
+      target_type: "approval_request",
+      target_ref: "7",
+      proposed_value: { action: "submit_form", approval_id: 7 },
+      status: "PENDING",
+    },
+  ]);
+
+  assert.deepEqual(
+    items.map((item) => [item.proposalType, item.canRequestEvidence]),
+    [
+      ["memory_write", true],
+      ["browser_click", true],
+      ["custom_followup", true],
+      ["form_submit", undefined],
+    ],
+  );
+});
+
+test("buildReviewQueueCompactItems guards external write proposals", () => {
+  const items = buildReviewQueueCompactItems([
+    {
+      id: "task-1-external-write",
+      proposal_type: "external_api_write",
+      target_type: "external_api",
+      target_ref: "vendor_system",
+      proposed_value: {
+        action: "write_record",
+        service: "vendor_system",
+        tool_results: [{ raw: "do not show" }],
+      },
+      status: "PENDING",
+      evidence: [{ id: "policy" }],
+    },
+  ]);
+
+  assert.equal(items[0].label, "External api write");
+  assert.equal(items[0].target, "external_api:vendor_system");
+  assert.equal(items[0].riskLevel, "high");
+  assert.equal(items[0].reviewMode, "blocked");
+  assert.equal(items[0].canRequestEvidence, undefined);
+  assert.equal(items[0].evidenceCount, 1);
+  assert.doesNotMatch(items[0].value, /tool_results|do not show/);
+});
+
+test("buildReviewQueueCompactItems falls back for unknown proposals", () => {
+  const items = buildReviewQueueCompactItems([
+    {
+      id: "task-1-unknown",
+      proposal_type: "",
+      target_type: "",
+      target_ref: "",
+      proposed_value: "",
+    },
+  ]);
+
+  assert.equal(items[0].label, "Unknown");
+  assert.equal(items[0].proposalType, "unknown");
+  assert.equal(items[0].target, "target:");
+  assert.equal(items[0].value, "No value");
+  assert.equal(items[0].status, "PENDING");
+  assert.equal(items[0].riskLevel, "low");
 });
 
 test("formatProposalTypeLabel returns stable proposal labels", () => {

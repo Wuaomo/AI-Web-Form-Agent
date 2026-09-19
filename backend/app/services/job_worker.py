@@ -326,7 +326,7 @@ def _execute_map_stage(db: Session, job: Job) -> None:
         raise ValueError(f"Task {job.task_id} not found")
 
     from app.routers.tasks import save_map_fields_runtime_state
-    from app.services.field_mapper import map_fields_by_rules, map_fields_with_llm
+    from app.services.field_mapper import map_fields_by_rules, map_fields_with_llm_result
     from app.services.agent_runtime.tool_runtime import ToolExecutionContext
     from app.services.agent_runtime.tools import build_default_tool_runtime
     from app.services.checkpoint_service import write_checkpoint
@@ -345,18 +345,36 @@ def _execute_map_stage(db: Session, job: Job) -> None:
     selected_provider = provider
 
     try:
+        import asyncio
+
         if mode == "llm":
             selected_provider = resolve_llm_provider(provider)
             if not is_provider_configured(selected_provider):
                 raise ValueError(f"LLM provider {selected_provider} is not configured")
-            fields = map_fields_with_llm(job.task_id, db, provider=selected_provider)
-            field_count = len(fields)
-            mapped_count = sum(1 for f in fields if f.mapped_profile_key)
-            source_suggestions = []
-            tool_result = None
+            tool_result = asyncio.run(
+                build_default_tool_runtime(
+                    map_fields_with_llm_result_handler=map_fields_with_llm_result,
+                ).execute(
+                    tool_call_id=f"task-{task.id}:map_fields",
+                    tool_name="map_fields",
+                    tool_input={
+                        "task_id": task.id,
+                        "mode": "llm",
+                        "provider": selected_provider,
+                    },
+                    context=ToolExecutionContext(
+                        run_id=f"task-{task.id}",
+                        plan_step_id="map_fields",
+                        metadata={"db": db, "task_id": task.id},
+                    ),
+                )
+            )
+            if tool_result.status != "SUCCEEDED":
+                raise RuntimeError(tool_result.error or "Runtime map_fields failed")
+            field_count = tool_result.output_json["field_count"]
+            mapped_count = tool_result.output_json["mapped_count"]
+            source_suggestions = tool_result.output_json.get("source_suggestions") or []
         else:
-            import asyncio
-
             tool_result = asyncio.run(
                 build_default_tool_runtime(
                     map_fields_by_rules_handler=map_fields_by_rules,
@@ -442,6 +460,20 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
         job: The job being executed
     """
 
+    agent_run_id = job.payload.get("agent_run_id")
+    if isinstance(agent_run_id, str) and agent_run_id:
+        import asyncio
+        from app.routers.agent_runs import continue_agent_run_fill_job
+
+        asyncio.run(
+            continue_agent_run_fill_job(
+                agent_run_id,
+                db,
+                task_id=job.task_id,
+            )
+        )
+        return
+
     task = db.get(Task, job.task_id)
     if task is None:
         raise ValueError(f"Task {job.task_id} not found")
@@ -453,6 +485,7 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
         filter_fillable_fields_by_policy,
         get_next_log_step,
         get_missing_required_fields,
+        is_fillable_field,
         missing_required_detail,
     )
     from app.services.agent_runtime.state_store import save_fill_form_runtime_state
@@ -523,6 +556,32 @@ def _execute_fill_stage(db: Session, job: Job) -> None:
                 fill_form_handler=fill_form_and_capture_screenshot
             )
         )
+        required_field_ids = {
+            f.id
+            for f in filtered_fields
+            if f.required and is_fillable_field(f) and f.mapped_value
+        }
+        required_failures = [
+            v
+            for v in verification_data
+            if v.status == "FAILED" and v.field_id in required_field_ids
+        ]
+        if required_failures:
+            set_workflow_status(
+                task,
+                WORKFLOW_STATUS_FAILED,
+                reason="fill_verification_failed",
+            )
+            save_fill_form_runtime_state(
+                db,
+                task=task,
+                tool_result=tool_result,
+                verification_data=verification_data,
+            )
+            failure_details = ", ".join(f"field {v.field_id}" for v in required_failures)
+            raise RuntimeError(
+                f"Verification failed for required fields: {failure_details}"
+            )
         set_workflow_status(task, WORKFLOW_STATUS_WAITING_APPROVAL, reason="fill_completed")
         save_fill_form_runtime_state(
             db,

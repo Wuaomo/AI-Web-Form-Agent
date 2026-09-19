@@ -11,8 +11,6 @@ from app.database import Base, get_db
 from app import config
 from app.models import FormField, Job, Profile, Task
 from app.routers.tasks import router as tasks_router
-from app.services.approval_gate_service import approve_request, create_approval_request
-from app.services.policy_engine import evaluate_submit_action
 from app.job_constants import (
     JOB_TYPE_ANALYZE_FORM,
     JOB_TYPE_MAP_FIELDS,
@@ -118,125 +116,15 @@ def test_map_endpoint_creates_job_with_mode_provider_payload(async_env):
     assert job.payload["provider"] == "deepseek"
 
 
-def test_fill_endpoint_creates_job_when_ready(async_env):
-    """Verify POST /tasks/{id}/fill enqueues FILL_FORM only when task is READY_TO_FILL."""
+@pytest.mark.parametrize("route_suffix", ["fill", "confirm-submit"])
+def test_browser_write_task_routes_are_removed(async_env, route_suffix):
+    """Verify legacy task browser-write routes are no longer public API."""
 
     client, session, task = async_env
 
-    field = FormField(
-        task=task,
-        label="Email",
-        selector="#email",
-        field_type="email",
-        required=True,
-        mapped_profile_key="email",
-        mapped_value="ada@example.com",
-    )
-    session.add(field)
-    task.status = "READY_TO_FILL"
-    session.commit()
+    response = client.post(f"/tasks/{task.id}/{route_suffix}")
 
-    response = client.post(f"/tasks/{task.id}/fill")
-
-    assert response.status_code == 200
-    job_data = response.json()
-    assert job_data["job_type"] == JOB_TYPE_FILL_FORM
-    assert job_data["status"] == JOB_STATUS_PENDING
-    assert job_data["task_id"] == task.id
-
-    job = session.scalar(select(Job).where(Job.task_id == task.id))
-    assert job is not None
-    assert job.job_type == JOB_TYPE_FILL_FORM
-
-
-def test_fill_endpoint_rejects_when_not_ready(async_env):
-    """Verify POST /tasks/{id}/fill still rejects when task is not READY_TO_FILL."""
-
-    client, session, task = async_env
-
-    response = client.post(f"/tasks/{task.id}/fill")
-
-    assert response.status_code == 409
-    assert response.json()["detail"] == "Review and confirm mapping before filling"
-
-    job = session.scalar(select(Job).where(Job.task_id == task.id))
-    assert job is None
-
-
-def test_confirm_submit_remains_synchronous(async_env):
-    """Verify POST /tasks/{id}/confirm-submit stays synchronous even with async enabled."""
-
-    client, session, task = async_env
-
-    field = FormField(
-        task=task,
-        label="Email",
-        selector="#email",
-        field_type="email",
-        required=True,
-        mapped_profile_key="email",
-        mapped_value="ada@example.com",
-    )
-    session.add(field)
-    task.status = "WAITING_APPROVAL"
-    task.workflow_status = "WAITING_APPROVAL"
-    submit_approval = create_approval_request(
-        session,
-        task_id=task.id,
-        step_name="submit_form",
-        policy_decision=evaluate_submit_action(),
-        proposed_action={
-            "action": "submit_form",
-            "fields": [
-                {
-                    "field_id": field.id,
-                    "mapped_value": "ada@example.com",
-                }
-            ],
-        },
-    )
-    approve_request(session, submit_approval.id)
-    session.commit()
-
-    from unittest.mock import AsyncMock, patch
-
-    with patch(
-        "app.routers.tasks.submit_form_and_capture_screenshot",
-        new_callable=AsyncMock,
-    ):
-        response = client.post(f"/tasks/{task.id}/confirm-submit")
-
-    assert response.status_code == 200
-    result = response.json()
-    assert result["status"] == "COMPLETED"
-    assert "task_id" in result
-
-    job = session.scalar(select(Job).where(Job.task_id == task.id))
-    assert job is None
-
-
-def test_fill_endpoint_rejects_missing_required_values(async_env):
-    """Verify POST /tasks/{id}/fill still validates required fields before enqueueing."""
-
-    client, session, task = async_env
-
-    field = FormField(
-        task=task,
-        label="Email",
-        selector="#email",
-        field_type="email",
-        required=True,
-        mapped_profile_key="email",
-        mapped_value=None,
-    )
-    session.add(field)
-    task.status = "READY_TO_FILL"
-    session.commit()
-
-    response = client.post(f"/tasks/{task.id}/fill")
-
-    assert response.status_code == 409
-    assert "Required fields need values" in response.json()["detail"]
+    assert response.status_code == 404
 
     job = session.scalar(select(Job).where(Job.task_id == task.id))
     assert job is None

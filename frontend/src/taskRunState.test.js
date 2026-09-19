@@ -58,6 +58,43 @@ test("getTaskRunState falls back to legacy status when workflow_status is absent
   assert.equal(state.primaryAction, "approve");
 });
 
+test("getTaskRunState uses Run Cockpit review state before stale task status", () => {
+  const state = getTaskRunState(
+    {
+      ...baseTask,
+      status: "CREATED",
+      agent_runtime: {
+        status: "CREATED",
+        output_json: { raw: "do not expose" },
+      },
+    },
+    [],
+    {
+      status: "WAITING_REVIEW",
+      pending_review_count: 2,
+      output_json: { raw: "do not expose" },
+    },
+  );
+
+  assert.equal(state.statusLabel, "Needs review");
+  assert.equal(state.primaryAction, "review");
+  assert.equal(JSON.stringify(state).includes("output_json"), false);
+  assert.equal(JSON.stringify(state).includes("do not expose"), false);
+});
+
+test("getTaskRunState uses pending Run Cockpit review count before stale task status", () => {
+  const state = getTaskRunState(
+    { ...baseTask, status: "CREATED" },
+    [],
+    {
+      status: "RUNNING",
+      pending_review_count: 1,
+    },
+  );
+
+  assert.equal(state.primaryAction, "review");
+});
+
 test("isFillableField excludes form controls that should not receive values", () => {
   assert.equal(isFillableField({ field_type: "email" }), true);
   assert.equal(isFillableField({ field_type: "file" }), false);

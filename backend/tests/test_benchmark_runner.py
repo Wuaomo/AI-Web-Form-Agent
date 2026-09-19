@@ -1180,6 +1180,7 @@ def test_runtime_mode_reports_safety_verification_and_source_evidence_metrics() 
         summary = run_benchmarks(mode="runtime")
 
     assert len(governed_calls) == 1
+    assert governed_calls[0]["workflow_type"] == "form_fill"
     assert summary.mode == "runtime"
     assert summary.summary_metrics["governed_runtime_path_rate"] == 1.0
     assert "safety_pass_rate" in summary.summary_metrics

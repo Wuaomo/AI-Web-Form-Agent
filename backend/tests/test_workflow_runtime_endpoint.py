@@ -14,14 +14,20 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.models import (
+    ActionLog,
     AgentPlan,
     AgentProposal,
     AgentReviewDecision,
     AgentRun,
+    AgentToolCall,
+    AgentToolResult,
     AgentVerificationResult,
+    FieldVerificationResult,
     FormField,
     Profile,
+    Screenshot,
     Task,
+    WorkflowSpan,
     WorkflowMemoryItem,
 )
 from app.routers.workflows import router as workflows_router
@@ -140,6 +146,32 @@ def create_web_data_extract_task(session: Session, profile: Profile) -> Task:
     return task
 
 
+def create_job_research_summary_task(session: Session, profile: Profile) -> Task:
+    task = Task(
+        url="https://example.com/job",
+        profile_id=profile.id,
+        workflow_type="job_research_summary",
+        description="Research the AI engineer role.",
+        status="READY",
+        workflow_status="READY",
+    )
+    session.add(task)
+    session.commit()
+    return task
+
+
+async def persist_screenshot_evidence(**kwargs) -> Screenshot:
+    db = kwargs["db"]
+    screenshot = Screenshot(
+        task_id=kwargs["task_id"],
+        file_path=f"screenshots/task-{kwargs['task_id']}-{kwargs['stage']}.png",
+        stage=kwargs["stage"],
+    )
+    db.add(screenshot)
+    db.flush()
+    return screenshot
+
+
 def create_governed_proposal(
     session: Session,
     task: Task,
@@ -254,6 +286,57 @@ def test_start_endpoint_runs_to_review_interrupt() -> None:
     session.close()
 
 
+def test_old_security_graph_review_fallback_stays_non_mutating_and_compact() -> None:
+    """POST /workflows/{task_id}/review keeps the old fallback non-mutating."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_security_questionnaire_task(session, profile)
+
+    start_response = client.post(f"/workflows/{task.id}/start")
+    assert start_response.status_code == 200
+
+    response = client.post(
+        f"/workflows/{task.id}/review",
+        json={"decision": "approve_all", "approvals": []},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "AWAITING_SUBMIT_APPROVAL"
+    assert "verification_result" not in payload
+    assert "browser_execution_id" not in payload
+    assert session.query(Screenshot).filter(Screenshot.task_id == task.id).count() == 0
+    assert session.query(ActionLog).filter(ActionLog.task_id == task.id).count() == 0
+    assert (
+        session.query(FieldVerificationResult)
+        .filter(FieldVerificationResult.task_id == task.id)
+        .count()
+        == 0
+    )
+    assert session.query(AgentVerificationResult).count() == 0
+    session.close()
+
+
+def test_old_security_graph_start_stays_out_of_agent_run_primary_path() -> None:
+    """POST /workflows/{task_id}/start remains compatibility-only."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_security_questionnaire_task(session, profile)
+
+    response = client.post(f"/workflows/{task.id}/start")
+
+    assert response.status_code == 200
+    assert response.json()["interrupt_at"] == "review"
+    assert session.query(AgentRun).count() == 0
+    assert session.query(AgentPlan).count() == 0
+    assert session.query(AgentToolCall).count() == 0
+    assert session.query(AgentToolResult).count() == 0
+    assert session.query(AgentProposal).count() == 0
+    session.close()
+
+
 def test_start_endpoint_rejects_unsupported_workflow() -> None:
     """POST /workflows/{task_id}/start returns 400 for form_fill."""
 
@@ -349,6 +432,239 @@ def test_governed_start_keeps_deterministic_mode_without_openai_key() -> None:
     assert payload["planner_mode"] == "deterministic"
     assert payload["plan"]["created_by"] == "deterministic"
     assert payload["status"] == "COMPLETED"
+    session.close()
+
+
+def test_governed_start_web_data_extract_runs_read_only_page_plan() -> None:
+    """POST /governed/start expresses page extraction as AgentRun read steps."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_web_data_extract_task(session, profile)
+    page_result = SimpleNamespace(
+        title="Research page",
+        headings=[SimpleNamespace(level=1, text="Overview")],
+        main_text_blocks=["Long research paragraph."],
+        links=[],
+        tables=[],
+        forms=[],
+    )
+    runtime = build_default_tool_runtime(
+        extract_page_handler=AsyncMock(return_value=page_result),
+        capture_screenshot_handler=persist_screenshot_evidence,
+    )
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workflow_type"] == "web_data_extract"
+    assert payload["status"] == "COMPLETED"
+    assert [step["step_id"] for step in payload["plan"]["steps"]] == [
+        "extract_page",
+        "capture_screenshot",
+    ]
+    assert [call["tool_name"] for call in payload["tool_calls"]] == [
+        "extract_page",
+        "capture_screenshot",
+    ]
+    assert {call["governance_decision"] for call in payload["tool_calls"]} == {"ALLOW"}
+
+    run = session.get(AgentRun, f"task-{task.id}")
+    assert run is not None
+    assert run.status == "COMPLETED"
+    assert run.workflow_hint == "web_data_extract"
+    assert run.target_url == task.url
+    tool_names = [
+        row[0]
+        for row in session.execute(
+            text(
+                """
+                SELECT tool_name
+                FROM agent_tool_calls
+                WHERE run_id = :run_id
+                ORDER BY plan_step_id
+                """
+            ),
+            {"run_id": f"task-{task.id}"},
+        )
+    ]
+    assert tool_names == ["capture_screenshot", "extract_page"]
+    extraction = session.get(AgentToolResult, f"task-{task.id}:extract_page")
+    assert extraction is not None
+    assert extraction.output_json["title"] == "Research page"
+    assert extraction.output_json["heading_count"] == 1
+    screenshot_result = session.get(
+        AgentToolResult,
+        f"task-{task.id}:capture_screenshot",
+    )
+    assert screenshot_result is not None
+    assert screenshot_result.output_json["screenshot_id"]
+    screenshot = session.get(Screenshot, screenshot_result.output_json["screenshot_id"])
+    assert screenshot is not None
+    assert screenshot.stage == "extracted"
+    spans = list(
+        session.query(WorkflowSpan)
+        .filter(WorkflowSpan.task_id == task.id)
+        .order_by(WorkflowSpan.id)
+    )
+    assert [span.name for span in spans] == [
+        "agent_planner",
+        "extract_page",
+        "capture_screenshot",
+    ]
+    session.close()
+
+
+def test_governed_start_job_summary_runs_read_only_summary_plan() -> None:
+    """POST /governed/start expresses prerequisite extraction and summary as tools."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_job_research_summary_task(session, profile)
+    page_result = SimpleNamespace(
+        title="AI Engineer",
+        headings=[SimpleNamespace(level=1, text="Requirements")],
+        main_text_blocks=["Requirements include Python and 3 years experience."],
+        links=[],
+        tables=[],
+        forms=[],
+    )
+    runtime = build_default_tool_runtime(
+        extract_page_handler=AsyncMock(return_value=page_result),
+        capture_screenshot_handler=persist_screenshot_evidence,
+    )
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workflow_type"] == "job_research_summary"
+    assert payload["status"] == "COMPLETED"
+    assert [step["step_id"] for step in payload["plan"]["steps"]] == [
+        "extract_page",
+        "capture_screenshot",
+        "generate_job_summary",
+    ]
+    assert [call["tool_name"] for call in payload["tool_calls"]] == [
+        "extract_page",
+        "capture_screenshot",
+        "generate_job_summary",
+    ]
+    assert {call["governance_decision"] for call in payload["tool_calls"]} == {"ALLOW"}
+
+    run = session.get(AgentRun, f"task-{task.id}")
+    assert run is not None
+    assert run.status == "COMPLETED"
+    assert run.goal == "Research the AI engineer role."
+    assert run.workflow_hint == "job_research_summary"
+    summary = session.execute(
+        text(
+            """
+            SELECT output_json
+            FROM agent_tool_results
+            WHERE tool_call_id = :tool_call_id
+            """
+        ),
+        {"tool_call_id": f"task-{task.id}:generate_job_summary"},
+    ).scalar_one()
+    assert "Python" in json.loads(summary)["key_requirements"]
+    screenshot_result = session.get(
+        AgentToolResult,
+        f"task-{task.id}:capture_screenshot",
+    )
+    assert screenshot_result is not None
+    assert screenshot_result.output_json["screenshot_id"]
+    screenshot = session.get(Screenshot, screenshot_result.output_json["screenshot_id"])
+    assert screenshot is not None
+    assert screenshot.stage == "extracted"
+    spans = list(
+        session.query(WorkflowSpan)
+        .filter(WorkflowSpan.task_id == task.id)
+        .order_by(WorkflowSpan.id)
+    )
+    assert [span.name for span in spans] == [
+        "agent_planner",
+        "extract_page",
+        "capture_screenshot",
+        "generate_job_summary",
+    ]
+    session.close()
+
+
+@pytest.mark.parametrize(
+    "workflow_type",
+    ["form_fill", "vendor_onboarding", "security_questionnaire"],
+)
+def test_governed_start_keeps_demo_paths_no_key_deterministic(
+    workflow_type: str,
+) -> None:
+    """Verify primary demos use deterministic governed runtime without an LLM key."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = Task(
+        url=f"https://example.com/{workflow_type}",
+        profile_id=profile.id,
+        workflow_type=workflow_type,
+        status="READY",
+        workflow_status="READY",
+    )
+    session.add(task)
+    session.flush()
+    field = FormField(
+        task_id=task.id,
+        label="Email address",
+        selector="#email",
+        field_type="email",
+        required=True,
+    )
+    session.add(field)
+    session.commit()
+
+    analysis = SimpleNamespace(fields=[], login_required=False)
+    runtime = build_default_tool_runtime(
+        extract_form_analysis_handler=AsyncMock(return_value=analysis)
+    )
+
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.config.OPENAI_API_KEY", None), patch(
+        "app.routers.workflows.build_default_tool_runtime",
+        return_value=runtime,
+    ):
+        response = client.post(
+            f"/workflows/{task.id}/governed/start?planner_mode=deterministic"
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workflow_type"] == workflow_type
+    assert payload["planner_mode"] == "deterministic"
+    assert payload["plan"]["created_by"] == "deterministic"
+    assert payload["status"] == "WAITING_REVIEW"
+    assert payload["interrupt_at"] == "review"
+
+    run = session.get(AgentRun, f"task-{task.id}")
+    assert run is not None
+    assert run.mode == "deterministic"
+    assert (
+        session.query(AgentProposal)
+        .filter(AgentProposal.run_id == run.id)
+        .filter(AgentProposal.target_ref == str(field.id))
+        .count()
+        >= 1
+    )
     session.close()
 
 
@@ -661,6 +977,120 @@ def test_governed_review_decision_resumes_persisted_state_after_memory_reset() -
     payload = state_response.json()
     assert payload["status"] == "COMPLETED"
     assert payload["interrupt_at"] is None
+    session.close()
+
+
+def test_governed_review_rejection_does_not_resume_paused_fill_form() -> None:
+    """Rejecting a proposal must not approve a paused browser write."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    field = FormField(
+        task_id=task.id,
+        label="Email address",
+        selector="#email",
+        field_type="email",
+        mapped_value="ada@example.com",
+        confidence=0.8,
+    )
+    session.add(field)
+    session.commit()
+
+    fields = [
+        {
+            "id": field.id,
+            "selector": field.selector,
+            "mapped_value": field.mapped_value,
+        }
+    ]
+    save_governed_runtime_state(
+        session,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "interrupt_at": "review",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": "Fill reviewed fields.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": "WAITING_REVIEW",
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:plan:1",
+                "version": 1,
+                "goal": "Fill reviewed fields.",
+                "steps": [
+                    {
+                        "step_id": "fill_form",
+                        "tool_name": "fill_form",
+                        "reason": "Fill reviewed browser fields.",
+                        "input_json": {
+                            "task_id": task.id,
+                            "url": task.url,
+                            "profile_id": task.profile_id,
+                            "fields": fields,
+                        },
+                        "risk_level": "medium",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "current_tool_call": {
+                "id": f"task-{task.id}:fill_form",
+                "run_id": f"task-{task.id}",
+                "plan_step_id": "fill_form",
+                "tool_name": "fill_form",
+                "input_json": {
+                    "task_id": task.id,
+                    "url": task.url,
+                    "profile_id": task.profile_id,
+                    "fields": fields,
+                },
+                "status": "WAITING_REVIEW",
+                "risk_level": "medium",
+                "governance_decision": {"decision": "REVIEW_REQUIRED"},
+            },
+        },
+    )
+    proposal = AgentProposal(
+        id=f"task-{task.id}-field-{field.id}",
+        run_id=f"task-{task.id}",
+        proposal_type="field_value",
+        target_type="form_field",
+        target_ref=str(field.id),
+        proposed_value="ada@example.com",
+        rationale="Review before fill.",
+        confidence=0.8,
+        risk_level="low",
+        status="PENDING",
+    )
+    run = session.get(AgentRun, f"task-{task.id}")
+    run.pending_review_count = 1
+    session.add(proposal)
+    session.commit()
+    _reset_governed_runtime_for_tests()
+
+    fill_form = AsyncMock(return_value=(SimpleNamespace(id=5), []))
+    runtime = build_default_tool_runtime(fill_form_handler=fill_form)
+    from unittest.mock import patch
+
+    with patch("app.routers.workflows.build_default_tool_runtime", return_value=runtime):
+        response = client.post(
+            f"/workflows/{task.id}/governed/review-items/{proposal.id}/decision",
+            json={"decision": "rejected"},
+        )
+
+    assert response.status_code == 200
+    fill_form.assert_not_awaited()
+    state_response = client.get(f"/workflows/{task.id}/governed")
+    assert state_response.status_code == 200
+    assert state_response.json()["status"] == "WAITING_REVIEW"
     session.close()
 
 
@@ -2533,6 +2963,60 @@ def test_governed_review_decision_persists_agent_decision_and_status() -> None:
     session.refresh(proposal)
     assert proposal.status == "APPROVED"
     assert proposal.proposed_value == "old@example.com"
+    session.close()
+
+
+def test_governed_review_decision_stays_scoped_to_governed_run() -> None:
+    """POST /governed decision must not write another run's proposal."""
+
+    client, session = build_environment()
+    profile = create_profile(session)
+    task = create_form_fill_task(session, profile)
+    governed_run = AgentRun(
+        id=f"task-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review current governed run.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    governed_run.final_result = {}
+    stale_run = AgentRun(
+        id=f"stale-run-{task.id}",
+        legacy_task_id=task.id,
+        goal="Review stale governed run.",
+        target_url=task.url,
+        profile_id=task.profile_id,
+        workflow_hint=task.workflow_type,
+        status="WAITING_REVIEW",
+        mode="deterministic",
+    )
+    stale_run.final_result = {}
+    stale_proposal = AgentProposal(
+        id=f"stale-proposal-{task.id}",
+        run=stale_run,
+        proposal_type="browser_click",
+        target_type="browser_action",
+        target_ref="#old",
+        proposed_value={"selector": "#old"},
+        rationale="Belongs to a different AgentRun.",
+        risk_level="medium",
+        status="PENDING",
+    )
+    session.add_all([governed_run, stale_run, stale_proposal])
+    session.commit()
+
+    response = client.post(
+        f"/workflows/{task.id}/governed/review-items/{stale_proposal.id}/decision",
+        json={"decision": "approved"},
+    )
+
+    assert response.status_code == 404
+    assert session.get(AgentReviewDecision, f"decision-{stale_proposal.id}") is None
+    session.refresh(stale_proposal)
+    assert stale_proposal.status == "PENDING"
     session.close()
 
 

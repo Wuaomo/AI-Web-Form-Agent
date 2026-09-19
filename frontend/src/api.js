@@ -71,8 +71,6 @@ export const api = {
   health: () => request("/health"),
   listLlmProviders: () => request("/llm/providers"),
   listWorkflowTemplates: () => request("/workflows/templates"),
-  startWorkflow: (taskId) =>
-    request(`/workflows/${taskId}/start`, { method: "POST" }),
   startGovernedWorkflow: (taskId, options = {}) => {
     const params = new URLSearchParams();
     if (options.plannerMode) {
@@ -83,12 +81,23 @@ export const api = {
       method: "POST",
     });
   },
+  startReadOnlyWorkflow: (taskId) =>
+    api.startGovernedWorkflow(taskId, {
+      plannerMode: "deterministic",
+    }),
   getGovernedWorkflowState: (taskId) => request(`/workflows/${taskId}/governed`),
-  getWorkflowState: (taskId) => request(`/workflows/${taskId}`),
-  reviewWorkflow: (taskId, reviewData = {}) =>
-    request(`/workflows/${taskId}/review`, {
+  getAgentRun: (runId) => request(`/agent-runs/${runId}`),
+  continueAgentRun: (runId, options = {}) =>
+    request(`/agent-runs/${runId}/continue`, {
       method: "POST",
-      body: JSON.stringify(reviewData),
+      ...(options.action ? { body: JSON.stringify({ action: options.action }) } : {}),
+    }),
+  listAgentRunReviewItems: (runId) =>
+    request(`/agent-runs/${runId}/review-items`),
+  reviewAgentRunItem: (runId, itemId, decision) =>
+    request(`/agent-runs/${runId}/review-items/${itemId}/decision`, {
+      method: "POST",
+      body: JSON.stringify(decision),
     }),
   runBenchmarks: (options = {}) =>
     request("/benchmarks/run", {
@@ -159,10 +168,6 @@ export const api = {
     request(`/approvals/${approvalId}/reject`, { method: "POST" }),
   analyzeTask: (taskId) =>
       request(`/tasks/${taskId}/analyze`, { method: "POST" }),
-    extractTaskPage: (taskId) =>
-      request(`/tasks/${taskId}/extract-page`, { method: "POST" }),
-    generateJobSummary: (taskId) =>
-      request(`/tasks/${taskId}/job-summary`, { method: "POST" }),
     loginAndAnalyzeTask: (taskId) =>
       request(`/tasks/${taskId}/login-and-analyze`, { method: "POST" }),
   mapTaskFields: (taskId, options = {}) => {
@@ -181,12 +186,6 @@ export const api = {
     return request(`/tasks/${taskId}/map-fields${suffix}`, { method: "POST" });
   },
   listTaskFields: (taskId) => request(`/tasks/${taskId}/fields`),
-  listTaskReviewItems: (taskId) => request(`/tasks/${taskId}/review-items`),
-  reviewTaskItem: (taskId, itemId, decision) =>
-    request(`/tasks/${taskId}/review-items/${itemId}/decision`, {
-      method: "POST",
-      body: JSON.stringify(decision),
-    }),
   updateTaskField: (taskId, fieldId, mapping) =>
     request(`/tasks/${taskId}/fields/${fieldId}`, {
       method: "PUT",
@@ -194,9 +193,6 @@ export const api = {
     }),
   confirmMapping: (taskId) =>
     request(`/tasks/${taskId}/confirm-mapping`, { method: "POST" }),
-  fillTask: (taskId) => request(`/tasks/${taskId}/fill`, { method: "POST" }),
-  confirmSubmit: (taskId) =>
-    request(`/tasks/${taskId}/confirm-submit`, { method: "POST" }),
   getTaskLlmUsage: (taskId) => request(`/tasks/${taskId}/llm-usage`),
   listTaskCheckpoints: (taskId) => request(`/tasks/${taskId}/checkpoints`),
   getTaskVerificationResults: (taskId) => request(`/tasks/${taskId}/verification-results`),

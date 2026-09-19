@@ -85,6 +85,20 @@ def test_governance_allows_approved_browser_mutations_with_verification() -> Non
     assert decision.requires_verification is True
 
 
+def test_governance_does_not_approve_browser_mutations_by_tool_name() -> None:
+    """Verify approvals unlock only the matching runtime tool call id."""
+
+    decision = GovernanceEngine().evaluate_tool_call(
+        make_tool("fill_form", risk_level="medium", mutates_browser=True),
+        {"task_id": 1},
+        tool_call_id="call-2",
+        context=ToolExecutionContext(metadata={"approved_tool_names": ["fill_form"]}),
+    )
+
+    assert decision.decision == "REVIEW_REQUIRED"
+    assert decision.requires_review is True
+
+
 def test_governance_requires_approval_for_submit_tools() -> None:
     """Verify final submissions require explicit approval."""
 
@@ -119,6 +133,29 @@ def test_governance_blocks_sensitive_browser_mutations(
 
     assert decision.decision == "BLOCKED"
     assert expected_fragment in (decision.blocked_reason or "")
+
+
+def test_governance_blocks_sensitive_browser_field_objects() -> None:
+    """Verify real fill_form field objects are inspected before execution."""
+
+    field = type(
+        "Field",
+        (),
+        {
+            "label": "Account password",
+            "field_type": "password",
+            "mapped_value": "secret",
+        },
+    )()
+
+    decision = GovernanceEngine().evaluate_tool_call(
+        make_tool("fill_form", risk_level="medium", mutates_browser=True),
+        {"task_id": 1, "fields": [field]},
+        tool_call_id="call-1",
+        context=ToolExecutionContext(metadata={"approved_tool_call_ids": ["call-1"]}),
+    )
+
+    assert decision.decision == "BLOCKED"
 
 
 def test_governance_blocks_sensitive_memory_writes() -> None:

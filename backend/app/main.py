@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from app.config import APP_TITLE, APP_VERSION, CORS_ORIGINS
 from app.database import BACKEND_DIR
 from app.database import init_db
+from app.routers.agent_runs import router as agent_runs_router
 from app.routers.admin import router as admin_router
 from app.routers.approvals import router as approvals_router
 from app.routers.benchmarks import router as benchmarks_router
@@ -67,6 +68,7 @@ app.add_middleware(
 )
 
 app.include_router(profiles_router)
+app.include_router(agent_runs_router)
 app.include_router(workflows_router)
 app.include_router(tasks_router)
 app.include_router(page_intake_router)

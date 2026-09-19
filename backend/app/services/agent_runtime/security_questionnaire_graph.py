@@ -1,4 +1,8 @@
-"""LangGraph runtime for the security questionnaire workflow.
+"""Deprecated compatibility LangGraph for the security questionnaire workflow.
+
+The generic governed runtime and AgentRun APIs are the primary product path.
+This module remains for older clients that still call ``/workflows/{task_id}``
+security questionnaire endpoints.
 
 This graph wraps existing service layer components and uses LangGraph's
 ``interrupt_before`` mechanism for two human-in-the-loop gates:
@@ -14,10 +18,12 @@ Flow:
   -> verify_result -> [INTERRUPT: submit_approval] -> finish
   (errors route to fail node)
 
-Safety guarantees:
-- Browser execution never runs before review approval.
-- Final submission never happens without explicit human approval.
-- Policy engine evaluates every suggestion.
+Compatibility contract:
+- Start/get/review endpoints remain available for old clients.
+- The initial run stops before the review gate.
+- The fill and verification nodes are skeleton-only compatibility state, not
+  real browser-write execution or verification trust evidence.
+- New security questionnaire demos use the generic governed runtime.
 """
 
 from __future__ import annotations
@@ -358,9 +364,10 @@ def _apply_review_decision_node(
 def _fill_browser_node(
     state: GraphState, config: RunnableConfig
 ) -> GraphState:
-    """Fill approved values in the browser — wraps browser executor.
+    """Advance compatibility state after review.
 
-    Only runs after review approval. Never reached from initial run.
+    This deprecated fallback must stay non-mutating: no Playwright,
+    BrowserExecutor, screenshots, action logs, or persisted verification rows.
     """
 
     logger.info("Graph: fill_browser (skeleton — wraps browser executor)")
@@ -373,7 +380,7 @@ def _fill_browser_node(
 def _verify_result_node(
     state: GraphState, config: RunnableConfig
 ) -> GraphState:
-    """Verify filled values — wraps execution_verification_service."""
+    """Advance compatibility state without creating trust evidence."""
 
     logger.info("Graph: verify_result (skeleton — wraps verification service)")
     return {
@@ -617,11 +624,11 @@ def resume_from_review(
     decision: str = "approve_all",
     approvals: list[dict] | None = None,
 ) -> dict:
-    """Resume the graph from the review interrupt with a human decision.
+    """Resume the deprecated compatibility graph from the review interrupt.
 
     Only works if the runtime is currently paused at the review gate.
-    Advances through fill_browser and verify_result to the submit
-    approval gate.
+    Advances through non-mutating skeleton fill/verify nodes to the submit
+    approval gate; generic AgentRun verification remains the trust path.
     """
 
     graph = _get_graph()

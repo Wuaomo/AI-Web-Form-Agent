@@ -790,6 +790,20 @@ ReviewDecision，然后把 memory write 变成一种需要人工 approve/edit/re
 - source evidence 对任意 proposal type 可展示。
 - memory write proposal 需要 review。
 
+当前状态（2026-09-03）：Review Queue primary contract 已覆盖 field、memory、
+submit、browser-action visibility、unknown proposal fallback 和 external-write
+display guards。Review Mapping 行在有 `AgentProposal` 时优先展示 proposal 的
+`proposed_value`、状态和 compact evidence；approve/edit/reject/needs-more-evidence
+优先写 `AgentReviewDecision`，且只对 field proposal 同步 `FormField`，保证旧
+fill path 不断。`memory_write` decision 只停留在 proposal，不直接写 workflow
+memory；`form_submit` proposal 以 high-risk approval-owned item 展示，最终提交
+仍由 explicit approval endpoint 控制，不能自动 submit；browser click/navigation
+proposal 只以 compact action item 可见，不执行 browser action；`external_api_write`
+proposal 只以 high-risk/blocked-style compact item 展示，不注册或执行外部写入。
+没有 `AgentProposal` 的旧 task 仍回退到 FormField / legacy review item / legacy
+fill 路径；checkpoint `source_suggestions` 仍作为 source evidence fallback。
+整体 runtime refactor 仍未完成，剩余 gap 至少包括第 21 节完整验证。
+
 ### Phase 4：浏览器写入工具化
 
 目标：fill/click/submit 都通过 Tool Runtime + Governance。
@@ -848,6 +862,16 @@ generic governed graph 主路径。
 - 三条 demo 在 generic graph 下通过。
 - benchmark 不退化。
 - 旧 graph 可以标记 deprecated。
+
+当前状态（2026-09-02）：Phase 6 通用 governed graph 主 demo 路径薄切片已完成。
+Create Run、Page Intake、Task Detail 的 demo preparation path 会把
+generic form fill、vendor onboarding、security questionnaire 路由到
+`/workflows/{task_id}/governed/start` 的 deterministic no-key 路径；
+后端 parity tests 覆盖三条 demo 的 analyze/map/review pause、安全阻断和
+source-backed questionnaire 建议，runtime benchmark 也使用 main demo 的
+`form_fill` workflow hint。旧 security questionnaire graph 仍作为
+compatibility fallback 保留。这不表示整体 runtime refactor 完成；剩余 gap
+至少包括 Review Queue 剩余 proposal 类型和第 21 节整体完成定义的最终验证。
 
 ### Phase 7：LLM planner 完整接入
 
@@ -964,9 +988,8 @@ convergence phase 已完成。legacy analyze、login-and-analyze、同步 rules
 mapping、worker rules mapping、page extraction、job-summary prerequisite
 extraction、fill、submit 和 verification 持久化路径都会记录 compact
 `AgentToolCall` / `AgentToolResult` 或 generic verification state，且 task
-facade 不暴露 raw `tool_results`。剩余 gap 进入下一 phase：generic graph
-成为主 demo 路径、Review Queue 成为 primary contract，以及第 21 节整体完成
-定义的最终验证。
+facade 不暴露 raw `tool_results`。剩余 gap 进入下一 phase：Review Queue
+primary contract 的剩余 proposal 类型，以及第 21 节整体完成定义的最终验证。
 
 ## 20. 测试策略
 
@@ -1010,6 +1033,294 @@ npm run build
 - write external tools 未接入，或已完整通过 review/approval/verification。
 - 文档、README、demo script、benchmark report 与实际行为一致。
 
+当前状态（2026-09-03）：section 21 validation audit completed; remaining gaps documented in `docs/section-21-validation-audit.md`。
+这只是完成定义的审计收口，不是整体 runtime refactor 完成声明。仍保留
+legacy `/tasks` 和 workflow-specific 兼容路径、旧 security questionnaire graph
+fallback，以及部分内部浏览器路径的 compact AgentToolCall/AgentToolResult
+convergence 说明。
+
+当前补充状态（2026-09-04）：Phase 11 Agent Runtime API primary boundary audit completed; remaining migration gaps documented。
+remaining gaps include the legacy `/tasks` facade, workflow-specific endpoints,
+and old security questionnaire graph fallback. 这仍是边界审计，不是整体 runtime
+refactor 完成声明。
+
+当前补充状态（2026-09-04）：Phase 12 Agent Runtime API read boundary thin slice completed; remaining migration gaps documented。
+`/agent-runs/{run_id}` 现在返回 compact AgentRun state，不暴露 raw
+`tool_results` / `output_json`。remaining gaps include the legacy `/tasks`
+facade, workflow-specific endpoints, old security questionnaire graph fallback,
+and frontend compatibility paths. 这仍是 read boundary 薄切片，不是整体
+runtime refactor 完成声明。
+
+当前补充状态（2026-09-04）：Review Queue primary AgentRun API boundary thin slice completed; remaining migration gaps documented。
+`/agent-runs/{run_id}/review-items` 和
+`/agent-runs/{run_id}/review-items/{item_id}/decision` 现在通过 AgentRun API
+暴露 proposal-backed review read/write。remaining gaps include legacy `/tasks/{task_id}/review-items` fallback,
+FormField sync compatibility, workflow-specific endpoints, old security
+questionnaire graph fallback. 这仍是 Review Queue API
+边界薄切片，不是整体 runtime refactor 完成声明。
+
+当前补充状态（2026-09-04）：Review Mapping AgentRun Review Queue client helper thin slice completed; remaining migration gaps documented。
+Review Mapping now reads AgentRun review items first when `agent_run_id` or
+`agent_runtime.run_id` is present, then falls back to legacy
+`/tasks/{task_id}/review-items`。FormField sync compatibility 继续保留；
+remaining gaps include legacy `/tasks/{task_id}/review-items` fallback,
+workflow-specific endpoints, old security questionnaire graph fallback, and the
+legacy `/tasks` facade. 这仍是前端 client wiring 薄切片，不是整体 runtime
+refactor 完成声明。
+
+当前补充状态（2026-09-04）：Run Cockpit AgentRun read helper thin slice completed; remaining migration gaps documented。
+Run Cockpit now reads AgentRun compact state first when `agent_run_id` or
+`agent_runtime.run_id` is present, then uses the governed workflow fallback,
+then the task facade fallback. remaining gaps include the legacy `/tasks`
+facade, workflow-specific endpoints, old security questionnaire graph fallback,
+and legacy `/tasks/{task_id}/review-items` fallback. 这仍是前端 read helper
+薄切片，不是整体 runtime refactor 完成声明。
+
+当前补充状态（2026-09-07）：Phase B backend AgentRun/review boundary evidence sweep completed; remaining migration gaps documented。
+`/agent-runs/{run_id}` 继续返回 compact AgentRun state，不暴露 raw output；
+`/agent-runs/{run_id}/review-items` 会从 proposal value 中剥离 nested raw tool payloads；`/agent-runs/{run_id}/review-items/{item_id}/decision` 继续
+AgentReviewDecision-first 写入，并且只对 field proposals 做 FormField sync。
+remaining gaps include legacy `/tasks/{task_id}/review-items` fallback,
+workflow-specific endpoints, old security questionnaire graph fallback, and the
+legacy `/tasks` facade. 这仍是 backend boundary evidence，不是整体 runtime
+refactor 完成声明。
+
+当前补充状态（2026-09-07）：Stage 3 Tool Runtime Coverage backend legacy path
+audit closed for audited product runtime surfaces. Page intake browser reads,
+legacy analyze, login-and-analyze, rules mapping, LLM mapping, page extraction,
+screenshot capture, fill, submit, and generic verification persistence now
+route through Tool Runtime or persist compact runtime state. Remaining gaps are
+compatibility surfaces: legacy `/tasks` facades, workflow-specific endpoints,
+benchmark/test fixture helpers, and the old security questionnaire graph
+fallback. 这仍不是整体 runtime refactor 完成声明；下一阶段可以开始 Stage 4
+Governance Everywhere 的薄切片。
+
+当前补充状态（2026-09-07）：Stage 4A Tool Runtime Governance Coverage Sweep
+completed for already-runtime-backed backend product paths. `extract_form`、
+`extract_page`、`capture_screenshot`、`map_fields` rules/LLM、`fill_form`、
+`submit_form` 和 `AgentToolCall.governance_decision_json` persistence 都有
+focused governance evidence。Page extraction 和 job-summary prerequisite
+extraction 的 screenshot side effect now routes through `capture_screenshot`
+Tool Runtime and persists `ALLOW` governance evidence. Compatibility facades
+仍保持 compact，不暴露 raw `tool_results` / `output_json`。这只是 Stage 4A
+governance coverage sweep，不是 Stage 4 整体 Governance Everywhere 完成声明。
+
+当前补充状态（2026-09-08）：Stage 4B Governance Negative Coverage Sweep
+completed for audited product runtime enforcement gaps. `approved_tool_call_ids`
+现在只解锁完全匹配的 `tool_call_id`，name-wide `approved_tool_names` 不再能
+泛化放行同名后续工具调用；sensitive browser mutation checks 现在会检查真实
+field-object payloads，覆盖 legacy `fill_form` wrapper shape。已有 focused
+coverage 继续证明未审批 `fill_form`、未 explicit approval 的 `submit_form`、
+external write tools、以及 sensitive/consent-like `memory_write` 不能绕过
+治理。这只是 Stage 4B negative enforcement sweep，不是 Stage 4 整体
+Governance Everywhere 完成声明。
+
+当前补充状态（2026-09-08）：Stage 4C Governed Browser Action Resume/Parity
+Sweep completed for audited product runtime browser-write resume/parity gaps.
+Rejected governed review decisions 不再触发 browser write resume，
+`needs_more_evidence` 继续保持 non-resuming；approved/edited field proposals
+在当前 mapped value 变化后不能复用旧批准执行 `/tasks/{task_id}/fill`。已有
+focused coverage 继续证明 governed `submit_form` resume 只能从 explicit
+final-submit endpoint 进入，并且 stale value/selector snapshot 会被跳过；
+`fill_form` 执行后会留下 verification candidates / generic verification
+evidence；`browser_click` / `browser_navigation` proposals 仍是 display-only。
+这只是 Stage 4C resume/parity sweep，不是 Stage 4 整体 Governance
+Everywhere 完成声明。
+
+当前补充状态（2026-09-08）：Stage 4D Governance Closure Audit completed for
+true product runtime enforcement paths. Runtime-backed approved/edited fill
+proposals 现在会检查 latest persisted `map_fields` selector snapshot，当前
+selector 变化后不能复用旧 review approval 执行 `/tasks/{task_id}/fill`。
+closure audit 确认 browser fill/submit product paths 都经过 Tool Runtime 和
+shared review/approval/stale gates；rejected / needs_more_evidence 不能 resume
+browser writes；sensitive browser inputs 继续 blocked 或 gated；legacy
+`/tasks` fill/submit facade 不能绕过 governed/runtime gates；async fill 与
+sync fill 使用同一个 gate；`browser_click` / `browser_navigation` 仍然只是
+display-only proposals；old security questionnaire graph fallback 的
+`fill_browser` node 不执行 Playwright 或 BrowserExecutor dangerous actions。
+这关闭 Stage 4 governance for true product runtime enforcement paths，不是
+整体 runtime refactor 完成声明。
+
+当前补充状态（2026-09-08）：Stage 5 Verification Generalization Sweep
+completed for governed runtime verification trust paths. Sync fill required
+readback mismatch 现在会在失败前持久化 generic `AgentVerificationResult`
+evidence；async fill jobs 现在也会在 required readback mismatch 时失败并保留
+同样 generic verification evidence，不再误报 wait-for-approval 成功。已有
+focused coverage 继续证明 `fill_form` verification candidates、submit/page_state
+verification evidence、`verify_browser_state` generic persistence、Run Cockpit
+compact verification summary，以及 benchmark `verification_pass_rate`。Old
+security questionnaire graph fallback 的 verification node 仍是 skeleton-only，
+不能作为真实 browser verification evidence；但其 `fill_browser` node 不执行
+危险 browser action，所以这是 compatibility gap，不是危险执行成功路径。
+这关闭 Stage 5 for governed runtime verification trust paths，不是整体 runtime
+refactor 完成声明。
+
+当前补充状态（2026-09-08）：Stage 6 Compatibility Runtime Boundary Retirement Sweep
+completed for runtime boundary classification. 本次审计没有发现
+需要修改 production code 的真实 runtime boundary gap：`/agent-runs/*` 和
+`/workflows/{task_id}/governed*` 仍是 primary AgentRun / governed runtime
+边界；`/tasks` 仍是 compact legacy facade；`/tasks/{task_id}/review-items`
+仍是 compatibility fallback；workflow-specific page extraction / job summary
+endpoint 仍承载真实 read-only product behavior，但已经通过 Tool Runtime 记录
+compact evidence；`/tasks/{task_id}/fill` 和
+`/tasks/{task_id}/confirm-submit` 仍是 legacy browser-write compatibility
+entrypoint，但经过 shared Tool Runtime、review/approval、stale、policy 和
+verification gates；old security questionnaire graph 仍只是 skeleton fallback，
+不作为真实 browser execution / verification trust path；benchmark/test
+fixture helpers 不算 product runtime gap。这关闭 Stage 6 boundary
+classification，不是整体 runtime refactor 完成声明。
+
+当前补充状态（2026-09-08）：Stage 7 Workflow-Specific Read Runtime Migration
+completed for audited read-only product paths. `/workflows/{task_id}/governed/start`
+现在支持 `web_data_extract` 和 `job_research_summary`，并把 page extraction、
+screenshot capture、deterministic `generate_job_summary` 表达为 AgentRun
+planned tool steps，同时持久化 compact runtime evidence。legacy
+`/tasks/{task_id}/extract-page` 和 `/tasks/{task_id}/job-summary` 保留为
+compatibility facade。证据：
+`test_governed_start_web_data_extract_runs_read_only_page_plan` 和
+`test_governed_start_job_summary_runs_read_only_summary_plan`。这关闭 Stage 7
+read-only migration slice，不是整体 runtime refactor 完成声明。
+
+当前补充状态（2026-09-08）：Stage 8 Browser-Write Compatibility Runtime
+Migration Audit completed as an audit only. 本次审计没有发现 product
+browser-write safety/governance bypass：sync fill、async fill、final submit
+仍通过 Tool Runtime 和 shared review/approval、stale、policy、verification
+gates。但 browser-write migration 本身不能关闭，因为
+`/tasks/{task_id}/fill`、async fill jobs、`/tasks/{task_id}/confirm-submit`
+仍是 compatibility runtime centers，还没有迁到 primary
+`/agent-runs/{run_id}/continue` 类 AgentRun browser-write boundary。这不是整体
+runtime refactor 完成声明。
+
+当前补充状态（2026-09-09）：Stage 9 Primary AgentRun Browser-Write Continue Boundary Thin Slice
+completed for reviewed fill execution only。
+`/agent-runs/{run_id}/continue` 现在作为 AgentRun-backed reviewed fill 的
+primary browser-write boundary，并复用现有 `/tasks/{task_id}/fill` shared
+review/policy/stale/verification path；Task Detail 在有 AgentRun id 时优先调用
+这个边界，没有 run id 时继续回退 legacy fill。证据：
+`test_continue_agent_run_delegates_reviewed_fill_to_shared_task_path`、
+`agent run API client uses primary continue boundary`、`continue run cockpit uses
+AgentRun boundary when run id exists`。Async fill jobs 和
+`/tasks/{task_id}/confirm-submit` 仍是 browser-write migration gaps。这不是整体
+runtime refactor 完成声明。
+
+当前补充状态（2026-09-09）：Stage 10 Primary AgentRun Submit Continue Boundary Thin Slice
+completed for explicit final submit execution。
+`/agent-runs/{run_id}/continue` 现在接受 `{"action":"submit_form"}`，作为
+AgentRun-backed final submit 的 primary browser-write boundary，并 delegate 到
+shared submit helper；legacy `/tasks/{task_id}/confirm-submit` 保留为
+compatibility wrapper/no-run-id fallback。explicit final submit approval、
+stale field value / stale selector snapshot、`submit_form` Tool Runtime、
+verification persistence、compact task facade 都沿用同一条 submit path。证据：
+`test_continue_agent_run_delegates_submit_to_shared_task_path`、
+`agent run API client sends submit continue action payload`、`submit run cockpit uses AgentRun continue boundary when run id exists`。Async fill jobs 仍是
+browser-write migration gap。这不是整体 runtime refactor 完成声明。
+
+当前补充状态（2026-09-10）：Stage 11 Browser-Write Runtime Migration Closure
+completed for AgentRun-backed async fill。
+`/agent-runs/{run_id}/continue` 现在会在 async fill enqueue 时写入
+`agent_run_id`，worker 对这类 job 会 delegate 回 AgentRun fill continuation
+helper，并且不会再次 enqueue。历史 empty/null fill job payload 继续由 worker
+兼容路径处理；task facade 继续 compact，不暴露 raw `tool_results` /
+`output_json`。证据：
+`test_continue_agent_run_enqueues_async_fill_with_run_id`、
+`test_execute_fill_stage_delegates_agent_run_backed_job`。这关闭 Stage 11，不是整体 runtime
+refactor 完成声明。
+
+当前补充状态（2026-09-19）：Browser-Write Compatibility Boundary Retirement
+Gate completed。外部兼容窗口和回滚窗口明确关闭后，legacy
+`POST /tasks/{task_id}/fill` 与 `POST /tasks/{task_id}/confirm-submit` HTTP
+wrappers 已删除；browser write 主路径是
+`POST /agent-runs/{run_id}/continue`。历史 empty/null fill job payload 保留
+worker 兼容路径，不做 DB migration 或历史 job 清理。证据：
+`test_browser_write_task_routes_are_removed`。
+
+当前补充状态（2026-09-10）：Stage 12 Review Compatibility Retirement Slice
+completed for narrowed Review Queue compatibility。
+FormField sync 现在要求 field proposal type（`field_value`、`answer` 或
+`open_ended_answer`），所以 non-field proposals 即使 target shape 引用了
+form field，也不会写 `FormField`。Review Mapping 使用同一个区分：field
+proposals 继续进入 proposal-backed rows，non-field proposals 留在 compact
+Review Queue。证据：
+`test_review_queue_does_not_sync_non_field_proposal_with_form_field_target` 和
+`proposal review helpers do not treat non-field proposals as field rows`。
+legacy `/tasks/{task_id}/review-items` 仍是 compatibility fallback。这关闭
+Stage 12，不是整体 runtime refactor 完成声明。
+
+当前补充状态（2026-09-10）：Stage 13 Legacy Review Endpoint Delegate Slice
+completed for audited Review Queue delegate/fallback behavior。
+`/agent-runs/{run_id}/review-items` 现在绑定请求的 AgentRun，不再从同一个
+task 的 latest run 借 proposal；legacy `/tasks/{task_id}/review-items` 继续保持
+task-level fallback 行为。legacy review backfill 现在只把 field proposal type
+算作 field row coverage，所以 non-field proposal 即使 `target_type=form_field`
+也不会隐藏兼容 field proposal row。证据：
+`test_get_agent_run_review_items_stays_bound_to_requested_run` 和
+`test_review_items_backfill_field_row_when_non_field_proposal_targets_form_field`。
+legacy `/tasks/{task_id}/review-items` 仍是 compatibility fallback。这关闭
+Stage 13，不是整体 runtime refactor 完成声明。
+
+当前补充状态（2026-09-10）：Stage 14 Governed Review Decision Delegate Slice
+completed for audited governed review decision delegation。
+`/workflows/{task_id}/governed/review-items/{item_id}/decision` 现在把
+shared decision persistence、field sync 和 legacy backfill 委托给
+shared Review Queue decision helper，并且只接受 canonical governed AgentRun
+（`task-{task_id}`）的 proposal；同一 task 的 stale AgentRun proposal 会返回
+404，不会被 governed endpoint 写入。证据：
+`test_governed_review_decision_stays_scoped_to_governed_run`。legacy
+`/tasks/{task_id}/review-items` 和 AgentRun-first
+`/agent-runs/{run_id}/review-items` 仍分别保留为 compatibility/primary
+boundary。这关闭 Stage 14，不是整体 runtime refactor 完成声明。
+
+当前补充状态（2026-09-11）：Stage 15 Security Questionnaire Graph Fallback Retirement Readiness Slice
+completed for classification only。
+security questionnaire demo 主路径继续通过
+`/workflows/{task_id}/governed/start` 走 generic governed runtime；
+source-backed answers 仍生成带 compact evidence 的 `answer` proposals 进入
+Review Queue；unsupported 和 sensitive answers 仍 blocked 或 review-gated；
+reviewed fill 和 explicit final submit 仍通过 shared runtime gates；
+verification trust evidence 来自 generic runtime persistence，而不是 old graph
+skeleton。old security questionnaire graph fallback 继续作为 compatibility
+fallback 保留；review 后不会创建 browser-write screenshots、action logs、
+field verification rows 或 generic verification rows。证据：
+`test_governed_start_security_questionnaire_uses_source_answer_proposals` 和
+`test_old_security_graph_review_fallback_stays_non_mutating_and_compact`。
+这关闭 Stage 15 readiness classification，不是整体 runtime refactor 完成声明。
+
+当前补充状态（2026-09-11）：Security Questionnaire Legacy Fallback
+Retirement Track Phase 16/17/18 completed for deprecation contract, primary
+path evidence tightening, and readiness audit only。旧
+`/workflows/{task_id}/start`、`/workflows/{task_id}`、
+`/workflows/{task_id}/review` 保留为 deprecated compatibility fallback；
+旧 start 不创建 AgentRun / AgentPlan / AgentToolCall / AgentToolResult /
+AgentProposal rows，旧 review resume 不执行危险 browser write，也不作为
+verification trust path。security questionnaire 主路径证据继续走
+`/workflows/{task_id}/governed/start`、`/agent-runs/{run_id}`、
+`/agent-runs/{run_id}/review-items` 和
+`/agent-runs/{run_id}/review-items/{item_id}/decision`，source-backed answers
+作为 compact `answer` proposals 进入 Review Queue。旧 graph 可以在 external
+compatibility window 结束后进入 future removal planning。Evidence:
+`test_old_security_graph_start_stays_out_of_agent_run_primary_path` 和
+`test_security_questionnaire_agent_run_exposes_compact_answer_review_items`。
+本轮不删除，也不是 overall runtime refactor completion claim。
+
+当前补充状态（2026-09-11）：Legacy Task / Review Compatibility Retirement
+Readiness Track Phase 19/20/21/22/23 completed for contract tightening and
+readiness evidence。`/tasks` 和 `/tasks/{task_id}` 继续作为 compact
+compatibility facade，不暴露 raw `tool_results` / `output_json`；
+`/agent-runs/{run_id}` 仍是 primary AgentRun read boundary。legacy
+`/tasks/{task_id}/review-items` 现在只读取 canonical compatibility run
+（`task-{task_id}`）和派生 legacy rows，不再借用任意 same-task AgentRun
+proposal；legacy task review decision endpoint 也不能写任意 same-task
+AgentRun-owned proposal。Review Mapping 在有 AgentRun id 时，review write
+失败不再 fallback 到 legacy task decision endpoint。`FormField` sync 继续只限
+`field_value`、`answer`、`open_ended_answer`；`memory_write`、`form_submit`、
+`browser_click`、`browser_navigation`、`external_api_write` 和 unknown proposal
+types 保持 runtime-only。workflow-specific
+`/tasks/{task_id}/extract-page` / `/tasks/{task_id}/job-summary` 保留为
+read-only compatibility facades，主路径已可通过
+`/workflows/{task_id}/governed/start` 表达为 AgentRun planned tool steps。
+本 track 可以关闭，下一轮可以进入 compatibility removal planning，但本轮没有
+删除 compatibility API，也不是 overall runtime refactor completion claim。
+
 ## 22. 不算完成的状态
 
 以下状态不能称为“整体重构完成”：
@@ -1039,15 +1350,16 @@ npm run build
 当前分支合并后，下一步应该是：
 
 ```text
-Phase 1：AgentRun 持久化
+Review Queue 成为 primary contract
 ```
 
-这是最重要的收敛点。没有持久化，Run Cockpit 和 governed graph 仍然更像 demo state；有了持久化，后续 Tool Runtime、Review Queue、Verification、Benchmark 都能落到同一个 runtime contract 上。
+generic governed graph 已成为主 demo preparation path；下一刀应该让 Review
+Mapping 更明确地降级为兼容界面，让 proposal-backed Review Queue 成为审查主合同。
 
 第一刀建议：
 
-1. 新增最小 `agent_runs` 和 `agent_plans` 表。
-2. governed start 双写 `Task -> AgentRun` 和 `plan -> AgentPlan`。
-3. governed get 从持久化返回 compact state。
-4. 前端行为不变。
-5. Docker backend pytest + frontend test/build 全跑。
+1. Review Mapping rows 优先从 `AgentProposal` 派生。
+2. approve/edit/reject 优先写 `AgentReviewDecision`，再兼容同步 `FormField`。
+3. source evidence 继续走 compact proposal evidence。
+4. 不新增 dashboard，复用现有 Review Mapping 页面。
+5. backend pytest + frontend test/build 全跑。

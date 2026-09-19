@@ -119,6 +119,7 @@ from app.services.agent_runtime.state_store import (
 )
 from app.services.agent_runtime.tools import (
     build_default_tool_runtime,
+    execute_capture_screenshot_runtime_tool,
     execute_fill_form_runtime_tool,
     execute_submit_form_runtime_tool,
 )
@@ -128,13 +129,9 @@ from app.services.agent_runtime.governed_agent_graph import (
     resume_governed_runtime_from_approval,
 )
 from app.services.agent_runtime.review_queue import (
-    apply_review_decision_to_field_target,
-    build_task_review_proposals,
+    apply_review_queue_decision,
     load_or_create_task_review_proposals,
-    persist_review_decision,
     persist_submit_review_proposal,
-    persist_task_review_proposals,
-    resolve_task_review_item_target,
     split_fields_by_browser_write_review,
 )
 from app.services.agent_runtime.schemas import Proposal, ReviewDecision
@@ -450,6 +447,8 @@ def filter_fillable_fields_by_policy(
     task: Task,
     fields: list[FormField],
     db: Session,
+    *,
+    run_id: str | None = None,
 ) -> tuple[list[FormField], list[FormField], list[FormField]]:
     """Return allowed fields plus blocked and approval-pending required fields."""
 
@@ -460,6 +459,7 @@ def filter_fillable_fields_by_policy(
         db,
         task=task,
         fields=fields,
+        run_id=run_id,
     )
 
     for field in review_ready_fields:
@@ -704,6 +704,51 @@ def save_extract_page_runtime_state(db: Session, *, task: Task, tool_result: Any
                             "url": task.url,
                             "profile_id": task.profile_id,
                         },
+                        "risk_level": "low",
+                    }
+                ],
+                "created_by": "deterministic",
+            },
+            "tool_results": [tool_result.model_dump(mode="json")],
+        },
+    )
+
+
+def save_capture_screenshot_runtime_state(
+    db: Session,
+    *,
+    task: Task,
+    tool_result: Any,
+    stage: str,
+) -> None:
+    """Persist compact runtime state for a legacy screenshot browser read."""
+
+    save_governed_runtime_state(
+        db,
+        task=task,
+        raw_state={
+            "run_id": f"task-{task.id}",
+            "task_id": task.id,
+            "workflow_type": task.workflow_type,
+            "planner_mode": "deterministic",
+            "run": {
+                "id": f"task-{task.id}",
+                "goal": task.description or "Capture browser screenshot.",
+                "target_url": task.url,
+                "profile_id": task.profile_id,
+                "status": task.status,
+                "mode": "deterministic",
+            },
+            "plan": {
+                "id": f"task-{task.id}:screenshot-plan:1",
+                "version": 1,
+                "goal": task.description or "Capture browser screenshot.",
+                "steps": [
+                    {
+                        "step_id": "capture_screenshot",
+                        "tool_name": "capture_screenshot",
+                        "reason": "Capture a browser screenshot.",
+                        "input_json": {"task_id": task.id, "stage": stage},
                         "risk_level": "low",
                     }
                 ],
@@ -1144,12 +1189,17 @@ async def capture_task_screenshot(
     """Open the task URL and capture a screenshot for browser testing."""
 
     task = get_task_or_404(task_id, db)
-    screenshot = await open_url_and_capture_screenshot(
-        task_id=task.id,
-        url=task.url,
-        profile_id=task.profile_id,
-        stage="page_opened",
+    tool_result, screenshot = await execute_capture_screenshot_runtime_tool(
         db=db,
+        task=task,
+        stage="page_opened",
+        capture_screenshot_handler=open_url_and_capture_screenshot,
+    )
+    save_capture_screenshot_runtime_state(
+        db,
+        task=task,
+        tool_result=tool_result,
+        stage="page_opened",
     )
     db.commit()
     db.refresh(screenshot)
@@ -1238,12 +1288,11 @@ async def extract_task_page(
     try:
         tool_result = await execute_extract_page_runtime(db, task)
 
-        await open_url_and_capture_screenshot(
-            task_id=task.id,
-            url=task.url,
-            profile_id=task.profile_id,
-            stage="extracted",
+        capture_tool_result, _ = await execute_capture_screenshot_runtime_tool(
             db=db,
+            task=task,
+            stage="extracted",
+            capture_screenshot_handler=open_url_and_capture_screenshot,
         )
 
         extraction_output = tool_result.output_json
@@ -1259,6 +1308,12 @@ async def extract_task_page(
 
         apply_workflow_status(task, WORKFLOW_STATUS_COMPLETED, reason="extraction_completed")
         save_extract_page_runtime_state(db, task=task, tool_result=tool_result)
+        save_capture_screenshot_runtime_state(
+            db,
+            task=task,
+            tool_result=capture_tool_result,
+            stage="extracted",
+        )
         create_log(
             task_id=task.id,
             step=get_next_log_step(task.id, db),
@@ -1389,12 +1444,11 @@ async def generate_job_summary(
 
             extract_tool_result = await execute_extract_page_runtime(db, task)
 
-            await open_url_and_capture_screenshot(
-                task_id=task.id,
-                url=task.url,
-                profile_id=task.profile_id,
-                stage="extracted",
+            capture_tool_result, _ = await execute_capture_screenshot_runtime_tool(
                 db=db,
+                task=task,
+                stage="extracted",
+                capture_screenshot_handler=open_url_and_capture_screenshot,
             )
 
             extraction_data = extract_tool_result.output_json
@@ -1429,6 +1483,12 @@ async def generate_job_summary(
         apply_workflow_status(task, WORKFLOW_STATUS_COMPLETED, reason="summary_completed")
         if extract_tool_result is not None:
             save_extract_page_runtime_state(db, task=task, tool_result=extract_tool_result)
+            save_capture_screenshot_runtime_state(
+                db,
+                task=task,
+                tool_result=capture_tool_result,
+                stage="extracted",
+            )
         create_log(
             task_id=task.id,
             step=get_next_log_step(task.id, db),
@@ -1553,13 +1613,34 @@ def map_task_fields(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=get_provider_setup_hint(selected_provider),
                 )
-            mapping_result = map_fields_with_llm_result(
-                task_id,
-                db,
-                provider=selected_provider,
+            tool_result = asyncio.run(
+                build_default_tool_runtime(
+                    map_fields_with_llm_result_handler=map_fields_with_llm_result,
+                ).execute(
+                    tool_call_id=f"task-{task.id}:map_fields",
+                    tool_name="map_fields",
+                    tool_input={
+                        "task_id": task.id,
+                        "mode": "llm",
+                        "provider": selected_provider,
+                    },
+                    context=ToolExecutionContext(
+                        run_id=f"task-{task.id}",
+                        plan_step_id="map_fields",
+                        metadata={"db": db, "task_id": task.id},
+                    ),
+                )
             )
-            fields = mapping_result.fields
-            retrieval_suggestions = mapping_result.retrieval_suggestions
+            if tool_result.status != "SUCCEEDED":
+                raise RuntimeError(tool_result.error or "Runtime map_fields failed")
+            fields = list(
+                db.scalars(
+                    select(FormField)
+                    .where(FormField.task_id == task_id)
+                    .order_by(FormField.id)
+                )
+            )
+            retrieval_suggestions = tool_result.output_json.get("retrieval_suggestions") or []
         else:
             tool_result = asyncio.run(
                 build_default_tool_runtime(
@@ -1613,7 +1694,7 @@ def map_task_fields(
             output=checkpoint_output,
             db=db,
         )
-        if mode == "rules":
+        if tool_result is not None:
             save_map_fields_runtime_state(db, task=task, tool_result=tool_result)
         db.commit()
         safe_finish_span(
@@ -1730,54 +1811,28 @@ def apply_task_review_item_decision(
     """Apply a generic proposal decision to the compatible mapping review state."""
 
     task = get_task_or_404(task_id, db)
-    target = resolve_task_review_item_target(db, task=task, proposal_id=proposal_id)
-    if target is None:
+    try:
+        result = apply_review_queue_decision(
+            db,
+            task=task,
+            proposal_id=proposal_id,
+            decision=request.decision,
+            edited_value=request.edited_value,
+            reviewer_note=request.reviewer_note,
+            backfill_legacy_field=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Review item not found",
         )
-    field = target.field
-
-    if request.decision == "edited":
-        if request.edited_value is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-            detail="edited_value is required for edited decisions",
-        )
-    apply_review_decision_to_field_target(
-        target,
-        decision=request.decision,
-        edited_value=request.edited_value,
-    )
-
-    if field is not None and target.proposal is None:
-        checkpoints = list_checkpoints(task_id=task_id, db=db)
-        fields = list(
-            db.scalars(
-                select(FormField)
-                .where(FormField.task_id == task_id)
-                .order_by(FormField.id)
-            )
-        )
-        persist_task_review_proposals(
-            db,
-            task=task,
-            proposals=build_task_review_proposals(
-                task=task,
-                fields=fields,
-                checkpoints=checkpoints,
-            ),
-        )
-    decision = ReviewDecision(
-        id=f"decision-{proposal_id}",
-        proposal_id=proposal_id,
-        decision=request.decision,
-        edited_value=request.edited_value,
-        reviewer_note=request.reviewer_note,
-    )
-    persist_review_decision(db, decision=decision)
     db.commit()
-    return decision
+    return result.decision
 
 
 @router.put(
@@ -2127,10 +2182,29 @@ def confirm_task_mapping(
     )
 
 
-@router.post("/{task_id}/fill", response_model=Union[TaskResponse, JobResponse])
-async def fill_task_form(
+async def fill_agent_run_task_form(
+    *,
     task_id: int,
-    db: Session = Depends(get_db),
+    agent_run_id: str,
+    db: Session,
+    enqueue_async: bool,
+) -> Task | Job:
+    """Continue reviewed fill for an AgentRun-backed legacy task."""
+
+    return await _fill_task_form(
+        task_id,
+        db,
+        enqueue_async=enqueue_async,
+        agent_run_id=agent_run_id,
+    )
+
+
+async def _fill_task_form(
+    task_id: int,
+    db: Session,
+    *,
+    enqueue_async: bool,
+    agent_run_id: str | None = None,
 ) -> Task | Job:
     """Fill mapped fields and pause before any final submission.
 
@@ -2159,6 +2233,7 @@ async def fill_task_form(
         task,
         mapped_fields,
         db,
+        run_id=agent_run_id,
     )
     missing_required_fields = get_missing_required_fields(fields)
     if missing_required_fields:
@@ -2186,11 +2261,12 @@ async def fill_task_form(
             detail="No mapped fields are ready to fill",
         )
 
-    if config.ASYNC_JOBS_ENABLED:
+    if enqueue_async:
         job = enqueue_job(
             db=db,
             job_type=JOB_TYPE_FILL_FORM,
             task_id=task.id,
+            payload={"agent_run_id": agent_run_id} if agent_run_id else None,
         )
         db.commit()
         return job
@@ -2223,6 +2299,7 @@ async def fill_task_form(
             db=db,
             task=task,
             fields=filtered_fields,
+            run_id=agent_run_id,
             fill_form_handler=fill_form_and_capture_screenshot
         )
 
@@ -2250,6 +2327,13 @@ async def fill_task_form(
 
         if required_failures:
             apply_workflow_status(task, WORKFLOW_STATUS_FAILED, reason="fill_verification_failed")
+            save_fill_form_runtime_state(
+                db,
+                task=task,
+                tool_result=tool_result,
+                verification_data=verification_data,
+                run_id=agent_run_id,
+            )
             failure_details = ", ".join(f"field {v.field_id}" for v in required_failures)
             write_checkpoint(
                 task_id=task.id,
@@ -2280,6 +2364,7 @@ async def fill_task_form(
                 task=task,
                 tool_result=tool_result,
                 verification_data=verification_data,
+                run_id=agent_run_id,
             )
             write_checkpoint(
                 task_id=task.id,
@@ -2479,13 +2564,15 @@ async def resume_governed_submit_if_waiting(
     db: Session,
     task: Task,
     approved_action: dict[str, object],
+    run_id: str | None = None,
 ) -> dict[str, Any] | None:
     """Resume a governed submit pause only from the explicit submit endpoint."""
 
-    run_id = f"task-{task.id}"
-    raw_state = get_governed_runtime_state(run_id) or restore_governed_runtime_state(
+    runtime_run_id = run_id or f"task-{task.id}"
+    raw_state = get_governed_runtime_state(runtime_run_id) or restore_governed_runtime_state(
         db,
         task=task,
+        run_id=runtime_run_id,
     )
     current_tool = (raw_state or {}).get("current_tool_call") or {}
     if (
@@ -2503,7 +2590,7 @@ async def resume_governed_submit_if_waiting(
         return None
 
     resumed = await resume_governed_runtime_from_approval(
-        run_id,
+        runtime_run_id,
         runtime=build_default_tool_runtime(
             submit_form_handler=submit_form_and_capture_screenshot,
         ),
@@ -2574,13 +2661,11 @@ def _current_submit_tool_field_snapshot(
     ]
 
 
-@router.post(
-    "/{task_id}/confirm-submit",
-    response_model=SubmissionConfirmationResponse,
-)
-async def confirm_task_submission(
+async def submit_reviewed_task_form(
     task_id: int,
-    db: Session = Depends(get_db),
+    db: Session,
+    *,
+    agent_run_id: str | None = None,
 ) -> SubmissionConfirmationResponse:
     """Submit the reviewed browser form after explicit user approval."""
 
@@ -2661,6 +2746,7 @@ async def confirm_task_submission(
             db,
             task=task,
             approval_request=pending_submit_request,
+            run_id=agent_run_id,
         )
         db.commit()
         raise HTTPException(
@@ -2696,12 +2782,14 @@ async def confirm_task_submission(
             db=db,
             task=task,
             approved_action=submit_proposed_action,
+            run_id=agent_run_id,
         )
         if governed_state is None:
             legacy_tool_result, screenshot = await execute_submit_form_runtime_tool(
                 db=db,
                 task=task,
                 fields=mapped_fields,
+                run_id=agent_run_id,
                 submit_form_handler=submit_form_and_capture_screenshot,
             )
             screenshot_id = screenshot.id
@@ -2727,6 +2815,7 @@ async def confirm_task_submission(
                 db,
                 task=task,
                 tool_result=legacy_tool_result,
+                run_id=agent_run_id,
             )
         safe_finish_span(
             submit_span_id,

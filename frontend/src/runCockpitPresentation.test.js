@@ -103,6 +103,23 @@ test("resolveRunCockpitRuntime prefers endpoint state over task facade state", (
   assert.deepEqual(runtime, { status: "COMPLETED", planner_mode: "deterministic" });
 });
 
+test("resolveRunCockpitRuntime prefers AgentRun state over governed and task facade state", () => {
+  const runtime = resolveRunCockpitRuntime(
+    {
+      agent_run_id: "run-7",
+      agent_runtime: { status: "TASK_FACADE", planner_mode: "deterministic" },
+    },
+    { status: "GOVERNED", planner_mode: "deterministic" },
+    { run_id: "run-7", status: "AGENT_RUN", planner_mode: "deterministic" },
+  );
+
+  assert.deepEqual(runtime, {
+    run_id: "run-7",
+    status: "AGENT_RUN",
+    planner_mode: "deterministic",
+  });
+});
+
 test("shouldShowLegacyWorkflowRuntimePanel hides legacy panel when Run Cockpit has runtime state", () => {
   assert.equal(
     shouldShowLegacyWorkflowRuntimePanel(
@@ -116,11 +133,31 @@ test("shouldShowLegacyWorkflowRuntimePanel hides legacy panel when Run Cockpit h
       { workflow_type: "security_questionnaire" },
       null,
     ),
-    true,
+    false,
   );
   assert.equal(
     shouldShowLegacyWorkflowRuntimePanel(
       { workflow_type: "vendor_onboarding" },
+      null,
+    ),
+    false,
+  );
+});
+
+test("shouldShowLegacyWorkflowRuntimePanel hides old graph fallback when a run id exists", () => {
+  assert.equal(
+    shouldShowLegacyWorkflowRuntimePanel(
+      { workflow_type: "security_questionnaire", agent_run_id: "run-7" },
+      null,
+    ),
+    false,
+  );
+  assert.equal(
+    shouldShowLegacyWorkflowRuntimePanel(
+      {
+        workflow_type: "security_questionnaire",
+        agent_runtime: { run_id: "runtime-run-7" },
+      },
       null,
     ),
     false,

@@ -1306,3 +1306,34 @@ Creates a plan, executes read-only tools, creates evidence-backed proposals, pau
 
 The result is not just a browser automation demo. It becomes a reusable architecture for trustworthy agentic web workflows.
 
+## 24. Migration Status Trail
+
+Current status: section 21 validation audit completed; remaining gaps documented.
+Phase 11 Agent Runtime API primary boundary audit completed; remaining migration gaps documented.
+Phase 12 Agent Runtime API read boundary thin slice completed; remaining migration gaps documented.
+Review Queue primary AgentRun API boundary thin slice completed; remaining migration gaps documented.
+Review Mapping AgentRun Review Queue client helper thin slice completed; remaining migration gaps documented.
+Run Cockpit AgentRun read helper thin slice completed; remaining migration gaps documented.
+Phase B backend AgentRun/review boundary evidence sweep completed; remaining migration gaps documented.
+
+Stage 6 Compatibility Runtime Boundary Retirement Sweep closed boundary classification for primary AgentRun/governed endpoints, legacy `/tasks` facade paths, workflow-specific endpoints, and the old security questionnaire graph fallback.
+
+Stage 7 Workflow-Specific Read Runtime Migration closed audited read-only product paths with `test_governed_start_web_data_extract_runs_read_only_page_plan` and `test_governed_start_job_summary_runs_read_only_summary_plan`.
+
+Stage 9 Primary AgentRun Browser-Write Continue Boundary Thin Slice closed reviewed fill through `/agent-runs/{run_id}/continue`; evidence includes `test_continue_agent_run_delegates_reviewed_fill_to_shared_task_path`. At that point, async fill jobs and `/tasks/{task_id}/confirm-submit` remained browser-write migration gaps.
+
+Stage 10 Primary AgentRun Submit Continue Boundary Thin Slice closed explicit final submit through `/agent-runs/{run_id}/continue` with `{"action":"submit_form"}`; evidence includes `test_continue_agent_run_delegates_submit_to_shared_task_path` and `submit run cockpit uses AgentRun continue boundary when run id exists`. At that point, async fill jobs remained open.
+
+Stage 11 Browser-Write Runtime Migration Closure closed AgentRun-backed async fill. `/agent-runs/{run_id}/continue` now tags queued fill jobs with `agent_run_id`, and the worker delegates those jobs through the AgentRun fill continuation helper without re-enqueueing. Historical empty/null fill job payloads remain worker-compatible, and broader migration gaps still include the legacy `/tasks` facade, workflow-specific endpoints, legacy `/tasks/{task_id}/review-items` fallback, FormField sync, and the old security questionnaire graph fallback. Evidence: `test_continue_agent_run_enqueues_async_fill_with_run_id` and `test_execute_fill_stage_delegates_agent_run_backed_job`.
+
+Browser-Write Compatibility Boundary Retirement Gate later removed the legacy `POST /tasks/{task_id}/fill` and `POST /tasks/{task_id}/confirm-submit` HTTP wrappers after their external and rollback windows were confirmed closed. Browser writes now enter through `POST /agent-runs/{run_id}/continue`; route absence is covered by `test_browser_write_task_routes_are_removed`.
+
+Stage 12 Review Compatibility Retirement Slice closed a narrow Review Queue compatibility gap. Field synchronization now requires a field proposal type (`field_value`, `answer`, or `open_ended_answer`), so non-field proposals do not write `FormField` even if their target shape references a form field. Review Mapping uses the same distinction: field proposals stay in proposal-backed rows, while non-field proposals stay in the compact Review Queue. Evidence: `test_review_queue_does_not_sync_non_field_proposal_with_form_field_target` and `proposal review helpers do not treat non-field proposals as field rows`. Legacy `/tasks/{task_id}/review-items` remains a compatibility fallback.
+
+Stage 13 Legacy Review Endpoint Delegate Slice closed the audited Review Queue delegate/fallback gap. `/agent-runs/{run_id}/review-items` now stays scoped to the requested AgentRun instead of loading the latest task run's proposals, while legacy `/tasks/{task_id}/review-items` keeps task-level fallback behavior. Legacy review backfill now counts only field proposal types as field-row coverage, so non-field proposals with a `form_field` target do not hide the compatible field proposal row. Evidence: `test_get_agent_run_review_items_stays_bound_to_requested_run` and `test_review_items_backfill_field_row_when_non_field_proposal_targets_form_field`. Legacy `/tasks/{task_id}/review-items` remains a compatibility fallback.
+
+Stage 14 Governed Review Decision Delegate Slice closed the audited governed review decision delegation gap. `/workflows/{task_id}/governed/review-items/{item_id}/decision` now delegates shared decision persistence, field sync, and legacy backfill to the shared Review Queue decision helper, and stays scoped to the canonical governed AgentRun (`task-{task_id}`), so stale same-task AgentRun proposals are rejected instead of written. Evidence: `test_governed_review_decision_stays_scoped_to_governed_run`. Legacy `/tasks/{task_id}/review-items` and AgentRun-first `/agent-runs/{run_id}/review-items` remain compatibility/primary boundaries.
+
+Stage 15 Security Questionnaire Graph Fallback Retirement Readiness Slice closed classification only. The security questionnaire primary demo path stays on generic governed runtime through `/workflows/{task_id}/governed/start`; source-backed answers still become `answer` proposals with compact Review Queue evidence; unsupported and sensitive answers remain blocked or review-gated; reviewed fill and explicit final submit still use shared runtime gates; and verification trust evidence comes from generic runtime persistence, not the old graph skeleton. The old security questionnaire graph fallback remains a compatibility fallback and does not create browser-write screenshots, action logs, field verification rows, or generic verification rows when reviewed. Evidence: `test_governed_start_security_questionnaire_uses_source_answer_proposals` and `test_old_security_graph_review_fallback_stays_non_mutating_and_compact`.
+
+The overall refactor remains open.

@@ -121,9 +121,11 @@ def save_fill_form_runtime_state(
     task: Task,
     tool_result: Any,
     verification_data: list[Any] | None = None,
+    run_id: str | None = None,
 ) -> AgentRun:
-    """Persist compact runtime state for a legacy fill_form browser write."""
+    """Persist compact runtime state for a fill_form browser write."""
 
+    runtime_run_id = run_id or f"task-{task.id}"
     tool_payload = tool_result.model_dump(mode="json")
     tool_output = _dict_value(tool_payload.get("output_json"))
     screenshot_id = tool_output.get("screenshot_id")
@@ -131,25 +133,26 @@ def save_fill_form_runtime_state(
         db,
         task=task,
         raw_state={
-            "run_id": f"task-{task.id}",
+            "run_id": runtime_run_id,
             "task_id": task.id,
             "workflow_type": task.workflow_type,
             "planner_mode": "deterministic",
             "run": {
-                "id": f"task-{task.id}",
+                "id": runtime_run_id,
                 "goal": task.description or "Fill reviewed fields.",
                 "target_url": task.url,
                 "profile_id": task.profile_id,
-                "status": "WAITING_APPROVAL",
+                "status": task.status,
                 "mode": "deterministic",
             },
             "plan": {
-                "id": _browser_write_plan_id(task),
+                "id": _browser_write_plan_id(task, run_id=runtime_run_id),
                 "version": 1,
                 "goal": task.description or "Fill reviewed fields.",
                 "steps": _browser_write_plan_steps(
                     db,
                     task=task,
+                    run_id=runtime_run_id,
                     next_step={
                         "step_id": "fill_form",
                         "tool_name": "fill_form",
@@ -164,7 +167,7 @@ def save_fill_form_runtime_state(
             "verification_results": [
                 _field_verification_runtime_result(
                     item,
-                    tool_call_id=f"task-{task.id}:fill_form",
+                    tool_call_id=f"{runtime_run_id}:fill_form",
                     screenshot_id=screenshot_id,
                 )
                 for item in verification_data or []
@@ -178,9 +181,11 @@ def save_submit_form_runtime_state(
     *,
     task: Task,
     tool_result: Any,
+    run_id: str | None = None,
 ) -> AgentRun:
-    """Persist compact runtime state for a legacy submit_form browser write."""
+    """Persist compact runtime state for a submit_form browser write."""
 
+    runtime_run_id = run_id or f"task-{task.id}"
     tool_payload = tool_result.model_dump(mode="json")
     tool_output = _dict_value(tool_payload.get("output_json"))
     screenshot_id = tool_output.get("screenshot_id")
@@ -188,12 +193,12 @@ def save_submit_form_runtime_state(
         db,
         task=task,
         raw_state={
-            "run_id": f"task-{task.id}",
+            "run_id": runtime_run_id,
             "task_id": task.id,
             "workflow_type": task.workflow_type,
             "planner_mode": "deterministic",
             "run": {
-                "id": f"task-{task.id}",
+                "id": runtime_run_id,
                 "goal": task.description or "Submit reviewed form.",
                 "target_url": task.url,
                 "profile_id": task.profile_id,
@@ -201,12 +206,13 @@ def save_submit_form_runtime_state(
                 "mode": "deterministic",
             },
             "plan": {
-                "id": _browser_write_plan_id(task),
+                "id": _browser_write_plan_id(task, run_id=runtime_run_id),
                 "version": 1,
                 "goal": task.description or "Submit reviewed form.",
                 "steps": _browser_write_plan_steps(
                     db,
                     task=task,
+                    run_id=runtime_run_id,
                     next_step={
                         "step_id": "submit_form",
                         "tool_name": "submit_form",
@@ -220,7 +226,7 @@ def save_submit_form_runtime_state(
             "tool_results": [tool_payload],
             "verification_results": [
                 {
-                    "tool_call_id": f"task-{task.id}:submit_form",
+                    "tool_call_id": f"{runtime_run_id}:submit_form",
                     "target_type": "form_submit",
                     "target_ref": "submit_form",
                     "verification_type": "page_state",
@@ -241,14 +247,14 @@ def restore_governed_runtime_state(
     db: Session,
     *,
     task: Task,
+    run_id: str | None = None,
 ) -> dict[str, Any] | None:
     """Return a compact raw-state equivalent from persisted run/plan rows."""
 
-    run = db.execute(
-        select(AgentRun)
-        .where(AgentRun.legacy_task_id == task.id)
-        .order_by(AgentRun.updated_at.desc())
-    ).scalars().first()
+    query = select(AgentRun).where(AgentRun.legacy_task_id == task.id)
+    if run_id is not None:
+        query = query.where(AgentRun.id == run_id)
+    run = db.execute(query.order_by(AgentRun.updated_at.desc())).scalars().first()
     if run is None:
         return None
 
@@ -325,17 +331,19 @@ def _plan_payload(plan: AgentPlan | None) -> dict[str, Any]:
     }
 
 
-def _browser_write_plan_id(task: Task) -> str:
-    return f"task-{task.id}:browser-write-plan:1"
+def _browser_write_plan_id(task: Task, *, run_id: str | None = None) -> str:
+    runtime_run_id = run_id or f"task-{task.id}"
+    return f"{runtime_run_id}:browser-write-plan:1"
 
 
 def _browser_write_plan_steps(
     db: Session,
     *,
     task: Task,
+    run_id: str | None = None,
     next_step: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    plan = db.get(AgentPlan, _browser_write_plan_id(task))
+    plan = db.get(AgentPlan, _browser_write_plan_id(task, run_id=run_id))
     existing_steps = plan.steps if plan is not None else []
     next_step_id = next_step["step_id"]
     return [
