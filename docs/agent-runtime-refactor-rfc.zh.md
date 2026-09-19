@@ -1219,14 +1219,20 @@ browser-write migration gap。这不是整体 runtime refactor 完成声明。
 completed for AgentRun-backed async fill。
 `/agent-runs/{run_id}/continue` 现在会在 async fill enqueue 时写入
 `agent_run_id`，worker 对这类 job 会 delegate 回 AgentRun fill continuation
-helper，并且不会再次 enqueue。legacy `/tasks/{task_id}/fill` job enqueue
-payload 继续保持为空；legacy `/tasks/{task_id}/confirm-submit` 仍是 explicit
-approval compatibility wrapper；task facade 继续 compact，不暴露 raw
-`tool_results` / `output_json`。证据：
+helper，并且不会再次 enqueue。历史 empty/null fill job payload 继续由 worker
+兼容路径处理；task facade 继续 compact，不暴露 raw `tool_results` /
+`output_json`。证据：
 `test_continue_agent_run_enqueues_async_fill_with_run_id`、
-`test_execute_fill_stage_delegates_agent_run_backed_job`、
-`test_fill_endpoint_creates_job_when_ready`。这关闭 Stage 11，不是整体 runtime
+`test_execute_fill_stage_delegates_agent_run_backed_job`。这关闭 Stage 11，不是整体 runtime
 refactor 完成声明。
+
+当前补充状态（2026-09-19）：Browser-Write Compatibility Boundary Retirement
+Gate completed。外部兼容窗口和回滚窗口明确关闭后，legacy
+`POST /tasks/{task_id}/fill` 与 `POST /tasks/{task_id}/confirm-submit` HTTP
+wrappers 已删除；browser write 主路径是
+`POST /agent-runs/{run_id}/continue`。历史 empty/null fill job payload 保留
+worker 兼容路径，不做 DB migration 或历史 job 清理。证据：
+`test_browser_write_task_routes_are_removed`。
 
 当前补充状态（2026-09-10）：Stage 12 Review Compatibility Retirement Slice
 completed for narrowed Review Queue compatibility。

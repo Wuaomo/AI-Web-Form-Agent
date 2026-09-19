@@ -133,8 +133,8 @@ def test_section_21_validation_audit_indexes_runtime_api_boundaries() -> None:
         ("/workflows/{task_id}/review", "old security questionnaire graph fallback"),
         ("/tasks/{task_id}/extract-page", "read-only compatibility facade"),
         ("/tasks/{task_id}/job-summary", "read-only compatibility facade"),
-        ("/tasks/{task_id}/fill", "legacy browser-write compatibility runtime"),
-        ("/tasks/{task_id}/confirm-submit", "legacy submit compatibility runtime"),
+        ("/tasks/{task_id}/fill", "removed browser-write compatibility route"),
+        ("/tasks/{task_id}/confirm-submit", "removed submit compatibility route"),
     ]:
         assert f"| `{boundary}` | {classification} |" in text
 

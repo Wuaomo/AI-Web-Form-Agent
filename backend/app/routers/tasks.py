@@ -2182,20 +2182,6 @@ def confirm_task_mapping(
     )
 
 
-@router.post("/{task_id}/fill", response_model=Union[TaskResponse, JobResponse])
-async def fill_task_form(
-    task_id: int,
-    db: Session = Depends(get_db),
-) -> Task | Job:
-    """Fill mapped fields through the legacy task compatibility endpoint."""
-
-    return await _fill_task_form(
-        task_id,
-        db,
-        enqueue_async=config.ASYNC_JOBS_ENABLED,
-    )
-
-
 async def fill_agent_run_task_form(
     *,
     task_id: int,
@@ -2868,19 +2854,6 @@ async def submit_reviewed_task_form(
         status=task.status,
         approval_id=approved_submit_request.id,
     )
-
-
-@router.post(
-    "/{task_id}/confirm-submit",
-    response_model=SubmissionConfirmationResponse,
-)
-async def confirm_task_submission(
-    task_id: int,
-    db: Session = Depends(get_db),
-) -> SubmissionConfirmationResponse:
-    """Legacy submit compatibility endpoint."""
-
-    return await submit_reviewed_task_form(task_id, db)
 
 
 @router.get("/{task_id}/agent-steps", response_model=list[AgentStepResponse])

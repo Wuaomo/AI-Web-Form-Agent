@@ -328,8 +328,8 @@ Fixed in this slice:
 | `/workflows/{task_id}/review` | old security questionnaire graph fallback | Resumes the old graph after review, but the fill/verify nodes are skeleton-only and non-mutating. |
 | `/tasks/{task_id}/extract-page` | read-only compatibility facade | Legacy facade retained; equivalent page extraction and screenshot reads are now expressible through governed AgentRun planned tool steps. |
 | `/tasks/{task_id}/job-summary` | read-only compatibility facade | Legacy facade retained; equivalent prerequisite reads and deterministic summary are now expressible through governed AgentRun planned tool steps. |
-| `/tasks/{task_id}/fill` | legacy browser-write compatibility runtime | Executes browser fill only after review/policy/stale gates and through Tool Runtime. |
-| `/tasks/{task_id}/confirm-submit` | legacy submit compatibility runtime | Compatibility wrapper over the shared submit helper; executes submit only after explicit final-submit approval and Tool Runtime gates. |
+| `/tasks/{task_id}/fill` | removed browser-write compatibility route | Browser fill now enters through `POST /agent-runs/{run_id}/continue`; historical empty/null fill jobs remain worker-compatible. |
+| `/tasks/{task_id}/confirm-submit` | removed submit compatibility route | Final submit now enters through `POST /agent-runs/{run_id}/continue` with `{"action":"submit_form"}`. |
 
 ## Task And Workflow Endpoint Evidence Matrix
 
@@ -340,9 +340,9 @@ Fixed in this slice:
 | `/tasks/{task_id}/extract-page` | records runtime output while keeping the task facade compact | `backend/tests/test_task_mapping_endpoint.py::test_extract_page_persists_runtime_call_without_raw_task_facade_output` |
 | `/tasks/{task_id}/job-summary` prerequisite extraction | records `extract_page` and `capture_screenshot` runtime governance when no extraction checkpoint exists | `backend/tests/test_task_mapping_endpoint.py::test_job_summary_page_extraction_persists_runtime_call` |
 | `/tasks/{task_id}/map-fields?provider=...` | LLM mapping executes through `map_fields` Tool Runtime and persists compact runtime evidence | `backend/tests/test_task_mapping_endpoint.py::test_llm_mapping_persists_map_fields_runtime_call` |
-| `/tasks/{task_id}/fill` | legacy browser-write compatibility path uses review/policy/stale gates before Tool Runtime fill | `backend/tests/test_task_mapping_endpoint.py::test_fill_persists_runtime_tool_call_result`, `::test_fill_returns_409_when_approved_proposal_value_is_stale`, `::test_fill_returns_409_when_approved_proposal_selector_is_stale` |
+| `/tasks/{task_id}/fill` | removed browser-write compatibility route returns 404 | `backend/tests/test_task_job_enqueue.py::test_browser_write_task_routes_are_removed` |
 | `/agent-runs/{run_id}/continue` | primary AgentRun reviewed-fill and explicit-submit boundary delegates to the shared fill/submit paths | `backend/tests/test_agent_run_read_endpoint.py::test_continue_agent_run_delegates_reviewed_fill_to_shared_task_path`, `::test_continue_agent_run_delegates_submit_to_shared_task_path` |
-| `/tasks/{task_id}/confirm-submit` | legacy submit compatibility wrapper requires explicit approval before Tool Runtime submit | `backend/tests/test_confirm_submit.py::test_confirm_submit_first_request_creates_approval_and_returns_409`, `::test_confirm_submit_records_submit_runtime_tool_call` |
+| `/tasks/{task_id}/confirm-submit` | removed submit compatibility route returns 404 | `backend/tests/test_task_job_enqueue.py::test_browser_write_task_routes_are_removed` |
 | `/workflows/{task_id}/governed` | restores compact state from persisted AgentRun data | `backend/tests/test_workflow_runtime_endpoint.py::test_governed_get_restores_compact_state_from_db_when_memory_state_is_missing` |
 | `/workflows/{task_id}/start` | old security graph fallback pauses before skeleton fill | `backend/tests/test_security_questionnaire_graph.py::test_run_until_review_stops_before_fill` |
 
@@ -762,14 +762,13 @@ runtime refactor completion claim.
   `FILL_FORM` jobs when async mode is enabled.
 - Fixed: AgentRun-backed `FILL_FORM` jobs now delegate through the AgentRun
   fill continuation helper and execute without re-enqueueing.
-- Kept: legacy `/tasks/{task_id}/fill` enqueue behavior remains compatible and
-  still writes an empty job payload.
+- Kept: historical empty/null fill job payloads remain worker-compatible.
 - Kept: review-first fill gates, stale-value checks, stale-selector checks,
   Tool Runtime execution, and required readback failure persistence continue to
   come from the shared fill path.
-- Kept: `/tasks/{task_id}/confirm-submit` remains the explicit final-submit
-  compatibility wrapper.
-- Kept out of scope: new dashboards, new dependencies, endpoint deletion, old
+- Removed: `/tasks/{task_id}/fill` and `/tasks/{task_id}/confirm-submit` HTTP
+  wrappers after external and rollback windows were confirmed closed.
+- Kept out of scope: new dashboards, new dependencies, old
   security questionnaire graph fallback, and claiming the overall runtime
   refactor is complete.
 
@@ -777,7 +776,7 @@ Evidence:
 
 - `backend/tests/test_agent_run_read_endpoint.py::test_continue_agent_run_enqueues_async_fill_with_run_id`
 - `backend/tests/test_job_worker.py::test_execute_fill_stage_delegates_agent_run_backed_job`
-- `backend/tests/test_task_job_enqueue.py::test_fill_endpoint_creates_job_when_ready`
+- `backend/tests/test_task_job_enqueue.py::test_browser_write_task_routes_are_removed`
 
 ## Stage 12 Review Compatibility Retirement Slice
 

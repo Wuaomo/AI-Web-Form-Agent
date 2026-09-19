@@ -311,12 +311,10 @@ Still missing from the runtime refactor direction:
 - Stage 11 Browser-Write Runtime Migration Closure is closed for AgentRun-backed
   async fill. `/agent-runs/{run_id}/continue` now tags queued fill jobs with
   `agent_run_id`, and the worker delegates those jobs through the AgentRun fill
-  continuation helper without re-enqueueing. Legacy `/tasks/{task_id}/fill`
-  jobs still enqueue unchanged, `/tasks/{task_id}/confirm-submit` remains the
-  explicit-approval compatibility wrapper, and the task facade stays compact.
+  continuation helper without re-enqueueing. Historical empty/null fill job
+  payloads remain worker-compatible, and the task facade stays compact.
   Evidence: `test_continue_agent_run_enqueues_async_fill_with_run_id`,
-  `test_execute_fill_stage_delegates_agent_run_backed_job`, and
-  `test_fill_endpoint_creates_job_when_ready`. This closes Stage 11, not the
+  `test_execute_fill_stage_delegates_agent_run_backed_job`. This closes Stage 11, not the
   overall runtime refactor.
 - Stage 12 Review Compatibility Retirement Slice is closed for narrowing
   Review Queue compatibility. Field synchronization now requires a field
@@ -412,6 +410,15 @@ Still missing from the runtime refactor direction:
   consumer confirmation, and removal tests remain open. FormField sync remains
   limited to `field_value`, `answer`, and `open_ended_answer` proposals for
   browser-write compatibility.
+- Browser-Write Compatibility Boundary Retirement Gate is closed. Legacy
+  `POST /tasks/{task_id}/fill` and `POST /tasks/{task_id}/confirm-submit` HTTP
+  wrappers are removed after external and rollback windows were confirmed
+  closed. Browser writes now use `POST /agent-runs/{run_id}/continue`; historical
+  empty/null fill job payloads remain worker-compatible without DB migration or
+  cleanup. Evidence: `test_browser_write_task_routes_are_removed`,
+  `test_continue_agent_run_delegates_reviewed_fill_to_shared_task_path`,
+  `test_continue_agent_run_enqueues_async_fill_with_run_id`, and
+  `test_continue_agent_run_delegates_submit_to_shared_task_path`.
 
 ## Post-Portfolio Extensions
 
