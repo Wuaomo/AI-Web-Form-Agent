@@ -56,3 +56,45 @@ Thumbs.db
 *.temp
 
 backend/app.db
+
+# Local AI coding assistant configuration and instructions
+.agents/
+.codex/
+.claude/
+.cursor/
+.trae/
+.aider*
+.cursorrules
+.cursorignore
+.windsurfrules
+.windsurf/
+.clinerules
+.roo/
+.roomodes
+AGENTS.md
+AGENTS.override.md
+AGENT_RULES.md
+CLAUDE.md
+CLAUDE.local.md
+GEMINI.md
+SKILL.md
+.github/copilot-instructions.md
+.github/instructions/
+.github/prompts/
+.github/agents/
+
+# Local AI-assisted development plans, prompts, and migration notes
+/ai-dev/
+/TASKS.md
+/IMPLEMENTATION_BACKLOG.md
+/README_TEMPLATE.md
+/AI_Web_Form_Agent_Roadmap.md
+/AI_Web_Form_Agent_*_Plan.docx
+/docs/roadmap/
+/docs/agent-runtime-refactor-rfc*.md
+/docs/agent-runtime-refactor-rfc*.docx
+/docs/AI-Web-Form-Agent-*-Plan.docx
+/docs/trae-*-instructions.docx
+/docs/compatibility-removal-map.md
+/docs/section-21-validation-audit.md
+/docs/llm-workflow-automation-harness-requirements.md
