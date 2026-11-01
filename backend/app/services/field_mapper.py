@@ -34,7 +34,7 @@ from app.services.mapping_cache import (
     read_user_override_response,
     write_mapping_cache_response,
 )
-from app.workflow_constants import WORKFLOW_TYPE_VENDOR_ONBOARDING
+from app.workflow_constants import WORKFLOW_TYPE_FORM_FILL, WORKFLOW_TYPE_VENDOR_ONBOARDING
 
 logger = logging.getLogger(__name__)
 
@@ -703,7 +703,7 @@ def _build_retrieval_context(
         candidates = search_similar_field_mappings(
             db,
             field_text=field_text,
-            workflow_type=task.workflow_type,
+            workflow_type=task.workflow_type or WORKFLOW_TYPE_FORM_FILL,
             source_domain=source_domain,
             limit=5,
         )

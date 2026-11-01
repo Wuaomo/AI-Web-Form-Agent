@@ -3144,19 +3144,31 @@ def test_governed_review_decision_needs_more_evidence_decrements_pending_review_
     session.close()
 
 
-def test_governed_review_decision_does_not_write_workflow_memory() -> None:
-    """Verify memory-write proposals are only reviewed, not directly saved."""
+def test_governed_review_decision_sensitive_memory_write_does_not_save() -> None:
+    """Verify sensitive memory-write proposals are never saved."""
 
     client, session = build_environment()
     profile = create_profile(session)
     task = create_form_fill_task(session, profile)
+    field = FormField(
+        task_id=task.id,
+        label="Password",
+        name="password",
+        selector="#password",
+        field_type="password",
+        mapped_profile_key="password",
+        mapped_value="super-secret",
+    )
+    session.add(field)
+    session.commit()
     proposal = create_governed_proposal(
         session,
         task,
         proposal_id=f"governed-memory-{task.id}",
         proposal_type="memory_write",
         target_type="workflow_memory",
-        proposed_value="email",
+        target_ref=str(field.id),
+        proposed_value="password",
     )
 
     response = client.post(

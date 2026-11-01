@@ -25,6 +25,8 @@ from app.services.agent_runtime.schemas import EvidenceItem, Proposal, ReviewDec
 from app.services.workflow_memory import (
     is_one_time_field,
     is_sensitive_field,
+    save_confirmed_answer_memory,
+    save_confirmed_mapping_memory,
     should_save_answer_memory,
     should_save_mapping_memory,
 )
@@ -261,6 +263,7 @@ def apply_review_queue_decision(
             ),
         )
 
+    already_approved = _has_approved_decision(db, proposal_id)
     review_decision = ReviewDecision(
         id=f"decision-{proposal_id}",
         proposal_id=proposal_id,
@@ -269,6 +272,13 @@ def apply_review_queue_decision(
         reviewer_note=reviewer_note,
     )
     persist_review_decision(db, decision=review_decision)
+    if not already_approved:
+        save_reviewed_memory_for_decision(
+            db,
+            task=task,
+            target=target,
+            decision=decision,
+        )
     db.flush()
     return ReviewDecisionApplication(review_decision, target)
 
@@ -296,6 +306,39 @@ def apply_review_decision_to_field_target(
         field.mapped_profile_key = None
         field.mapped_value = None
         field.confidence = None
+
+
+def save_reviewed_memory_for_decision(
+    db: Session,
+    *,
+    task: Task,
+    target: ReviewItemTarget,
+    decision: str,
+) -> None:
+    """Persist reviewed memory only when an approved memory-write proposal asks for it."""
+
+    proposal = target.proposal
+    if (
+        decision != "approved"
+        or proposal is None
+        or proposal.proposal_type != "memory_write"
+        or proposal.target_type != "workflow_memory"
+        or not proposal.target_ref.isdigit()
+    ):
+        return
+
+    field = _task_field(db, task.id, int(proposal.target_ref))
+    if field is None:
+        return
+    if proposal.id.endswith("-memory-answer") or proposal.proposed_value == "reviewed_answer":
+        save_confirmed_answer_memory(db, task=task, field=field)
+    else:
+        save_confirmed_mapping_memory(db, task=task, field=field)
+
+
+def _has_approved_decision(db: Session, proposal_id: str) -> bool:
+    row = db.get(AgentReviewDecision, f"decision-{proposal_id}")
+    return row is not None and row.decision == "approved"
 
 
 def split_fields_by_browser_write_review(

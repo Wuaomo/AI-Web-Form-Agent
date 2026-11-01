@@ -39,6 +39,7 @@ from app.services.form_extractor import ExtractedFormField
 from app.services.agent_runtime import review_queue
 from app.services.agent_runtime.state_store import save_governed_runtime_state
 from app.services.llm_client import LLMResult
+from app.services.reviewed_memory_retriever import retrieve_reviewed_memory
 
 
 @pytest.fixture
@@ -2045,67 +2046,184 @@ def test_review_items_restore_unknown_proposal_type_without_crashing(
     assert item["status"] == "PENDING"
 
 
-@pytest.mark.parametrize(
-    ("decision_value", "edited_value", "expected_status"),
-    [
-        ("approved", None, "APPROVED"),
-        ("edited", "support_email", "EDITED"),
-        ("rejected", None, "REJECTED"),
-    ],
-)
-def test_review_item_decision_keeps_memory_write_proposal_only(
+def test_review_item_decision_approved_memory_write_saves_reviewed_answer(
     test_environment: tuple[TestClient, Session],
-    decision_value: str,
-    edited_value: str | None,
-    expected_status: str,
 ) -> None:
-    """Verify memory-write decisions persist without saving memory or fields."""
+    """Verify approved memory-write proposals save reviewed answer memory."""
 
     client, session = test_environment
     task, field = create_task_with_field(session)
-    field.mapped_value = "old@example.com"
-    field.confidence = 0.5
-    run = AgentRun(
-        id=f"task-{task.id}",
-        legacy_task_id=task.id,
-        goal="Review memory proposal.",
-        target_url=task.url,
-        profile_id=task.profile_id,
-        workflow_hint=task.workflow_type,
-        status="WAITING_REVIEW",
-        mode="deterministic",
-    )
-    run.final_result = {}
-    proposal = AgentProposal(
-        id=f"proposal-only-memory-write-{task.id}",
-        run=run,
-        proposal_type="memory_write",
-        target_type="workflow_memory",
-        target_ref=str(field.id),
-        proposed_value="email",
-        rationale="Review memory write.",
-        confidence=0.8,
-        risk_level="medium",
-        status="PENDING",
-    )
-    session.add_all([run, proposal])
+    task.workflow_type = "security_questionnaire"
+    field.label = "Do you enforce multi-factor authentication?"
+    field.mapped_value = "Yes"
+    field.confidence = 0.88
     session.commit()
 
-    payload = {"decision": decision_value}
-    if edited_value is not None:
-        payload["edited_value"] = edited_value
+    review_response = client.get(agent_run_review_items_path(session, task))
+    assert review_response.status_code == 200
+    memory_write = next(
+        item
+        for item in review_response.json()
+        if item["proposal_type"] == "memory_write"
+        and item["proposed_value"] == "reviewed_answer"
+    )
+
     response = client.post(
-        agent_run_review_decision_path(session, task, proposal.id),
-        json=payload,
+        agent_run_review_decision_path(session, task, memory_write["id"]),
+        json={"decision": "approved"},
     )
 
     assert response.status_code == 200
-    decision = session.get(AgentReviewDecision, f"decision-{proposal.id}")
+    item = session.query(WorkflowMemoryItem).one()
+    assert item.memory_type == "confirmed_questionnaire_answer"
+    assert item.mapped_profile_key == "reviewed_answer"
+    assert "question: Do you enforce multi-factor authentication?" in item.field_text
+    assert "answer: Yes" in item.field_text
+
+    hits = retrieve_reviewed_memory(
+        session,
+        profile_id=task.profile_id,
+        workflow_type="security_questionnaire",
+        query="multi factor authentication",
+    )
+    assert hits
+    assert hits[0].value_preview == "Yes"
+
+
+def test_approved_reviewed_mapping_reappears_as_proposal_evidence_without_stale_autofill(
+    test_environment: tuple[TestClient, Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify reviewed memory later appears as evidence, while stale memory stays a hint."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_profile_key = "email"
+    field.mapped_value = "ada@example.com"
+    field.confidence = 0.99
+    session.commit()
+
+    review_response = client.get(agent_run_review_items_path(session, task))
+    assert review_response.status_code == 200
+    memory_write = next(
+        item
+        for item in review_response.json()
+        if item["proposal_type"] == "memory_write"
+        and item["proposed_value"] == "email"
+    )
+
+    approve_response = client.post(
+        agent_run_review_decision_path(session, task, memory_write["id"]),
+        json={"decision": "approved"},
+    )
+    assert approve_response.status_code == 200
+    memory_item = session.query(WorkflowMemoryItem).one()
+
+    monkeypatch.setattr(config, "DEEPSEEK_API_KEY", "test-deepseek-key")
+
+    follow_up_task = Task(
+        url=task.url,
+        profile=task.profile,
+        status="MAPPING_READY",
+    )
+    follow_up_field = FormField(
+        task=follow_up_task,
+        label=field.label,
+        selector="#contact-again",
+        field_type="email",
+        required=True,
+    )
+    session.add_all([follow_up_task, follow_up_field])
+    session.commit()
+
+    llm_empty_mapping = LLMResult(
+        success=True,
+        content=None,
+        raw_response=json.dumps({"mappings": []}),
+    )
+    with patch(
+        "app.services.llm_client.LLMClient.suggest_mapping",
+        return_value=llm_empty_mapping,
+    ):
+        response = client.post(f"/tasks/{follow_up_task.id}/map-fields?provider=deepseek")
+
+    assert response.status_code == 200
+    payload = client.get(agent_run_review_items_path(session, follow_up_task)).json()
+    reviewed_item = next(
+        item for item in payload if item["target_ref"] == str(follow_up_field.id)
+    )
+    assert reviewed_item["proposed_value"] == "ada@example.com"
+    assert reviewed_item["evidence"][0]["source_title"] == "Reviewed memory"
+    assert (
+        reviewed_item["evidence"][0]["quote_or_summary"]
+        == "Reviewed memory suggests profile.email (reviewed)."
+    )
+
+    old_timestamp = datetime.now(timezone.utc) - timedelta(days=91)
+    memory_item.created_at = old_timestamp
+    memory_item.last_used_at = old_timestamp
+
+    stale_task = Task(
+        url=task.url,
+        profile=task.profile,
+        status="MAPPING_READY",
+    )
+    stale_field = FormField(
+        task=stale_task,
+        label=field.label,
+        selector="#contact-stale",
+        field_type="email",
+        required=True,
+    )
+    session.add_all([stale_task, stale_field])
+    session.commit()
+
+    with patch(
+        "app.services.llm_client.LLMClient.suggest_mapping",
+        return_value=llm_empty_mapping,
+    ):
+        stale_response = client.post(f"/tasks/{stale_task.id}/map-fields?provider=deepseek")
+
+    assert stale_response.status_code == 200
+    session.refresh(stale_field)
+    assert stale_field.mapped_profile_key is None
+    assert stale_field.mapped_value is None
+    stale_payload = client.get(agent_run_review_items_path(session, stale_task)).json()
+    stale_item = next(item for item in stale_payload if item["target_ref"] == str(stale_field.id))
+    assert stale_item["proposed_value"] is None
+    assert (
+        stale_item["evidence"][0]["quote_or_summary"]
+        == "Reviewed memory suggests profile.email (stale)."
+    )
+
+
+def test_review_item_decision_rejected_memory_write_does_not_save_memory(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    """Verify rejected memory-write decisions persist without saving memory."""
+
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    field.mapped_profile_key = "email"
+    field.mapped_value = "old@example.com"
+    field.confidence = 0.5
+    session.commit()
+
+    review_response = client.get(agent_run_review_items_path(session, task))
+    assert review_response.status_code == 200
+    memory_write = next(
+        item for item in review_response.json() if item["proposal_type"] == "memory_write"
+    )
+
+    response = client.post(
+        agent_run_review_decision_path(session, task, memory_write["id"]),
+        json={"decision": "rejected"},
+    )
+
+    assert response.status_code == 200
+    decision = session.get(AgentReviewDecision, f"decision-{memory_write['id']}")
     assert decision is not None
-    assert decision.decision == decision_value
-    assert decision.edited_value == edited_value
-    session.refresh(proposal)
-    assert proposal.status == expected_status
+    assert decision.decision == "rejected"
     session.refresh(field)
     assert field.mapped_value == "old@example.com"
     assert field.confidence == 0.5
